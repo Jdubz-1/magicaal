@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.2/.schema/devbox.schema.json",
+  "packages": ["nodejs@22"],
+  "shell": {
+    "init_hook": [
+      "[ ! -d node_modules ] && npm install || true"
+    ],
+    "scripts": {
+      "dev":        "npm run dev:api-service",
+      "build":      "npm run build:api-service",
+      "test":       "npm run test:api-service",
+      "test:cov":   "npm run test:cov:api-service",
+      "lint":       "npm run lint:api-service",
+      "type-check": "npm run type-check:api-service",
+      "format":     "npm run format",
+      "setup":      "npm install"
+    }
+  }
+}

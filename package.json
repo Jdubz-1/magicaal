@@ -1,0 +1,24 @@
+{
+  "name": "webgentic-template-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:api-service": "npm run dev --workspace=apps/api-service",
+    "build:api-service": "npm run build --workspace=apps/api-service",
+    "start:api-service": "npm run start --workspace=apps/api-service",
+    "test:api-service": "npm run test --workspace=apps/api-service",
+    "test:cov:api-service": "npm run test:cov --workspace=apps/api-service",
+    "lint:api-service": "npm run lint --workspace=apps/api-service",
+    "lint:fix:api-service": "npm run lint:fix --workspace=apps/api-service",
+    "type-check:api-service": "npm run type-check --workspace=apps/api-service",
+    "format": "prettier --write .",
+    "build": "npm run build --workspaces --if-present"
+  }
+}

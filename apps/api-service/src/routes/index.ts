@@ -1,0 +1,9 @@
+import { Router } from 'express';
+import { healthRouter } from './health';
+
+export const router = Router();
+
+router.use(healthRouter);
+
+// Register additional routers here:
+// router.use('/users', usersRouter);
