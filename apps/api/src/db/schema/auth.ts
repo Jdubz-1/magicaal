@@ -15,9 +15,12 @@ export const users = sqliteTable('users', {
   tenantId: text('tenant_id')
     .notNull()
     .references(() => tenants.id),
+  name: text('name').notNull().default(''),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
-  role: text('role', { enum: ['admin', 'user'] }).notNull(),
+  role: text('role', {
+    enum: ['platform_admin', 'tenant_admin', 'developer', 'viewer'],
+  }).notNull(),
   active: integer('active', { mode: 'boolean' }).default(true).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),

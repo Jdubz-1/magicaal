@@ -7,12 +7,18 @@ export const agents = sqliteTable('agents', {
     .notNull()
     .references(() => tenants.id),
   name: text('name').notNull(),
-  slug: text('slug').notNull(),
+  handle: text('handle').notNull().unique(),
   description: text('description'),
   currentVersionId: text('current_version_id'),
   status: text('status', { enum: ['draft', 'active', 'archived'] })
     .notNull()
     .default('draft'),
+  authoringMode: text('authoring_mode', { enum: ['studio', 'code-defined'] })
+    .notNull()
+    .default('studio'),
+  templateSourceId: text('template_source_id'),
+  stale: integer('stale', { mode: 'boolean' }).notNull().default(false),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
@@ -22,9 +28,11 @@ export const agentVersions = sqliteTable('agent_versions', {
   agentId: text('agent_id')
     .notNull()
     .references(() => agents.id),
-  version: integer('version').notNull(),
-  graphDefinition: text('graph_definition').notNull(),
-  changeNotes: text('change_notes'),
+  versionNumber: integer('version_number').notNull(),
+  graphJson: text('graph_json').notNull(),
+  publishNotes: text('publish_notes'),
+  contentHash: text('content_hash').notNull().default(''),
+  syncEventId: text('sync_event_id'),
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
@@ -34,8 +42,9 @@ export const agentConfig = sqliteTable('agent_config', {
     .primaryKey()
     .references(() => agents.id),
   triggerConfig: text('trigger_config').notNull().default('{}'),
-  concurrencyConfig: text('concurrency_config').notNull().default('{}'),
-  retryConfig: text('retry_config').notNull().default('{}'),
-  sessionConfig: text('session_config').notNull().default('{}'),
+  concurrency: text('concurrency').notNull().default('{}'),
+  retry: text('retry').notNull().default('{}'),
+  timeoutMs: integer('timeout_ms'),
+  overrideMap: text('override_map').notNull().default('{}'),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });

@@ -9,3 +9,11 @@ export async function runMigrations(): Promise<void> {
   migrate(db, { migrationsFolder });
   logger.info('Database migrations complete');
 }
+
+// Allow running as a standalone script: ts-node src/db/migrate.ts
+if (require.main === module) {
+  runMigrations().catch((err) => {
+    console.error('Migration failed', err);
+    process.exit(1);
+  });
+}

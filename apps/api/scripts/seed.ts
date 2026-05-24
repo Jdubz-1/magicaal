@@ -30,7 +30,7 @@ async function seed(): Promise<void> {
     tenantId,
     email: 'admin@dev.local',
     passwordHash,
-    role: 'admin',
+    role: 'platform_admin',
     active: true,
     createdAt: now,
     updatedAt: now,
