@@ -25,6 +25,40 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-05-24 - Phase 1: Core Engine & Minimal Studio
+
+**Type:** Feature
+
+**Description:**
+Delivered the first end-to-end working loop: a developer can log in, build a
+graph in the Studio canvas, publish it, and invoke it via API key. The run
+result is visible in the test run panel and queryable via the REST API. An API
+consumer can do the same with `@magicaal/sdk`.
+
+**Changes:**
+- `apps/api/drizzle/migrations/0001_phase1_schema.sql` — schema alignment: renamed slug→handle, version→version_number, graph_definition→graph_json; added 17 new tables (sessions, mcp_servers, workspaces, marketplace, integrations, platform, prompt-test)
+- `apps/api/src/` — JWT auth (argon2 + jose), RBAC middleware (4 roles), full v1 REST API: users, tenants, agents CRUD, publish/draft, runs dispatch/status/steps, invocation key management, nodes list, system health
+- `apps/engine/src/` — node registry, graph loader (read-only SQLite, in-memory cache), graph validator, ExecutionContextImpl, BFS execution worker with conditional/fallback edge resolution, BullMQ scheduler (concurrency: 10), lifecycle manager writing to telemetry store, invocation auth (SHA-256 hash, Redis rate limiting), internal REST API
+- `packages/nodes/src/` — core:start, core:end, core:stop, core:condition, core:router node implementations with JSONata expression evaluation
+- `packages/sdk-client/src/` — MagiCaalClient, AgentClient (invoke/start), RunHandleImpl (wait/cancel/status/steps) with error mapping
+- `apps/web/src/` — session middleware, auth pages (login/logout), API proxy, admin pages (users/tenants/agents/system via Datastar), Svelte canvas island (SVG-based node graph, NodePalette, NodeConfigPanel, AgentConfigPanel, TestRunPanel)
+- `.env.example` files updated with JWT_SECRET, ENGINE_BASE_URL, API_BASE_URL
+
+**Impact:**
+All six sub-phases (A: schema, B: nodes, C: engine, D: API, E: SDK, F: web)
+are complete. `docker compose up --build` should boot all four services. The
+full invocation path — login → build graph → publish → invoke via SDK or API
+key → view run result — is implemented end-to-end. No LLM nodes yet (Phase 2).
+
+**Notes:**
+- Engine's tsconfig removes composite project references for packages (types resolve via node_modules `"types": "src/index.ts"`)
+- SQLite read-only connection used in engine for graph loading and invocation key validation; telemetry store is a separate SQLite file
+- Svelte canvas uses SVG rendering (not @xyflow/svelte) for Phase 1; Svelte Flow can replace it in Phase 2 for drag-to-connect
+- Run sync mode polls via setTimeout loop in runs.controller.ts; consider SSE for Phase 2
+- Web API proxy at /api/* → /v1/* forwards the user's access_token cookie
+
+---
+
 ### 2026-05-24 - Phase 0: MagiCaal Foundation
 
 **Type:** Infrastructure
