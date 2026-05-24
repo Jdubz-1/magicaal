@@ -1,24 +1,28 @@
 {
-  "name": "webgentic-template-monorepo",
-  "version": "1.0.0",
+  "name": "magicaal",
+  "version": "0.0.1",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22",
+    "pnpm": ">=9"
   },
   "scripts": {
-    "dev:api-service": "npm run dev --workspace=apps/api-service",
-    "build:api-service": "npm run build --workspace=apps/api-service",
-    "start:api-service": "npm run start --workspace=apps/api-service",
-    "test:api-service": "npm run test --workspace=apps/api-service",
-    "test:cov:api-service": "npm run test:cov --workspace=apps/api-service",
-    "lint:api-service": "npm run lint --workspace=apps/api-service",
-    "lint:fix:api-service": "npm run lint:fix --workspace=apps/api-service",
-    "type-check:api-service": "npm run type-check --workspace=apps/api-service",
-    "format": "prettier --write .",
-    "build": "npm run build --workspaces --if-present"
+    "dev:api":        "pnpm --filter @magicaal/api run dev",
+    "dev:engine":     "pnpm --filter @magicaal/engine run dev",
+    "dev:web":        "pnpm --filter @magicaal/web run dev",
+    "build:api":      "pnpm --filter @magicaal/api run build",
+    "build:engine":   "pnpm --filter @magicaal/engine run build",
+    "build:web":      "pnpm --filter @magicaal/web run build",
+    "build:sdk":      "pnpm --filter @magicaal/sdk-client run build",
+    "start:api":      "pnpm --filter @magicaal/api run start",
+    "start:engine":   "pnpm --filter @magicaal/engine run start",
+    "test:api":       "pnpm --filter @magicaal/api run test",
+    "test:engine":    "pnpm --filter @magicaal/engine run test",
+    "lint:api":       "pnpm --filter @magicaal/api run lint",
+    "lint:engine":    "pnpm --filter @magicaal/engine run lint",
+    "type-check:api":    "pnpm --filter @magicaal/api run type-check",
+    "type-check:engine": "pnpm --filter @magicaal/engine run type-check",
+    "format":         "prettier --write .",
+    "build":          "pnpm --recursive run build --if-present"
   }
 }

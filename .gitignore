@@ -131,7 +131,7 @@ dist
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
-# pnpm
+# pnpm — do NOT add pnpm-lock.yaml here; it must be committed
 .pnpm-store
 
 # yarn v3
