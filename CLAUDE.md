@@ -68,12 +68,18 @@ All commands are run from the **monorepo root**, inside the devbox shell:
 | `devbox run format` | Prettier format all files |
 | `devbox run setup` | Re-run `pnpm install` (after adding packages) |
 
-Per-workspace pnpm commands also work directly:
+Per-workspace pnpm commands — always prefix with `devbox run --` so the correct Node.js and pnpm versions are on PATH:
 ```bash
-pnpm --filter @magicaal/api run dev
-pnpm --filter @magicaal/engine run dev
-pnpm --filter @magicaal/sdk-client run build
+devbox run -- pnpm --filter @magicaal/api run dev
+devbox run -- pnpm --filter @magicaal/engine run dev
+devbox run -- pnpm --filter @magicaal/sdk-client run build
+devbox run -- pnpm install
 ```
+
+`devbox run <script>` runs a named script from `devbox.json`. `devbox run -- <cmd>` runs any arbitrary command inside the devbox environment (correct Node/pnpm on PATH, init_hook applied). Never use bare `pnpm` or `node` without one of these prefixes — the system versions will differ.
+## External Library Documentation
+
+Use the **context7 MCP** (`mcp__context7__resolve-library-id` + `mcp__context7__query-docs`) whenever you need current documentation for any external dependency or service — including but not limited to Datastar, Svelte, Express, Node.js, TypeScript, `@anthropic-ai/sdk`, and Docker. Do not rely solely on training data for API signatures, configuration options, or version-specific behaviour; fetch the docs instead.
 
 ## Architecture Overview
 
@@ -147,7 +153,7 @@ sqlite.prepare('SELECT * FROM agents').all();
 **Migration workflow:**
 ```bash
 # Edit schema files, then generate the migration
-pnpm --filter @magicaal/api exec drizzle-kit generate
+devbox run -- pnpm --filter @magicaal/api exec drizzle-kit generate
 
 # Commit both the schema change and the generated migration file
 ```
@@ -253,7 +259,7 @@ chore(devbox): add ripgrep to dev environment
 
 7. **Wrong Docker build context**: Always run `docker build -f apps/<name>/Dockerfile .` from the monorepo root.
 
-8. **Running pnpm outside the devbox shell**: Node.js and pnpm versions may differ. Always enter `devbox shell` first, or use `devbox run <command>` directly.
+8. **Running pnpm without devbox**: Never use bare `pnpm` or `node` — the system versions will differ from what devbox pins. Use `devbox run <script>` for named scripts or `devbox run -- pnpm <args>` for arbitrary pnpm commands. Do **not** manually export nix store paths like `export PATH="/nix/store/..."` — that is fragile and breaks when devbox packages are updated.
 
 9. **Changing devbox packages without committing `devbox.lock`**: After `devbox add` or `devbox rm`, commit both `devbox.json` and `devbox.lock`.
 
