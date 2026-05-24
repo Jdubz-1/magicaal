@@ -5,30 +5,36 @@ This file provides guidance to Claude Code when working with code in this reposi
 ## Monorepo Structure
 
 ```
-webgentic-template-monorepo/
-├── package.json              # Workspace root — private, declares workspaces
+magicaal/
+├── package.json              # Workspace root — private, pnpm
+├── pnpm-workspace.yaml       # pnpm workspace declarations
 ├── tsconfig.base.json        # Shared TypeScript compiler options
-│
-├── packages/
-│   └── types/                # @workspace/types — shared interfaces, no build step
+├── tsconfig.json             # Root project references (tsc --build)
 │
 ├── apps/
-│   └── api-service/          # Express API service
-│       ├── src/
-│       ├── tests/
-│       └── Dockerfile
+│   ├── api/                  # @magicaal/api — BFF Express API (port 3000)
+│   ├── engine/               # @magicaal/engine — Agent execution runtime (port 4000)
+│   └── web/                  # @magicaal/web — Studio + Admin UI (port 8080)
+│
+├── packages/
+│   ├── core/                 # @magicaal/core — shared foundational types, no build step
+│   ├── sdk/                  # @magicaal/sdk-node — node authoring SDK (NodeModule, ExecutionContext)
+│   ├── sdk-client/           # @magicaal/sdk-client (published as @magicaal/sdk) — API consumer SDK
+│   └── integrations/
+│       └── caal/             # @magicaal/integration-caal — Caal AI assistant tool package
 │
 └── docs/
 ```
 
 **Workspace rules:**
-- Always run `npm install` from the **monorepo root** — never from inside a workspace.
+- Always run `pnpm install` from the **monorepo root** — never from inside a workspace.
 - `packages/` holds shared libraries only; `apps/` holds runnable services.
-- `@workspace/types` is a types-only package — import with `import type { ... } from '@workspace/types'`.
+- `@magicaal/core` is types-only — import with `import type { ... } from '@magicaal/core'`.
+- All workspace deps use `"workspace:*"` protocol: `"@magicaal/core": "workspace:*"`.
 
 ## Environment Setup
 
-This repo uses [Devbox](https://www.jetify.com/devbox) to manage the dev environment. Devbox pins Node.js 22 LTS and runs `npm install` automatically on shell entry.
+This repo uses [Devbox](https://www.jetify.com/devbox) to manage the dev environment. Devbox pins Node.js 22 LTS + pnpm 9 and runs `pnpm install` automatically on shell entry.
 
 ```bash
 # Check if devbox is already installed
@@ -37,8 +43,13 @@ devbox version
 # If not installed, run the installer (one-time, system-level)
 curl -fsSL https://get.jetify.com/devbox | bash
 
-# Enter the dev shell — Node.js LTS is activated and npm install runs automatically
+# Enter the dev shell — Node.js 22 LTS + pnpm activate; deps install automatically
 devbox shell
+
+# Copy environment files before starting services
+cp apps/api/.env.example apps/api/.env
+cp apps/engine/.env.example apps/engine/.env
+cp apps/web/.env.example apps/web/.env
 ```
 
 ## Development Commands
@@ -47,47 +58,58 @@ All commands are run from the **monorepo root**, inside the devbox shell:
 
 | Command | Purpose |
 |---|---|
-| `devbox shell` | Enter the dev environment (activates Node.js 22 LTS, auto-installs deps) |
-| `devbox run dev` | Start api-service with hot reload |
-| `devbox run build` | Compile TypeScript to `dist/` |
-| `devbox run type-check` | Type-check without emitting |
-| `devbox run lint` | ESLint check |
-| `devbox run test` | Run Jest test suite |
+| `devbox shell` | Enter the dev environment |
+| `devbox run dev` | Start `apps/api` with hot reload |
+| `devbox run build` | Compile `apps/api` TypeScript to `dist/` |
+| `devbox run type-check` | Type-check `apps/api` without emitting |
+| `devbox run lint` | ESLint check on `apps/api` |
+| `devbox run test` | Run `apps/api` Jest test suite |
 | `devbox run test:cov` | Tests with coverage report |
 | `devbox run format` | Prettier format all files |
-| `devbox run setup` | Re-run npm install (after adding packages) |
+| `devbox run setup` | Re-run `pnpm install` (after adding packages) |
 
-The underlying `npm run <workspace-script>` commands (e.g. `npm run build:api-service`) still work inside the devbox shell. `devbox run` is the recommended entry point.
+Per-workspace pnpm commands also work directly:
+```bash
+pnpm --filter @magicaal/api run dev
+pnpm --filter @magicaal/engine run dev
+pnpm --filter @magicaal/sdk-client run build
+```
 
 ## Architecture Overview
 
-Single Express service (`apps/api-service`). Request lifecycle:
+Three Express services plus shared packages. Communication:
 
+```
+Browser ──HTTP/SSE──► apps/api ──internal REST──► apps/engine
+                          │
+                     Primary DB (SQLite)
+                          │
+                     Job Queue (BullMQ + Redis, Phase 1)
+```
+
+| App/Package | Responsibility |
+|---|---|
+| `apps/api` | BFF: auth, agent CRUD, Studio/Admin data layer, engine proxy, boot-time sync |
+| `apps/engine` | Graph execution runtime: node registry, graph loader, execution worker |
+| `apps/web` | Studio canvas editor + Admin panel (Datastar, Phase 1+) |
+| `packages/core` | All shared foundational TypeScript types — zero runtime code |
+| `packages/sdk` | NodeModule/ExecutionContext/ProviderAdapter interfaces for node authors |
+| `packages/sdk-client` | `@magicaal/sdk` npm package — API consumer client (dual ESM/CJS) |
+| `packages/integrations/caal` | Caal AI assistant tool stubs (Phase 4) |
+
+Each app follows the same request lifecycle:
 ```
 Client → helmet → cors → json → requestLogger → router → controller → response
-                                                                ↓ (on error)
-                                                          errorHandler
+                                                                  ↓ (on error)
+                                                            errorHandler
 ```
-
-| File/Dir | Responsibility |
-|---|---|
-| `apps/api-service/src/index.ts` | Entry: creates app, binds port |
-| `apps/api-service/src/app.ts` | App factory: registers all middleware and routers |
-| `apps/api-service/src/config.ts` | Frozen env config; throws `Error` on missing required vars |
-| `apps/api-service/src/routes/` | URL routing — one file per feature area |
-| `apps/api-service/src/controllers/` | Request handlers — one file per feature area |
-| `apps/api-service/src/middleware/errorHandler.ts` | 4-arg Express error boundary |
-| `apps/api-service/src/middleware/notFound.ts` | 404 catch-all — registered last |
-| `apps/api-service/src/middleware/requestLogger.ts` | pino-http middleware |
-| `apps/api-service/src/lib/logger.ts` | Pino logger singleton |
-| `apps/api-service/src/types/express.d.ts` | Express `Request` augmentation |
 
 ## Config Pattern
 
 All environment variables are centralised in `src/config.ts`. Never call `process.env` directly in business logic.
 
 ```typescript
-// apps/api-service/src/config.ts
+// apps/api/src/config.ts
 export function requireEnv(key: string): string {
   const val = process.env[key];
   if (!val) throw new Error(`Missing required environment variable: ${key}`);
@@ -96,16 +118,38 @@ export function requireEnv(key: string): string {
 
 export const config = Object.freeze({
   port: parseInt(process.env.PORT ?? '3000', 10),
-  // Required vars throw at startup — fast failure:
-  // myServiceUrl: requireEnv('MY_SERVICE_URL'),
+  databasePath: requireEnv('DATABASE_URL'),
+  // Required vars throw at startup — fast failure
 });
 
 // ✅ Correct — always read from config
 import { config } from '../config';
-const url = config.myServiceUrl;
+const path = config.databasePath;
 
 // ❌ Never do this
-const url = process.env.MY_SERVICE_URL;
+const path = process.env.DATABASE_URL;
+```
+
+## Database Pattern
+
+All DB access goes through Drizzle ORM in `apps/api/src/db/`. Schema is in `src/db/schema/`. Migrations live in `apps/api/drizzle/migrations/` and run automatically at API startup before `app.listen()`.
+
+```typescript
+// ✅ Correct — use the Drizzle client
+import { db } from '@/db/client';
+import { agents } from '@/db/schema';
+const rows = await db.select().from(agents).where(eq(agents.tenantId, tenantId));
+
+// ❌ Never — raw SQL outside migrations
+sqlite.prepare('SELECT * FROM agents').all();
+```
+
+**Migration workflow:**
+```bash
+# Edit schema files, then generate the migration
+pnpm --filter @magicaal/api exec drizzle-kit generate
+
+# Commit both the schema change and the generated migration file
 ```
 
 ## Error Handling Pattern
@@ -122,88 +166,41 @@ export const myHandler: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
-
-// ❌ Wrong — bypasses errorHandler, loses structured logging
-export const myHandler: RequestHandler = async (req, res) => {
-  try {
-    const data = await doSomething();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Something went wrong' });
-  }
-};
 ```
 
-To return a specific HTTP status from an error, attach `status` or `statusCode` to the thrown object:
-
+To return a specific HTTP status, attach `status` to the thrown error:
 ```typescript
-const err = Object.assign(new Error('Not authorised'), { status: 401 });
+const err = Object.assign(new Error('Not found'), { status: 404 });
 throw err;
 ```
 
-## Auth Pattern (when needed)
+## Auth Pattern (Phase 1+)
 
-This template ships without an auth layer. When adding auth:
-
+When adding auth middleware:
 1. Create `src/middleware/auth.ts` implementing `RequestHandler`
 2. Extend `Express.Request` in `src/types/express.d.ts` with the verified payload type
-3. Read the verified payload from `req.user` in controllers — **never** from URL params or request body
-4. Register the middleware in `src/app.ts` or on individual routers
-
-```typescript
-// src/types/express.d.ts — replace unknown with your payload type
-interface Request {
-  user?: { id: string; role: string };
-}
-
-// src/controllers/example.controller.ts
-// ✅ Correct
-const userId = req.user!.id;
-
-// ❌ Never
-const userId = req.query.user_id;
-```
+3. Read the verified payload from `req.user` in controllers — **never** from URL params or body
 
 ## TypeScript Conventions
 
 - `strict: true` — no implicit `any`
 - Explicit return types on all exported functions
-- Path alias `@/*` resolves to `src/*` within `api-service` — use it for imports crossing more than one directory level
-- `import type` for type-only imports, including all `@workspace/types` imports
-
-## Shared Types Package
-
-`packages/types/` is a types-only package (`@workspace/types`). Use it for interfaces that are shared across multiple apps.
-
-```typescript
-// packages/types/src/index.ts — define interfaces here
-export interface MySharedType { ... }
-
-// In any app — always use import type
-import type { MySharedType } from '@workspace/types';
-```
-
-No build step needed — TypeScript resolves source files directly via the `types` field in `packages/types/package.json`.
+- Path alias `@/*` resolves to `src/*` in each app — use it for imports crossing multiple directories
+- `import type` for ALL `@magicaal/core` imports — types are erased at compile time; plain `import` will fail at runtime in Docker
+- `workspace:*` protocol for all internal workspace dependencies
 
 ## Adding a New Route
 
 ```
-apps/api-service/src/routes/<name>.ts              → Router definition
-apps/api-service/src/controllers/<name>.controller.ts → Request handlers
-apps/api-service/tests/integration/<name>.test.ts  → Supertest integration tests
+apps/api/src/routes/<name>.ts                   → Router definition
+apps/api/src/controllers/<name>.controller.ts   → Request handlers
+apps/api/tests/integration/<name>.test.ts       → Supertest integration tests
 ```
 
-Register in `apps/api-service/src/routes/index.ts`:
+Register in `apps/api/src/routes/index.ts`:
 ```typescript
 router.use('/<name>', <name>Router);
 ```
-
-## Adding a New App
-
-1. Create `apps/<name>/` with the structure from `apps/api-service/` as a reference
-2. Add workspace-targeted scripts to the root `package.json`: `dev:<name>`, `build:<name>`, `test:<name>`, etc.
-3. Add a CI job step or new job for the new app in `.github/workflows/ci.yml`
-4. Add a `Dockerfile` at `apps/<name>/Dockerfile` using the monorepo root as build context
 
 ## Docker
 
@@ -211,53 +208,58 @@ Always build from the **monorepo root**:
 
 ```bash
 # ✅ Correct
-docker build -f apps/api-service/Dockerfile .
+docker build -f apps/api/Dockerfile .
+docker build -f apps/engine/Dockerfile .
+docker build -f apps/web/Dockerfile .
 
 # ❌ Wrong — build context is wrong, COPY of packages/ will fail
-docker build apps/api-service/
+docker build apps/api/
 ```
 
-## Common Pitfalls
-
-1. **`npm install` inside a workspace**: Always run from the monorepo root. Running inside a workspace breaks symlinks for `@workspace/*` packages.
-
-2. **`process.env` outside config.ts**: Always use `config` from `src/config.ts`. Bare `process.env` calls scatter configuration.
-
-3. **Sending a response after `next(err)`**: Calling `next(err)` hands control to `errorHandler`. Any `res.json()` after that triggers "headers already sent".
-
-4. **Middleware order in `app.ts`**: `requestLogger` must come before routes; `notFound` and `errorHandler` must be last, in that order.
-
-5. **`outDir` confusion**: Type-checking uses `tsconfig.json` (no `outDir`). Building uses `tsconfig.build.json`. Run `devbox run build` (or `npm run build:api-service`) — not `tsc` directly.
-
-6. **Docker build missing `package-lock.json`**: The Dockerfile uses `npm ci` which requires a lockfile. Always commit `package-lock.json`.
-
-7. **Test coverage below threshold**: Jest enforces 80% coverage. Check `npm run test:cov:api-service` before pushing.
-
-8. **Importing `@workspace/types` at runtime**: Types are erased at compile time. Always use `import type` — a plain `import` will fail in the Docker runtime image.
-
-9. **Wrong Docker build context**: Always run `docker build -f apps/api-service/Dockerfile .` from the monorepo root. Building from within the app directory will fail because the Dockerfile copies from `packages/`.
-
-10. **Running npm outside the devbox shell**: Node.js version and npm may differ from the locked devbox environment. Always enter `devbox shell` first, or use `devbox run <command>` directly.
-
-11. **Changing devbox packages without committing `devbox.lock`**: After `devbox add` or `devbox rm`, commit both `devbox.json` and `devbox.lock`. The lock file pins the exact binary for all contributors.
+All Dockerfiles use `corepack enable && corepack prepare pnpm@9 --activate` to get pnpm in the Alpine image. They copy `pnpm-lock.yaml` and run `pnpm install --frozen-lockfile`.
 
 ## Commit Standards
 
 Format: `<type>(<scope>): <subject>`
 
-Scopes: `api-service`, `types`, `core`, `routes`, `middleware`, `config`, `tests`, `docs`, `ci`, `docker`, `devbox`
+**No AI attribution in commits.** Do not include `Co-Authored-By: Claude`, `Generated with Claude Code`, or any reference to AI assistance.
+
+Scopes: `api`, `engine`, `web`, `core`, `sdk`, `nodes`, `integrations`, `caal`, `compiler`, `cli`, `middleware`, `config`, `tests`, `docs`, `ci`, `docker`, `devbox`
 
 ```bash
-feat(api-service): add users CRUD endpoints
-fix(api-service): correctly propagate status code in errorHandler
-feat(types): add UserPayload shared interface
-test(api-service): add integration tests for users endpoints
+feat(api): add agents CRUD endpoints
+feat(engine): implement graph loader and execution worker
+fix(api): correctly propagate status code in errorHandler
+feat(core): add SessionConfig types
+test(api): add integration tests for agents endpoints
 docs(developer-guide): add architecture decision record
-ci(docker): cache npm install layer in release workflow
+ci(docker): cache pnpm install layer in release workflow
 chore(devbox): add ripgrep to dev environment
 ```
 
-**No AI attribution**: Commits must not contain `Co-Authored-By: Claude`, `Generated with Claude Code`, or any reference to AI assistance.
+## Common Pitfalls
+
+1. **`pnpm install` inside a workspace**: Always run from the monorepo root. Running inside a workspace breaks symlinks for `@magicaal/*` packages.
+
+2. **`process.env` outside config.ts**: Always use `config` from `src/config.ts`. Bare `process.env` calls scatter configuration.
+
+3. **Plain `import` from `@magicaal/core`**: Always use `import type`. Core is types-only; a plain `import` will fail in the Docker runtime image.
+
+4. **`outDir` confusion**: Type-checking uses `tsconfig.json` (no `outDir`). Building uses `tsconfig.build.json`. Run `pnpm run build` — not `tsc` directly.
+
+5. **Docker build missing `pnpm-lock.yaml`**: The Dockerfiles use `pnpm install --frozen-lockfile`. Always commit `pnpm-lock.yaml`.
+
+6. **Test coverage below threshold**: Jest enforces 80% coverage. Check `pnpm run test:cov` before pushing.
+
+7. **Wrong Docker build context**: Always run `docker build -f apps/<name>/Dockerfile .` from the monorepo root.
+
+8. **Running pnpm outside the devbox shell**: Node.js and pnpm versions may differ. Always enter `devbox shell` first, or use `devbox run <command>` directly.
+
+9. **Changing devbox packages without committing `devbox.lock`**: After `devbox add` or `devbox rm`, commit both `devbox.json` and `devbox.lock`.
+
+10. **Sending a response after `next(err)`**: Calling `next(err)` hands control to `errorHandler`. Any `res.json()` after that triggers "headers already sent".
+
+11. **Middleware order in `app.ts`**: `requestLogger` must come before routes; `notFound` and `errorHandler` must be last, in that order.
 
 ## Development Tracking
 

@@ -25,6 +25,46 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-05-24 - Phase 0: MagiCaal Foundation
+
+**Type:** Infrastructure
+
+**Description:**
+Transformed the generic Express template into the working MagiCaal monorepo
+foundation. Migrated from npm to pnpm workspaces, restructured all apps and
+packages under the @magicaal namespace, stood up three new services (api,
+engine, web), defined all foundational shared types, scaffolded the SDK
+packages, added Drizzle ORM with SQLite, and wired up Docker Compose for
+local development.
+
+**Changes:**
+- `devbox.json`, `pnpm-workspace.yaml` — switched to pnpm 9; removed package-lock.json
+- `apps/api/` — renamed from apps/api-service; added Drizzle ORM, 11-table SQLite schema, migrations, seed script
+- `apps/engine/` — new execution runtime skeleton (port 4000)
+- `apps/web/` — new static frontend placeholder (port 8080)
+- `packages/core/` — renamed from packages/types; populated with all Phase 0 type definitions (8 domain modules, ~80 interfaces)
+- `packages/sdk/` — new @magicaal/sdk-node node authoring SDK (types only)
+- `packages/sdk-client/` — new @magicaal/sdk-client consumer SDK with dual ESM/CJS build and error hierarchy
+- `packages/integrations/caal/` — new CAAL tool package with 17 stub NodeModule implementations
+- `docker-compose.yml` — four-service compose (api, engine, web, redis) + shared db_data volume
+- `.github/workflows/ci.yml` — full rewrite for pnpm, Node 22, multi-workspace matrix, package build verification
+- `CLAUDE.md`, `README.md`, `TECHSTACK.md` — updated for MagiCaal identity and new structure
+
+**Impact:**
+`docker compose up --build` boots all four services. `pnpm install` from root
+resolves all workspace dependencies. All foundational types are in place for
+Phase 1 (auth, agent execution, LLM routing). The database schema is migrated
+automatically on API startup via `runMigrations()`. MAGICAAL_MASTER_KEY is
+optional in Phase 0 but required before Phase 1 credential encryption.
+
+**Notes:**
+- packages/sdk is named @magicaal/sdk-node internally to avoid naming conflict with sdk-client (published as @magicaal/sdk)
+- SQLite WAL mode + foreign_keys=ON enforced at client.ts connection time
+- apps/web is a placeholder; Datastar integration deferred to Phase 1
+- MAGICAAL_PRD.md is still empty — must be completed before Phase 1 auth/user model design
+
+---
+
 ### 2026-05-23 - Integrate Devbox as primary environment management tool
 
 **Type:** Infrastructure

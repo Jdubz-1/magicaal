@@ -1,58 +1,61 @@
-# [project-name]
+# MagiCaal
 
-[One-sentence description of what this service does and why it exists.]
+A self-hosted platform for building, deploying, and managing production-ready AI agents. Every agent is a directed graph of typed nodes — visual in the Studio, or defined as TypeScript and compiled to the same format.
 
 ## Quick Start
 
 ```bash
 # Clone
-git clone https://github.com/your-org/your-repo.git
-cd your-repo
+git clone https://github.com/your-org/magicaal.git
+cd magicaal
 
 # Install Devbox if not already installed (run "devbox version" to check first)
 devbox version || curl -fsSL https://get.jetify.com/devbox | bash
 
-# Enter devbox shell — Node.js 22 LTS activates and npm deps install automatically
+# Enter devbox shell — Node.js 22 LTS + pnpm activate; deps install automatically
 devbox shell
 
-# Configure environment
-cp apps/api-service/.env.example apps/api-service/.env
-# Edit apps/api-service/.env — add your values
+# Configure environment (copy examples for each service)
+cp apps/api/.env.example apps/api/.env
+cp apps/engine/.env.example apps/engine/.env
+cp apps/web/.env.example apps/web/.env
 
-# Start with hot reload
-devbox run dev
+# Start all services
+docker compose up --build
 
 # Verify
-curl http://localhost:3000/health
-# → {"status":"OK","timestamp":"..."}
+curl http://localhost:3000/health   # → {"status":"OK","service":"api",...}
+curl http://localhost:4000/health   # → {"status":"OK","service":"engine",...}
+curl http://localhost:8080/health   # → {"status":"OK","service":"web",...}
 ```
 
 ## What's in this repo
 
 ```
 apps/
-└── api-service/    # Express API service (TypeScript)
+├── api/        # Backend-for-frontend Express API (port 3000)
+├── engine/     # Agent execution runtime (port 4000)
+└── web/        # Studio + Admin UI — Datastar (port 8080)
 
 packages/
-└── types/          # @workspace/types — shared TypeScript interfaces
-
-docs/               # Developer and reference documentation
+├── core/             # @magicaal/core — shared foundational TypeScript types
+├── sdk/              # @magicaal/sdk-node — node authoring SDK (NodeModule, ExecutionContext)
+├── sdk-client/       # @magicaal/sdk — public API consumer SDK (@magicaal/sdk on npm)
+└── integrations/
+    └── caal/         # @magicaal/integration-caal — Caal AI assistant tool package
 ```
 
 ## Documentation
 
 | Guide | Description |
 |---|---|
-| [Getting Started](docs/getting-started/README.md) | Prerequisites, installation, first run |
-| [Developer Guide](docs/developer-guide/README.md) | Architecture, adding features, contributing |
-| [API Reference](docs/developer-guide/api/README.md) | Endpoint documentation |
-| [Reference](docs/reference/README.md) | Config variables, error codes, Docker |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup and common tasks |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution workflow and standards |
 | [TECHSTACK.md](TECHSTACK.md) | Library inventory |
 | [CLAUDE.md](CLAUDE.md) | AI dev guidance — architecture, patterns, pitfalls |
+| [DEVLOG.md](DEVLOG.md) | Significant change history |
+| [.ai_docs/](.ai_docs/) | Architecture spec and development roadmap |
 
 ---
 
-> **Template note**: Replace `[project-name]` and bracketed placeholders throughout this repo.
-> Delete the `reference_docs/` directory before first use — it contains only template guidance material.
+> **Phase 0 — Foundation**: The monorepo structure, shared types, package scaffolds, and Docker compose are in place. The Studio UI and agent execution are Phase 1+.
