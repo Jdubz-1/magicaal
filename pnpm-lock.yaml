@@ -98,6 +98,9 @@ importers:
       '@magicaal/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@magicaal/nodes':
+        specifier: workspace:^
+        version: link:../../packages/nodes
       '@magicaal/sdk-node':
         specifier: workspace:*
         version: link:../../packages/sdk

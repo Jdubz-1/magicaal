@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@magicaal/core": "workspace:*",
+    "@magicaal/nodes": "workspace:^",
     "@magicaal/sdk-node": "workspace:*",
     "better-sqlite3": "^12.10.0",
     "bullmq": "^5.77.2",

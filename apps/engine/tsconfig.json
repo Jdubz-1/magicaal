@@ -7,10 +7,7 @@
       "@/*": ["src/*"]
     }
   },
-  "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/sdk" }
-  ],
+  "references": [],
   "ts-node": {
     "files": true
   },
