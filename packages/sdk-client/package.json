@@ -23,6 +23,13 @@
     "build:types": "tsc --project tsconfig.types.json",
     "type-check": "tsc --noEmit"
   },
+  "dependencies": {
+    "axios": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  },
   "files": [
     "dist"
   ]

@@ -53,9 +53,9 @@ export interface RateLimitInfo {
   resetAt: number;
 }
 
-export interface RunHandle {
+export interface RunHandle<TOut = Record<string, unknown>> {
   readonly id: string;
-  wait(): Promise<Record<string, unknown>>;
+  wait(): Promise<TOut>;
   cancel(): Promise<void>;
   status(): Promise<RunStatus>;
   steps(): Promise<RunStep[]>;

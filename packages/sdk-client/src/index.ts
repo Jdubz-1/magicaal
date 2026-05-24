@@ -1,3 +1,7 @@
+export { MagiCaalClient } from './client';
+export { AgentClient } from './agent-client';
+export { RunHandleImpl } from './run-handle';
+
 export {
   MagiCaalError,
   AuthError,
