@@ -1,0 +1,29 @@
+{
+  "name": "@magicaal/sdk-client",
+  "version": "0.1.0",
+  "description": "MagiCaal API consumer SDK",
+  "publishConfig": {
+    "name": "@magicaal/sdk",
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "scripts": {
+    "build": "pnpm build:cjs && pnpm build:esm && pnpm build:types",
+    "build:cjs": "tsc --project tsconfig.cjs.json",
+    "build:esm": "tsc --project tsconfig.esm.json",
+    "build:types": "tsc --project tsconfig.types.json",
+    "type-check": "tsc --noEmit"
+  },
+  "files": [
+    "dist"
+  ]
+}
