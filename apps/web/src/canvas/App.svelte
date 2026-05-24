@@ -5,16 +5,17 @@
   import NodeConfigPanel from './components/NodeConfigPanel.svelte';
   import AgentConfigPanel from './components/AgentConfigPanel.svelte';
   import TestRunPanel from './components/TestRunPanel.svelte';
-  import { graph, selectedNode, agent } from './stores/graph';
+  import { graph, selectedNode, agent, agentConfig } from './stores/graph';
 
   export let agentId: string;
 
   onMount(async () => {
     if (!agentId) return;
     try {
-      const [agentRes, versionsRes] = await Promise.all([
+      const [agentRes, versionsRes, configRes] = await Promise.all([
         fetch(`/api/agents/${agentId}`),
         fetch(`/api/agents/${agentId}/versions`),
+        fetch(`/api/agents/${agentId}/config`),
       ]);
       if (agentRes.ok) {
         const data = await agentRes.json();
@@ -26,6 +27,10 @@
           const latest = versions[versions.length - 1];
           graph.set(JSON.parse(latest.graphJson ?? '{}'));
         }
+      }
+      if (configRes.ok) {
+        const configData = await configRes.json() as { triggerConfig?: { triggerType: string; description: string } };
+        agentConfig.set(configData.triggerConfig ?? { triggerType: 'rest', description: '' });
       }
     } catch {
       // agent not yet saved

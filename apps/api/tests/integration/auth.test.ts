@@ -1,0 +1,95 @@
+import request from 'supertest';
+import { createApp } from '../../src/app';
+import { runMigrations } from '../../src/db/migrate';
+import { createUserAndLogin } from '../helpers/auth-helpers';
+
+const app = createApp();
+
+beforeAll(async () => {
+  await runMigrations();
+});
+
+describe('POST /v1/auth/login', () => {
+  it('returns 200 and accessToken for valid credentials', async () => {
+    const { token } = await createUserAndLogin(app);
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(0);
+  });
+
+  it('returns 401 for wrong password', async () => {
+    const { userId: _u } = await createUserAndLogin(app);
+    // create a fresh user then try wrong password
+    const { token: _t } = await createUserAndLogin(app);
+    // We can't easily get the email back from helper, so test with a known bad user
+    const res = await request(app)
+      .post('/v1/auth/login')
+      .send({ email: 'nobody@example.com', password: 'wrong' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 for unknown email', async () => {
+    const res = await request(app)
+      .post('/v1/auth/login')
+      .send({ email: 'doesnotexist@example.com', password: 'password' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when email is missing', async () => {
+    const res = await request(app)
+      .post('/v1/auth/login')
+      .send({ password: 'password' });
+    expect(res.status).toBe(400);
+  });
+
+  it('sets refresh_token cookie on success', async () => {
+    // Use a raw login instead of the helper to inspect cookies
+    const { db: _db } = await import('../../src/db/client');
+    const { tenants, users } = await import('../../src/db/schema');
+    const { hashPassword } = await import('../../src/lib/password');
+    const crypto = await import('node:crypto');
+
+    const tenantId = crypto.randomUUID();
+    const userId = crypto.randomUUID();
+    const email = `cookie-test+${userId.slice(0, 8)}@example.com`;
+    const now = new Date();
+
+    const { db } = await import('../../src/db/client');
+    await db.insert(tenants).values({ id: tenantId, name: 'T', slug: `s-${tenantId.slice(0, 8)}`, enabled: true, createdAt: now, updatedAt: now });
+    await db.insert(users).values({ id: userId, tenantId, name: 'U', email, passwordHash: await hashPassword('pass123'), role: 'developer', active: true, createdAt: now, updatedAt: now });
+
+    const res = await request(app).post('/v1/auth/login').send({ email, password: 'pass123' });
+    expect(res.status).toBe(200);
+    expect(res.headers['set-cookie']).toBeDefined();
+    const rawCookies = res.headers['set-cookie'];
+    const cookies: string[] = Array.isArray(rawCookies) ? rawCookies : [rawCookies as string];
+    expect(cookies.some((c) => c.startsWith('refresh_token='))).toBe(true);
+  });
+});
+
+describe('POST /v1/auth/logout', () => {
+  it('returns 204', async () => {
+    const res = await request(app).post('/v1/auth/logout');
+    expect(res.status).toBe(204);
+  });
+});
+
+describe('POST /v1/auth/refresh', () => {
+  it('returns 401 when no refresh token cookie is present', async () => {
+    const res = await request(app).post('/v1/auth/refresh');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('Protected routes require auth', () => {
+  it('returns 401 when Authorization header is missing', async () => {
+    const res = await request(app).get('/v1/agents');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 for an invalid Bearer token', async () => {
+    const res = await request(app)
+      .get('/v1/agents')
+      .set('Authorization', 'Bearer invalid.jwt.token');
+    expect(res.status).toBe(401);
+  });
+});

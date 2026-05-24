@@ -47,7 +47,12 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         role: (row.role ?? 'developer') as 'platform_admin' | 'tenant_admin' | 'developer' | 'viewer',
       };
     } else {
-      const payload = await verifyJwt(token);
+      let payload: Awaited<ReturnType<typeof verifyJwt>>;
+      try {
+        payload = await verifyJwt(token);
+      } catch {
+        throw Object.assign(new Error('Invalid or expired token'), { status: 401 });
+      }
       req.user = {
         userId: payload.sub,
         tenantId: payload.tenantId,

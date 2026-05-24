@@ -25,6 +25,56 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-05-24 - Phase 1 Milestone Sign-off: Tests, Canvas UX & Config UI
+
+**Type:** Feature
+
+**Description:**
+Closed six gaps blocking Phase 1 milestone sign-off: added test suites for all
+three packages (83 tests), wired per-node step output in the TestRunPanel,
+implemented the trigger config form in AgentConfigPanel, added core:start/end
+config blocks in NodeConfigPanel, added canvas pan/zoom and node drag, and
+implemented port drag-to-connect edge creation with an edge type picker.
+
+Also fixed a production bug where invalid JWTs returned 500 instead of 401 due
+to the jose library throwing without a `status` property.
+
+**Changes:**
+- `packages/nodes/package.json` — added jest + ts-jest devDependencies and test scripts
+- `packages/nodes/jest.config.ts` — new Jest configuration for nodes package
+- `packages/nodes/tests/` — mock context helper + 6 test files (35 tests): jsonata utils, core:start/end/stop/condition/router nodes
+- `apps/engine/jest.config.ts` — new Jest configuration for engine
+- `apps/engine/tests/setup.ts` — in-memory SQLite + test env vars
+- `apps/engine/tests/unit/execution/worker.test.ts` — resolveEdges + executeGraph unit tests (17 tests)
+- `apps/engine/tests/unit/graph/graph-loader.test.ts` — cache miss/hit/invalidate tests with mocked better-sqlite3
+- `apps/api/tests/helpers/auth-helpers.ts` — reusable createUserAndLogin helper for integration tests
+- `apps/api/tests/integration/auth.test.ts` — login/logout/refresh/JWT validation (31 tests across 3 integration files)
+- `apps/api/tests/integration/agents.test.ts` — agent CRUD, publish, draft, versions
+- `apps/api/tests/integration/runs.test.ts` — async/sync dispatch with mocked engine client
+- `apps/api/src/middleware/auth.ts` — bug fix: wrap jwtVerify in try/catch, re-throw with status 401
+- `apps/api/src/controllers/agents.controller.ts` — added getAgentConfig + updateAgentConfig handlers
+- `apps/api/src/routes/agents.ts` — registered GET/PATCH /:id/config routes
+- `apps/web/src/canvas/stores/run.ts` — expanded StepResult type with all fields
+- `apps/web/src/canvas/stores/graph.ts` — added agentConfig store + addEdge action
+- `apps/web/src/canvas/App.svelte` — fetch agentConfig on mount, populate store
+- `apps/web/src/canvas/components/TestRunPanel.svelte` — capture runId, fetch + display step timeline
+- `apps/web/src/canvas/components/AgentConfigPanel.svelte` — trigger config form (description + save)
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — core:start inputSchema textarea, core:end outputKeys input
+- `apps/web/src/canvas/components/Canvas.svelte` — pan/zoom (wheel + background drag), node drag, port drag-to-connect with rubber-band line, edge type picker overlay
+
+**Impact:**
+Phase 1 milestone requirements are met. All 83 tests pass (35 nodes, 17 engine,
+31 API). Canvas is fully interactive: nodes drag, viewport pans and zooms, edges
+are created by dragging from output port to input port. The JWT 401 fix
+eliminates a silent auth failure in production.
+
+**Notes:**
+- AgentGraphDefinition requires version, name, toolEdges, workspaceEdges, config fields — test helpers include all required fields
+- jest.mock() hoisting requires using jest.fn() in factory and accessing via require() for engine client mock in runs tests
+- Port CSS hover (opacity: 0.4 → 1 on g:hover) uses :global selectors since Svelte's scoped CSS cannot target parent hover for SVG elements
+
+---
+
 ### 2026-05-24 - Phase 1: Core Engine & Minimal Studio
 
 **Type:** Feature

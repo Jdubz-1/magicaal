@@ -1,5 +1,6 @@
 <script lang="ts">
   import { runState } from '../stores/run';
+  import type { StepResult } from '../stores/run';
 
   export let agentId: string;
 
@@ -15,13 +16,31 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: JSON.parse(inputPayload), mode: 'sync' }),
       });
-      const data = await res.json() as { status: string; output: unknown; error: unknown; steps?: Array<{ nodeId: string; nodeType: string; status: string }> };
+      const data = await res.json() as {
+        id?: string;
+        status: string;
+        output: unknown;
+        error: unknown;
+      };
+
+      const runId = data.id ?? null;
+      let steps: StepResult[] = [];
+
+      if (runId && (data.status === 'completed' || data.status === 'failed')) {
+        try {
+          const stepsRes = await fetch(`/api/agents/${agentId}/runs/${runId}/steps`);
+          if (stepsRes.ok) steps = await stepsRes.json() as StepResult[];
+        } catch {
+          // non-fatal: steps are best-effort
+        }
+      }
+
       runState.set({
-        runId: null,
+        runId,
         status: data.status as 'completed' | 'failed',
         output: data.output as Record<string, unknown> | null,
         error: data.error ? JSON.stringify(data.error) : null,
-        steps: data.steps ?? [],
+        steps,
       });
     } catch (err) {
       runState.set({ runId: null, status: 'failed', output: null, error: String(err), steps: [] });
@@ -51,6 +70,16 @@
         <div class="result-error">{$runState.error}</div>
       {/if}
     </div>
+
+    {#if $runState.steps.length > 0}
+      <div class="steps-header">Steps ({$runState.steps.length})</div>
+      {#each $runState.steps as step}
+        <div class="step step-{step.status}">
+          <span class="step-type">{step.nodeType}</span>
+          <span class="step-badge badge-{step.status}">{step.status}</span>
+        </div>
+      {/each}
+    {/if}
   {/if}
 </div>
 
@@ -70,4 +99,11 @@
   .result-status { font-weight: 600; font-size: 0.6875rem; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
   .result-json { margin: 0; white-space: pre-wrap; word-break: break-all; color: #e2e8f0; font-family: monospace; }
   .result-error { color: #fca5a5; }
+  .steps-header { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; margin-top: 1rem; margin-bottom: 0.375rem; }
+  .step { display: flex; justify-content: space-between; align-items: center; padding: 0.375rem 0.5rem; border-radius: 4px; margin-bottom: 0.25rem; background: #1a1d27; border: 1px solid #2d3148; }
+  .step-type { font-size: 0.6875rem; color: #94a3b8; font-family: monospace; }
+  .step-badge { font-size: 0.625rem; font-weight: 600; letter-spacing: 0.05em; padding: 0.1rem 0.375rem; border-radius: 3px; }
+  .badge-complete { background: #14532d; color: #86efac; }
+  .badge-failed { background: #7f2121; color: #fca5a5; }
+  .badge-running { background: #1c2333; color: #93c5fd; }
 </style>

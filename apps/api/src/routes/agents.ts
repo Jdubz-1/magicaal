@@ -8,6 +8,8 @@ import {
   publishAgent,
   draftAgent,
   listAgentVersions,
+  getAgentConfig,
+  updateAgentConfig,
 } from '@/controllers/agents.controller';
 import { dispatchRun, getRun, getRunSteps } from '@/controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '@/controllers/invocation-keys.controller';
@@ -24,6 +26,8 @@ agentsRouter.patch('/:id', updateAgent);
 agentsRouter.post('/:id/publish', publishAgent);
 agentsRouter.post('/:id/draft', draftAgent);
 agentsRouter.get('/:id/versions', listAgentVersions);
+agentsRouter.get('/:id/config', getAgentConfig);
+agentsRouter.patch('/:id/config', updateAgentConfig);
 
 agentsRouter.post('/:id/runs', dispatchRun);
 agentsRouter.get('/:id/runs/:runId', getRun);

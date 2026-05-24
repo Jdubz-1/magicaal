@@ -181,3 +181,54 @@ export const listAgentVersions: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getAgentConfig: RequestHandler = async (req, res, next) => {
+  try {
+    const rows = await db
+      .select()
+      .from(agentConfig)
+      .where(eq(agentConfig.agentId, req.params.id));
+    if (!rows[0]) {
+      throw Object.assign(new Error('Agent config not found'), { status: 404 });
+    }
+    const row = rows[0];
+    res.json({
+      triggerConfig: JSON.parse(row.triggerConfig ?? '{}'),
+      timeoutMs: row.timeoutMs,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAgentConfig: RequestHandler = async (req, res, next) => {
+  try {
+    const { triggerConfig, timeoutMs } = req.body as {
+      triggerConfig?: Record<string, unknown>;
+      timeoutMs?: number;
+    };
+
+    const [updated] = await db
+      .update(agentConfig)
+      .set({
+        ...(triggerConfig !== undefined && { triggerConfig: JSON.stringify(triggerConfig) }),
+        ...(timeoutMs !== undefined && { timeoutMs }),
+        updatedAt: new Date(),
+      })
+      .where(eq(agentConfig.agentId, req.params.id))
+      .returning();
+
+    if (!updated) {
+      throw Object.assign(new Error('Agent config not found'), { status: 404 });
+    }
+
+    await engineClient.post(`/internal/agents/${req.params.id}/deploy`).catch(() => {});
+
+    res.json({
+      triggerConfig: JSON.parse(updated.triggerConfig ?? '{}'),
+      timeoutMs: updated.timeoutMs,
+    });
+  } catch (err) {
+    next(err);
+  }
+};

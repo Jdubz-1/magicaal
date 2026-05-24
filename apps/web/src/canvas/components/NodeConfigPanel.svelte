@@ -3,7 +3,7 @@
 
   export let node: NodeDef;
 
-  function updateConfig(key: string, value: string) {
+  function updateConfig(key: string, value: unknown) {
     graph.update((g) => ({
       ...g,
       nodes: {
@@ -45,6 +45,25 @@
     <input type="text" value={node.label ?? ''} on:input={(e) => updateLabel((e.target as HTMLInputElement).value)} />
   </div>
 
+  {#if node.type === 'core:start'}
+    <div class="form-group">
+      <label>Input Schema (JSON Schema)</label>
+      <textarea rows="4"
+        value={JSON.stringify(node.config.inputSchema ?? {}, null, 2)}
+        on:blur={(e) => { try { updateConfig('inputSchema', JSON.parse((e.target as HTMLTextAreaElement).value)); } catch { /* invalid JSON */ } }}
+      ></textarea>
+    </div>
+  {/if}
+
+  {#if node.type === 'core:end'}
+    <div class="form-group">
+      <label>Output Keys (comma-separated, leave blank for all)</label>
+      <input type="text"
+        value={String(node.config.outputKeys ?? '')}
+        on:input={(e) => updateConfig('outputKeys', (e.target as HTMLInputElement).value)} />
+    </div>
+  {/if}
+
   {#if node.type === 'core:condition'}
     <div class="form-group">
       <label>Expression (JSONata → boolean)</label>
@@ -72,7 +91,8 @@
   .close-btn { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.875rem; }
   .form-group { margin-bottom: 0.75rem; }
   label { display: block; font-size: 0.6875rem; color: #94a3b8; margin-bottom: 0.25rem; }
-  input { background: #0f1117; border: 1px solid #2d3148; border-radius: 4px; color: #e2e8f0; padding: 0.375rem 0.625rem; font-size: 0.8125rem; width: 100%; }
+  input, textarea { background: #0f1117; border: 1px solid #2d3148; border-radius: 4px; color: #e2e8f0; padding: 0.375rem 0.625rem; font-size: 0.8125rem; width: 100%; }
+  textarea { font-family: monospace; font-size: 0.75rem; resize: vertical; }
   .btn-danger { background: transparent; border: 1px solid #7f2121; color: #fca5a5; border-radius: 4px; padding: 0.375rem 0.75rem; font-size: 0.8125rem; cursor: pointer; width: 100%; }
   .btn-danger:hover { background: #3b1f1f; }
 </style>
