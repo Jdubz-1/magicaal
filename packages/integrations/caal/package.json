@@ -1,0 +1,19 @@
+{
+  "name": "@magicaal/integration-caal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MagiCaal Caal AI assistant tool package",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@magicaal/core": "workspace:*",
+    "@magicaal/sdk-node": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
