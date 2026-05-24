@@ -1,0 +1,7 @@
+{
+  "name": "@magicaal/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MagiCaal shared foundational TypeScript types",
+  "types": "src/index.ts"
+}
