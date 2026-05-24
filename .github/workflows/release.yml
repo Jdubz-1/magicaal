@@ -7,8 +7,17 @@ on:
 
 jobs:
   docker:
-    name: Build and push Docker image
+    name: Build and push Docker images
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - app: api
+            dockerfile: apps/api/Dockerfile
+          - app: engine
+            dockerfile: apps/engine/Dockerfile
+          - app: web
+            dockerfile: apps/web/Dockerfile
 
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +32,12 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/api-service/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ secrets.REGISTRY_USERNAME }}/${{ github.event.repository.name }}:latest
-            ${{ secrets.REGISTRY_USERNAME }}/${{ github.event.repository.name }}:${{ github.ref_name }}
+            ${{ secrets.REGISTRY_USERNAME }}/magicaal-${{ matrix.app }}:latest
+            ${{ secrets.REGISTRY_USERNAME }}/magicaal-${{ matrix.app }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            GIT_SHA=${{ github.sha }}
