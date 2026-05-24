@@ -8,4 +8,6 @@ export const config = Object.freeze({
   port: parseInt(process.env.PORT ?? '3000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   logLevel: process.env.LOG_LEVEL ?? 'info',
+  databasePath: requireEnv('DATABASE_URL'),
+  masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
 });
