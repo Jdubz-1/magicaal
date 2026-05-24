@@ -10,4 +10,6 @@ export const config = Object.freeze({
   logLevel: process.env.LOG_LEVEL ?? 'info',
   databasePath: requireEnv('DATABASE_URL'),
   masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
+  jwtSecret: requireEnv('JWT_SECRET'),
+  engineBaseUrl: process.env.ENGINE_BASE_URL ?? 'http://engine:4000',
 });
