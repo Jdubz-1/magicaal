@@ -1,0 +1,14 @@
+export function requireEnv(key: string): string {
+  const val = process.env[key];
+  if (!val) throw new Error(`Missing required environment variable: ${key}`);
+  return val;
+}
+
+export const config = Object.freeze({
+  port: parseInt(process.env.PORT ?? '4000', 10),
+  nodeEnv: process.env.NODE_ENV ?? 'development',
+  logLevel: process.env.LOG_LEVEL ?? 'info',
+  databasePath: process.env.DATABASE_URL ?? '',
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
+});
