@@ -8,7 +8,9 @@ export const config = Object.freeze({
   port: parseInt(process.env.PORT ?? '4000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   logLevel: process.env.LOG_LEVEL ?? 'info',
-  databasePath: process.env.DATABASE_URL ?? '',
-  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  databasePath: requireEnv('DATABASE_URL'),
+  telemetryDatabasePath: requireEnv('TELEMETRY_DATABASE_URL'),
+  redisUrl: requireEnv('REDIS_URL'),
   masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
+  apiBaseUrl: process.env.API_BASE_URL ?? 'http://api:3000',
 });
