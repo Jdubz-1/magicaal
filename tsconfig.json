@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/sdk" },
+    { "path": "packages/nodes" },
     { "path": "packages/sdk-client" },
     { "path": "packages/integrations/caal" },
     { "path": "apps/api" },
