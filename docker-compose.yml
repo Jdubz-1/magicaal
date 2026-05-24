@@ -1,40 +1,65 @@
 services:
-  api-service:
+  api:
     build:
       context: .
-      dockerfile: apps/api-service/Dockerfile
+      dockerfile: apps/api/Dockerfile
     ports:
-      - '${PORT:-3000}:3000'
+      - '${API_PORT:-3000}:3000'
     env_file:
-      - apps/api-service/.env
-    # Uncomment and configure infrastructure services as needed:
-    # depends_on:
-    #   db:
-    #     condition: service_healthy
-    #   redis:
-    #     condition: service_healthy
+      - apps/api/.env
+    volumes:
+      - db_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  # db:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_DB: myapp
-  #     POSTGRES_USER: myapp
-  #     POSTGRES_PASSWORD: myapp
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U myapp"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
+  engine:
+    build:
+      context: .
+      dockerfile: apps/engine/Dockerfile
+    ports:
+      - '${ENGINE_PORT:-4000}:4000'
+    env_file:
+      - apps/engine/.env
+    volumes:
+      - db_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  # redis:
-  #   image: redis:7-alpine
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    env_file:
+      - apps/web/.env
+    depends_on:
+      api:
+        condition: service_healthy
 
-# volumes:
-#   postgres_data:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
