@@ -25,6 +25,28 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-05-25 - Phase 1 frontend gaps: Studio draft/publish, schema-driven config panel, admin CRUD
+
+**Type:** Feature
+
+**Description:**
+Completed all identified Phase 1 frontend workstream gaps. The Studio canvas now has a full publish workflow with draft persistence, the node config panel renders fields from the engine's JSON Schema instead of hardcoded type checks, and the admin panel supports full CRUD for users, tenants, and agents.
+
+**Changes:**
+- `apps/api/src/db/schema/agents.ts` — added `draftGraphJson` nullable column
+- `apps/api/drizzle/migrations/0002_add_draft_graph_json.sql` — migration for new column
+- `apps/api/src/controllers/agents.controller.ts` — `updateAgent` now persists `draftGraphJson`
+- `apps/api/src/controllers/tenants.controller.ts` — `updateTenant` now accepts and validates `resourceLimits`
+- `apps/web/src/canvas/stores/nodeTypes.ts` — new shared Svelte writable store for node type definitions
+- `apps/web/src/canvas/components/NodePalette.svelte` — writes to shared `nodeTypes` store instead of local variable
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — schema-driven field rendering (string/object/array/boolean) from engine API
+- `apps/web/src/canvas/components/AgentConfigPanel.svelte` — Save Draft + Revert to Draft buttons; publish refreshes agent status badge
+- `apps/web/src/canvas/App.svelte` — `onMount` loads `draftGraphJson` for draft agents, falls back to latest published version
+- `apps/web/src/routes/admin.ts` — User create/edit/deactivate, tenant create/edit (with resourceLimits), agent create/enable/disable
+
+**Impact:**
+Graph edits now survive page reload via server-side draft storage. Node config fields are dynamically derived from engine node schemas — no code change required when adding new node types. The admin panel is fully operational for managing users, tenants, and agents without direct API access.
+
 ### 2026-05-25 - Docker Compose build and runtime fixes for Phase 0/1 verification
 
 **Type:** Infrastructure
