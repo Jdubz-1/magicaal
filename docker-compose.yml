@@ -10,6 +10,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       ENGINE_BASE_URL: http://engine:4000
+      SEED_ON_BOOT: 'true'
     volumes:
       - db_data:/data
     depends_on:

@@ -1,6 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { createApp } from '../../src/app';
+import { db } from '../../src/db/client';
 import { runMigrations } from '../../src/db/migrate';
+import { tenants, users } from '../../src/db/schema';
+import { hashPassword } from '../../src/lib/password';
 import { createUserAndLogin } from '../helpers/auth-helpers';
 
 const app = createApp();
@@ -42,17 +46,11 @@ describe('POST /v1/auth/login', () => {
   });
 
   it('sets refresh_token cookie on success', async () => {
-    // Use a raw login instead of the helper to inspect cookies
-    const { tenants, users } = await import('../../src/db/schema');
-    const { hashPassword } = await import('../../src/lib/password');
-    const crypto = await import('node:crypto');
-
-    const tenantId = crypto.randomUUID();
-    const userId = crypto.randomUUID();
+    const tenantId = randomUUID();
+    const userId = randomUUID();
     const email = `cookie-test+${userId.slice(0, 8)}@example.com`;
     const now = new Date();
 
-    const { db } = await import('../../src/db/client');
     await db.insert(tenants).values({ id: tenantId, name: 'T', slug: `s-${tenantId.slice(0, 8)}`, enabled: true, createdAt: now, updatedAt: now });
     await db.insert(users).values({ id: userId, tenantId, name: 'U', email, passwordHash: await hashPassword('pass123'), role: 'developer', active: true, createdAt: now, updatedAt: now });
 

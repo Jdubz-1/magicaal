@@ -1,6 +1,7 @@
 import { createApp } from './app';
 import { config } from './config';
 import { runMigrations } from './db/migrate';
+import { runSeedIfEmpty } from './db/seed';
 import { logger } from './lib/logger';
 
 async function main(): Promise<void> {
@@ -9,6 +10,7 @@ async function main(): Promise<void> {
   }
 
   await runMigrations();
+  await runSeedIfEmpty();
 
   const app = createApp();
   app.listen(config.port, () => {
