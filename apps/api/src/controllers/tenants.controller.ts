@@ -51,12 +51,24 @@ export const getTenant: RequestHandler = async (req, res, next) => {
 
 export const updateTenant: RequestHandler = async (req, res, next) => {
   try {
-    const { name, enabled } = req.body as { name?: string; enabled?: boolean };
+    const { name, enabled, resourceLimits } = req.body as {
+      name?: string;
+      enabled?: boolean;
+      resourceLimits?: string;
+    };
+
+    if (resourceLimits !== undefined) {
+      try { JSON.parse(resourceLimits); } catch {
+        throw Object.assign(new Error('resourceLimits must be valid JSON'), { status: 400 });
+      }
+    }
+
     const [updated] = await db
       .update(tenants)
       .set({
         ...(name !== undefined && { name }),
         ...(enabled !== undefined && { enabled }),
+        ...(resourceLimits !== undefined && { resourceLimits }),
         updatedAt: new Date(),
       })
       .where(eq(tenants.id, req.params.id))

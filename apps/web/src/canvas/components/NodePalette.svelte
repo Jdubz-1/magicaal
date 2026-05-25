@@ -1,26 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { graph } from '../stores/graph';
-
-  interface NodeType {
-    type: string;
-    meta: { name: string; description: string; category: string };
-  }
-
-  let nodeTypes: NodeType[] = [];
+  import { nodeTypes } from '../stores/nodeTypes';
 
   onMount(async () => {
     try {
       const res = await fetch('/api/nodes');
-      if (res.ok) nodeTypes = await res.json();
+      if (res.ok) nodeTypes.set(await res.json());
     } catch {
-      nodeTypes = [
+      nodeTypes.set([
         { type: 'core:start', meta: { name: 'Start', description: 'Entry point', category: 'control-flow' } },
         { type: 'core:end', meta: { name: 'End', description: 'Output result', category: 'control-flow' } },
         { type: 'core:stop', meta: { name: 'Stop', description: 'Terminate run', category: 'control-flow' } },
         { type: 'core:condition', meta: { name: 'Condition', description: 'Branch on boolean', category: 'control-flow' } },
         { type: 'core:router', meta: { name: 'Router', description: 'Route by value', category: 'control-flow' } },
-      ];
+      ]);
     }
   });
 
@@ -38,7 +32,7 @@
 
 <div class="palette">
   <div class="palette-header">Nodes</div>
-  {#each nodeTypes as nt}
+  {#each $nodeTypes as nt}
     <button class="palette-item" on:click={() => addNode(nt.type, nt.meta.name)}>
       <span class="node-name">{nt.meta.name}</span>
       <span class="node-type">{nt.type}</span>

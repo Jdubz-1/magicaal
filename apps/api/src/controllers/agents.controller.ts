@@ -80,10 +80,11 @@ export const getAgent: RequestHandler = async (req, res, next) => {
 
 export const updateAgent: RequestHandler = async (req, res, next) => {
   try {
-    const { name, description, enabled } = req.body as {
+    const { name, description, enabled, draftGraphJson } = req.body as {
       name?: string;
       description?: string;
       enabled?: boolean;
+      draftGraphJson?: string;
     };
 
     const [updated] = await db
@@ -92,6 +93,7 @@ export const updateAgent: RequestHandler = async (req, res, next) => {
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
         ...(enabled !== undefined && { enabled }),
+        ...(draftGraphJson !== undefined && { draftGraphJson }),
         updatedAt: new Date(),
       })
       .where(eq(agents.id, req.params.id))

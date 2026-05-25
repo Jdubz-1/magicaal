@@ -17,17 +17,23 @@
         fetch(`/api/agents/${agentId}/versions`),
         fetch(`/api/agents/${agentId}/config`),
       ]);
+
+      let agentData: { status: string; draftGraphJson?: string | null } | null = null;
       if (agentRes.ok) {
-        const data = await agentRes.json();
-        agent.set(data);
+        agentData = await agentRes.json() as { status: string; draftGraphJson?: string | null };
+        agent.set(agentData as Parameters<typeof agent.set>[0]);
       }
-      if (versionsRes.ok) {
-        const versions = await versionsRes.json();
+
+      if (agentData?.status === 'draft' && agentData.draftGraphJson) {
+        graph.set(JSON.parse(agentData.draftGraphJson));
+      } else if (versionsRes.ok) {
+        const versions = await versionsRes.json() as Array<{ graphJson: string }>;
         if (versions.length > 0) {
           const latest = versions[versions.length - 1];
           graph.set(JSON.parse(latest.graphJson ?? '{}'));
         }
       }
+
       if (configRes.ok) {
         const configData = await configRes.json() as { triggerConfig?: { triggerType: string; description: string } };
         agentConfig.set(configData.triggerConfig ?? { triggerType: 'rest', description: '' });

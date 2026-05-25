@@ -17,6 +17,7 @@ export const agents = sqliteTable('agents', {
     .notNull()
     .default('studio'),
   templateSourceId: text('template_source_id'),
+  draftGraphJson: text('draft_graph_json'),
   stale: integer('stale', { mode: 'boolean' }).notNull().default(false),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),

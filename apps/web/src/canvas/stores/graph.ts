@@ -25,7 +25,7 @@ export interface GraphDef {
 
 export const graph = writable<GraphDef>({ nodes: {}, edges: [] });
 export const selectedNode = writable<NodeDef | null>(null);
-export const agent = writable<{ id: string; name: string; status: string } | null>(null);
+export const agent = writable<{ id: string; name: string; status: string; draftGraphJson?: string | null } | null>(null);
 export const agentConfig = writable<{ triggerType: string; description: string }>({
   triggerType: 'rest',
   description: '',
