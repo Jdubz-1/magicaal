@@ -37,7 +37,7 @@ export function layout(content: string, opts: LayoutOptions = {}): string {
     th { color: #94a3b8; font-weight: 500; }
     #canvas-mount { position: fixed; inset: 52px 0 0; }
   </style>
-  ${withCanvas ? `<script type="module" src="/canvas/index.js"></script>` : ''}
+  ${withCanvas ? `<link rel="stylesheet" href="/canvas/index.css"><script type="module" src="/canvas/index.mjs"></script>` : ''}
 </head>
 <body>
   <nav>
