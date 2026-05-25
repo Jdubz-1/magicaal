@@ -21,19 +21,34 @@ export async function runSeedIfEmpty(): Promise<void> {
   }
 
   const now = new Date();
-  const tenantId = randomUUID();
+
+  // Resolve the dev tenant — use existing 'dev' tenant if present, create if not.
+  // This prevents the silent-fail bug where onConflictDoNothing skips the insert
+  // but the in-memory tenantId variable still holds an unwritten UUID.
+  let tenantId: string;
+  const existingTenant = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.slug, 'dev'))
+    .limit(1);
+
+  if (existingTenant[0]) {
+    tenantId = existingTenant[0].id;
+  } else {
+    tenantId = randomUUID();
+    await db.insert(tenants).values({
+      id: tenantId,
+      name: 'Dev Tenant',
+      slug: 'dev',
+      resourceLimits: '{}',
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   const userId = randomUUID();
   const keyPlain = 'dev-api-key-00000000';
-
-  await db.insert(tenants).values({
-    id: tenantId,
-    name: 'Dev Tenant',
-    slug: 'dev',
-    resourceLimits: '{}',
-    enabled: true,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoNothing();
 
   await db.insert(users).values({
     id: userId,
