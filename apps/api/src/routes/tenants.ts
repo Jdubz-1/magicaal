@@ -1,8 +1,8 @@
-import { Router } from 'express';
-import { requireAuth, requireRole } from '@/middleware/auth';
-import { listTenants, createTenant, getTenant, updateTenant } from '@/controllers/tenants.controller';
+import { Router, type Router as RouterType } from 'express';
+import { requireAuth, requireRole } from '../middleware/auth';
+import { listTenants, createTenant, getTenant, updateTenant } from '../controllers/tenants.controller';
 
-export const tenantsRouter = Router();
+export const tenantsRouter: RouterType = Router();
 
 tenantsRouter.use(requireAuth);
 

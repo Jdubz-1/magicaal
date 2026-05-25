@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import {
   dispatchRun,
   getRun,
@@ -8,7 +8,7 @@ import {
 } from '../controllers/runs.controller';
 import { listNodes } from '../controllers/nodes.controller';
 
-export const internalRouter = Router();
+export const internalRouter: RouterType = Router();
 
 internalRouter.post('/runs', dispatchRun);
 internalRouter.get('/runs/:id', getRun);

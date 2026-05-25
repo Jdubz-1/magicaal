@@ -3,8 +3,10 @@
   "version": "0.1.0",
   "description": "MagiCaal built-in node implementations",
   "private": true,
+  "main": "dist/index.js",
   "types": "src/index.ts",
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",

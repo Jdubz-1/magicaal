@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { createApiClient } from '../lib/api-client';
 import { layout, escHtml } from '../views/layout';
 
-export const authRouter = Router();
+export const authRouter: RouterType = Router();
 
 authRouter.get('/login', (_req, res) => {
   res.send(

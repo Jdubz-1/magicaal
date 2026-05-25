@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { requireAuth, requireMinRole } from '@/middleware/auth';
+import { Router, type Router as RouterType } from 'express';
+import { requireAuth, requireMinRole } from '../middleware/auth';
 import {
   listAgents,
   createAgent,
@@ -10,11 +10,11 @@ import {
   listAgentVersions,
   getAgentConfig,
   updateAgentConfig,
-} from '@/controllers/agents.controller';
-import { dispatchRun, getRun, getRunSteps } from '@/controllers/runs.controller';
-import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '@/controllers/invocation-keys.controller';
+} from '../controllers/agents.controller';
+import { dispatchRun, getRun, getRunSteps } from '../controllers/runs.controller';
+import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 
-export const agentsRouter = Router();
+export const agentsRouter: RouterType = Router();
 
 agentsRouter.use(requireAuth);
 agentsRouter.use(requireMinRole('developer'));

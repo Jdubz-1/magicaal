@@ -1,8 +1,8 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
-import { db } from '@/db/client';
-import { tenants } from '@/db/schema';
+import { db } from '../db/client';
+import { tenants } from '../db/schema';
 
 export const listTenants: RequestHandler = async (_req, res, next) => {
   try {

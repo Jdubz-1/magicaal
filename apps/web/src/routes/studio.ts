@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { requireSession } from '../middleware/session';
 import { layout, escHtml } from '../views/layout';
 
-export const studioRouter = Router();
+export const studioRouter: RouterType = Router();
 
 studioRouter.use(requireSession);
 

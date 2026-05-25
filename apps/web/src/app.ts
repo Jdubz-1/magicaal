@@ -1,6 +1,6 @@
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express from 'express';
+import express, { type Application } from 'express';
 import helmet from 'helmet';
 import path from 'path';
 import { loadSession, requireSession } from './middleware/session';
@@ -9,7 +9,7 @@ import { studioRouter } from './routes/studio';
 import { adminRouter } from './routes/admin';
 import { createApiClient } from './lib/api-client';
 
-export function createApp() {
+export function createApp(): Application {
   const app = express();
 
   app.use(helmet({ contentSecurityPolicy: false }));

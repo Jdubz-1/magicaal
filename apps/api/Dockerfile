@@ -23,6 +23,7 @@ COPY tsconfig.base.json ./
 COPY packages/core/src ./packages/core/src
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY apps/api/src ./apps/api/src
+COPY apps/api/drizzle ./apps/api/drizzle
 COPY apps/api/tsconfig.json ./apps/api/tsconfig.json
 COPY apps/api/tsconfig.build.json ./apps/api/tsconfig.build.json
 WORKDIR /monorepo/apps/api
@@ -30,22 +31,24 @@ RUN pnpm run build
 
 # Stage 2: Runtime
 FROM node:22-alpine AS runtime
-WORKDIR /app
-
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-COPY --from=builder /monorepo/apps/api/package.json ./package.json
-COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml /monorepo/
-COPY --from=builder /monorepo/packages/core/package.json /monorepo/packages/core/
+WORKDIR /monorepo
+COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml ./
+COPY --from=builder /monorepo/packages/core/package.json ./packages/core/
+COPY --from=builder /monorepo/apps/api/package.json ./apps/api/
 
-RUN cd /monorepo && pnpm install --prod --filter @magicaal/api
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/api
 
+WORKDIR /monorepo/apps/api
 COPY --from=builder /monorepo/apps/api/dist ./dist
+COPY --from=builder /monorepo/apps/api/drizzle ./drizzle
 
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 CMD ["node", "dist/index.js"]
+

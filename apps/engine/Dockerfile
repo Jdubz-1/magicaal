@@ -14,6 +14,7 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/sdk/package.json ./packages/sdk/package.json
+COPY packages/nodes/package.json ./packages/nodes/package.json
 COPY apps/engine/package.json ./apps/engine/package.json
 
 RUN pnpm install --frozen-lockfile
@@ -23,28 +24,35 @@ COPY packages/core/src ./packages/core/src
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY packages/sdk/src ./packages/sdk/src
 COPY packages/sdk/tsconfig.json ./packages/sdk/tsconfig.json
+COPY packages/nodes/src ./packages/nodes/src
+COPY packages/nodes/tsconfig.json ./packages/nodes/tsconfig.json
+COPY packages/nodes/tsconfig.build.json ./packages/nodes/tsconfig.build.json
 COPY apps/engine/src ./apps/engine/src
 COPY apps/engine/tsconfig.json ./apps/engine/tsconfig.json
 COPY apps/engine/tsconfig.build.json ./apps/engine/tsconfig.build.json
+WORKDIR /monorepo/packages/nodes
+RUN pnpm run build
 WORKDIR /monorepo/apps/engine
 RUN pnpm run build
 
 # Stage 2: Runtime
 FROM node:22-alpine AS runtime
-WORKDIR /app
-
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-COPY --from=builder /monorepo/apps/engine/package.json ./package.json
-COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml /monorepo/
-COPY --from=builder /monorepo/packages/core/package.json /monorepo/packages/core/
-COPY --from=builder /monorepo/packages/sdk/package.json /monorepo/packages/sdk/
+WORKDIR /monorepo
+COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml ./
+COPY --from=builder /monorepo/packages/core/package.json ./packages/core/
+COPY --from=builder /monorepo/packages/sdk/package.json ./packages/sdk/
+COPY --from=builder /monorepo/packages/nodes/package.json ./packages/nodes/
+COPY --from=builder /monorepo/packages/nodes/dist ./packages/nodes/dist
+COPY --from=builder /monorepo/apps/engine/package.json ./apps/engine/
 
-RUN cd /monorepo && pnpm install --prod --filter @magicaal/engine
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes
 
+WORKDIR /monorepo/apps/engine
 COPY --from=builder /monorepo/apps/engine/dist ./dist
 
 EXPOSE 4000

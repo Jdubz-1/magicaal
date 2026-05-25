@@ -1,9 +1,9 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
-import { db } from '@/db/client';
-import { users, authSessions } from '@/db/schema';
-import { verifyPassword } from '@/lib/password';
-import { signJwt, signRefreshToken, verifyRefreshToken } from '@/lib/jwt';
+import { db } from '../db/client';
+import { users, authSessions } from '../db/schema';
+import { verifyPassword } from '../lib/password';
+import { signJwt, signRefreshToken, verifyRefreshToken } from '../lib/jwt';
 import * as crypto from 'node:crypto';
 
 function sha256hex(input: string): string {

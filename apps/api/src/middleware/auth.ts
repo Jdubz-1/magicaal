@@ -1,9 +1,9 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { db } from '@/db/client';
-import { apiKeys, users } from '@/db/schema';
-import { verifyJwt } from '@/lib/jwt';
+import { db } from '../db/client';
+import { apiKeys, users } from '../db/schema';
+import { verifyJwt } from '../lib/jwt';
 
 function sha256hex(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');

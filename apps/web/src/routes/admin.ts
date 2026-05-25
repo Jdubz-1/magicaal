@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { requireAdminSession } from '../middleware/session';
 import { createApiClient } from '../lib/api-client';
 import { layout, escHtml } from '../views/layout';
 
-export const adminRouter = Router();
+export const adminRouter: RouterType = Router();
 
 adminRouter.use(requireAdminSession);
 

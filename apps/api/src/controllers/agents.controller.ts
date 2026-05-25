@@ -1,9 +1,9 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
-import { db } from '@/db/client';
-import { agents, agentVersions, agentConfig } from '@/db/schema';
-import { engineClient } from '@/lib/engine-client';
+import { db } from '../db/client';
+import { agents, agentVersions, agentConfig } from '../db/schema';
+import { engineClient } from '../lib/engine-client';
 
 function newId(): string {
   return crypto.randomUUID();

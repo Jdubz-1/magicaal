@@ -1,8 +1,8 @@
-import { Router } from 'express';
-import { requireAuth, requireRole } from '@/middleware/auth';
-import { listUsers, createUser, getUser, updateUser, deactivateUser } from '@/controllers/users.controller';
+import { Router, type Router as RouterType } from 'express';
+import { requireAuth, requireRole } from '../middleware/auth';
+import { listUsers, createUser, getUser, updateUser, deactivateUser } from '../controllers/users.controller';
 
-export const usersRouter = Router();
+export const usersRouter: RouterType = Router();
 
 usersRouter.use(requireAuth);
 

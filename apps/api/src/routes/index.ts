@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { healthRouter } from './health';
 import { authRouter } from './auth';
 import { usersRouter } from './users';
@@ -6,7 +6,7 @@ import { tenantsRouter } from './tenants';
 import { agentsRouter } from './agents';
 import { systemRouter } from './system';
 
-export const router = Router();
+export const router: RouterType = Router();
 
 router.use(healthRouter);
 router.use('/v1/auth', authRouter);

@@ -1,9 +1,9 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
-import { db } from '@/db/client';
-import { users } from '@/db/schema';
-import { hashPassword } from '@/lib/password';
+import { db } from '../db/client';
+import { users } from '../db/schema';
+import { hashPassword } from '../lib/password';
 
 export const listUsers: RequestHandler = async (req, res, next) => {
   try {

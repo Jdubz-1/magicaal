@@ -18,6 +18,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.base.json ./
 COPY apps/web/src ./apps/web/src
+COPY apps/web/public ./apps/web/public
 COPY apps/web/tsconfig.json ./apps/web/tsconfig.json
 COPY apps/web/tsconfig.build.json ./apps/web/tsconfig.build.json
 WORKDIR /monorepo/apps/web
@@ -25,18 +26,18 @@ RUN pnpm run build
 
 # Stage 2: Runtime
 FROM node:22-alpine AS runtime
-WORKDIR /app
-
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-COPY --from=builder /monorepo/apps/web/package.json ./package.json
-COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml /monorepo/
+WORKDIR /monorepo
+COPY --from=builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml ./
+COPY --from=builder /monorepo/apps/web/package.json ./apps/web/
 
-RUN cd /monorepo && pnpm install --prod --filter @magicaal/web
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/web
 
+WORKDIR /monorepo/apps/web
 COPY --from=builder /monorepo/apps/web/dist ./dist
 COPY --from=builder /monorepo/apps/web/public ./public
 

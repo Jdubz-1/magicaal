@@ -1,8 +1,8 @@
 import type { RequestHandler } from 'express';
 import { eq, and } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
-import { db } from '@/db/client';
-import { invocationKeys } from '@/db/schema';
+import { db } from '../db/client';
+import { invocationKeys } from '../db/schema';
 
 function generateKey(): { plaintext: string; hash: string } {
   const raw = crypto.randomBytes(32).toString('hex');

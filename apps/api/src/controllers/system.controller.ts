@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { engineClient } from '@/lib/engine-client';
+import { engineClient } from '../lib/engine-client';
 
 export const getSystemHealth: RequestHandler = async (_req, res, next) => {
   try {
