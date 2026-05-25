@@ -21,8 +21,10 @@ COPY apps/web/src ./apps/web/src
 COPY apps/web/public ./apps/web/public
 COPY apps/web/tsconfig.json ./apps/web/tsconfig.json
 COPY apps/web/tsconfig.build.json ./apps/web/tsconfig.build.json
+COPY apps/web/vite.config.mjs ./apps/web/vite.config.mjs
 WORKDIR /monorepo/apps/web
 RUN pnpm run build
+RUN pnpm run build:canvas
 
 # Stage 2: Runtime
 FROM node:22-alpine AS runtime
