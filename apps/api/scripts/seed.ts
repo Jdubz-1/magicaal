@@ -1,7 +1,7 @@
-import { randomUUID } from 'crypto';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { db } from '../src/db/client';
 import { tenants, users, apiKeys } from '../src/db/schema';
+import { hashPassword } from '../src/lib/password';
 
 if (process.env.NODE_ENV === 'production') {
   console.error('seed.ts must not be run in production');
@@ -23,8 +23,7 @@ async function seed(): Promise<void> {
   }).onConflictDoNothing();
 
   const userId = randomUUID();
-  // In Phase 1 this will use bcrypt; for seed purposes we hash directly
-  const passwordHash = createHash('sha256').update('admin').digest('hex');
+  const passwordHash = await hashPassword('admin');
   await db.insert(users).values({
     id: userId,
     tenantId,
