@@ -12,6 +12,5 @@
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "ignoreDeprecations": "5.0"
   }
 }
