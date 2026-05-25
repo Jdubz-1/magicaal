@@ -25,6 +25,37 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-05-25 - Docker Compose build and runtime fixes for Phase 0/1 verification
+
+**Type:** Infrastructure
+
+**Description:**
+Resolved all TypeScript build errors and Docker runtime failures blocking `docker compose up --build` for Phase 0/1 verification. All three services (api, engine, web) now build cleanly and start successfully with health checks passing.
+
+Root causes addressed: missing `rootDir` in tsconfig.build.json files (output landed at `dist/src/` instead of `dist/`); TS2742 on Express exports caused by `declaration: true` inferring non-portable pnpm store paths (fixed with explicit type annotations); `@/` path aliases not rewritten by tsc in compiled JS (converted to relative imports); Docker runtime stages missing correct workspace structure causing `pnpm install --filter` to find no project; transitive workspace dep (`@magicaal/nodes`) not having its own external deps installed in the engine runtime image; Drizzle migrations directory not copied to runtime; Docker Compose `.env` values using `localhost` hostnames instead of Docker service names.
+
+**Changes:**
+- `apps/api/tsconfig.build.json` — added `rootDir: "src"` to correct compiled output path
+- `apps/engine/tsconfig.build.json` — added `rootDir: "src"`
+- `apps/web/tsconfig.build.json` — added `rootDir: "src"`; re-added `src/canvas` to exclude (Vite-bundled Svelte, not tsc)
+- `packages/nodes/tsconfig.build.json` — new file; `rootDir: "src"`, `outDir: "dist"`
+- `packages/nodes/package.json` — added `main: "dist/index.js"` and `build` script
+- `apps/web/src/app.ts` — explicit `Application` return type (TS2742)
+- `apps/web/src/routes/admin.ts`, `auth.ts`, `studio.ts` — explicit `RouterType` annotations (TS2742)
+- `apps/api/src/app.ts` — explicit `Application` return type (TS2742)
+- `apps/api/src/routes/agents.ts`, `auth.ts`, `health.ts`, `index.ts`, `system.ts`, `tenants.ts`, `users.ts` — explicit `RouterType` annotations (TS2742)
+- `apps/engine/src/routes/internal.ts` — explicit `RouterType` annotation (TS2742)
+- `apps/api/src/controllers/*.ts`, `middleware/auth.ts`, `routes/*.ts` (13 files) — converted `@/` path aliases to relative imports (tsc does not rewrite paths in compiled JS output)
+- `apps/web/Dockerfile` — added `public/` COPY to builder; restructured runtime stage to correct pnpm workspace paths
+- `apps/api/Dockerfile` — added `drizzle/` COPY to builder and runtime stages; restructured runtime stage to correct pnpm workspace paths
+- `apps/engine/Dockerfile` — added nodes package build pipeline (COPY src + tsconfig, build, copy dist); added `--filter @magicaal/nodes` to runtime pnpm install for transitive external deps
+- `docker-compose.yml` — added `REDIS_URL` and `ENGINE_BASE_URL` environment overrides using Docker service hostnames (takes precedence over `env_file` localhost values)
+
+**Impact:**
+`docker compose up --build` succeeds end-to-end. All services start and pass health checks: API (port 3000, Drizzle migrations run on startup), Engine (port 4000, 5 nodes registered), Web (port 8080), Redis. Phase 0/1 build milestone verified.
+
+---
+
 ### 2026-05-24 - Phase 1 Milestone Sign-off: Tests, Canvas UX & Config UI
 
 **Type:** Feature
