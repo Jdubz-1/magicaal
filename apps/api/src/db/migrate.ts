@@ -1,7 +1,7 @@
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { db } from './client';
-import { logger } from '../lib/logger';
 import path from 'path';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { logger } from '../lib/logger';
+import { db } from './client';
 
 export async function runMigrations(): Promise<void> {
   const migrationsFolder = path.join(__dirname, '../../drizzle/migrations');

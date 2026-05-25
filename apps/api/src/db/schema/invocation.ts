@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
-import { agents, agentVersions } from './agents';
+import { agents } from './agents';
 import { tenants } from './auth';
 
 export const invocationPolicies = sqliteTable('invocation_policies', {

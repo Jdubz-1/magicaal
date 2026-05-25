@@ -1,7 +1,7 @@
 import { createApp } from './app';
 import { config } from './config';
-import { logger } from './lib/logger';
 import { runMigrations } from './db/migrate';
+import { logger } from './lib/logger';
 
 async function main(): Promise<void> {
   if (!config.masterKey) {

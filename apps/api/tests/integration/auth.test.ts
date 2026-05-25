@@ -17,9 +17,9 @@ describe('POST /v1/auth/login', () => {
   });
 
   it('returns 401 for wrong password', async () => {
-    const { userId: _u } = await createUserAndLogin(app);
+    await createUserAndLogin(app);
     // create a fresh user then try wrong password
-    const { token: _t } = await createUserAndLogin(app);
+    await createUserAndLogin(app);
     // We can't easily get the email back from helper, so test with a known bad user
     const res = await request(app)
       .post('/v1/auth/login')
@@ -43,7 +43,6 @@ describe('POST /v1/auth/login', () => {
 
   it('sets refresh_token cookie on success', async () => {
     // Use a raw login instead of the helper to inspect cookies
-    const { db: _db } = await import('../../src/db/client');
     const { tenants, users } = await import('../../src/db/schema');
     const { hashPassword } = await import('../../src/lib/password');
     const crypto = await import('node:crypto');

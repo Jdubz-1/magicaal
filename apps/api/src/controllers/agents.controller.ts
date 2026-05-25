@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
 import { db } from '@/db/client';
 import { agents, agentVersions, agentConfig } from '@/db/schema';
