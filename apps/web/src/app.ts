@@ -49,7 +49,7 @@ export function createApp(): Application {
   app.use('/studio', studioRouter);
   app.use('/admin', adminRouter);
 
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 
   // Root redirect
   app.get('/', requireSession, (_req, res) => {
