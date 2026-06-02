@@ -20,8 +20,22 @@ export async function runTelemetryMigrations(): Promise<void> {
     duration_ms INTEGER,
     total_prompt_tokens INTEGER NOT NULL DEFAULT 0,
     total_completion_tokens INTEGER NOT NULL DEFAULT 0,
-    estimated_cost_usd REAL NOT NULL DEFAULT 0
+    estimated_cost_usd REAL NOT NULL DEFAULT 0,
+    review_id TEXT,
+    suspended_node_id TEXT,
+    checkpoint_json TEXT
   )`);
+
+  // Add checkpoint columns to existing runs table (safe on existing DBs)
+  try {
+    telemetryDb.run(sql`ALTER TABLE runs ADD COLUMN review_id TEXT`);
+  } catch { /* column already exists */ }
+  try {
+    telemetryDb.run(sql`ALTER TABLE runs ADD COLUMN suspended_node_id TEXT`);
+  } catch { /* column already exists */ }
+  try {
+    telemetryDb.run(sql`ALTER TABLE runs ADD COLUMN checkpoint_json TEXT`);
+  } catch { /* column already exists */ }
 
   telemetryDb.run(sql`CREATE TABLE IF NOT EXISTS steps (
     id TEXT PRIMARY KEY NOT NULL,

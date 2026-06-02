@@ -1,7 +1,9 @@
 import type { ExecutionContext, TrajectoryStep, ResolvedCredentials } from '@magicaal/sdk-node';
-import type { TokenUsage } from '@magicaal/core';
+import type { TokenUsage, CanonicalLLMRequest, CanonicalLLMResponse, ModelRouterConfig } from '@magicaal/core';
 import { evaluate } from '@magicaal/nodes';
 import { logger } from '../lib/logger';
+import { sseManager } from '../sse/sse-manager';
+import { routedLLMCall, resolveRouterConfig } from '../router/router-engine';
 
 export interface RunParams {
   runId: string;
@@ -9,6 +11,8 @@ export interface RunParams {
   tenantId: string;
   triggerType: string;
   input: Record<string, unknown>;
+  graphDefaultRouter?: ModelRouterConfig | null;
+  tenantRouterPolicy?: ModelRouterConfig | null;
 }
 
 export interface CollectedMetric {
@@ -25,6 +29,9 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   readonly credentials: Record<string, ResolvedCredentials> = {};
 
+  readonly graphDefaultRouter?: ModelRouterConfig | null;
+  readonly tenantRouterPolicy?: ModelRouterConfig | null;
+
   private _tokenUsage: TokenUsage = {
     promptTokens: 0,
     completionTokens: 0,
@@ -34,6 +41,7 @@ export class ExecutionContextImpl implements ExecutionContext {
   private _metrics: CollectedMetric[] = [];
   private _suspended = false;
   private _suspendReviewId: string | undefined;
+  private _suspendedNodeId: string | undefined;
 
   constructor(params: RunParams) {
     this.runId = params.runId;
@@ -41,6 +49,8 @@ export class ExecutionContextImpl implements ExecutionContext {
     this.tenantId = params.tenantId;
     this.triggerType = params.triggerType;
     this.data = { ...params.input };
+    this.graphDefaultRouter = params.graphDefaultRouter;
+    this.tenantRouterPolicy = params.tenantRouterPolicy;
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -84,13 +94,34 @@ export class ExecutionContextImpl implements ExecutionContext {
     this._trajectorySteps.push(step);
   }
 
-  suspend(reviewId: string): void {
+  suspend(reviewId: string, nodeId?: string): void {
     this._suspended = true;
     this._suspendReviewId = reviewId;
+    this._suspendedNodeId = nodeId;
   }
 
   emit(event: string, payload: unknown): void {
-    logger.info({ runId: this.runId, event, payload }, 'Run event emitted');
+    sseManager.broadcast(this.runId, event, payload);
+  }
+
+  async llmCall(
+    request: CanonicalLLMRequest,
+    nodeRouterConfig?: ModelRouterConfig | null,
+  ): Promise<CanonicalLLMResponse> {
+    const config = resolveRouterConfig(
+      { router: nodeRouterConfig ?? undefined },
+      this.graphDefaultRouter ?? undefined,
+      this.tenantRouterPolicy ?? undefined,
+    );
+    if (!config) {
+      throw Object.assign(
+        new Error('No router config available for LLM call. Configure a router at node, graph, or tenant level.'),
+        { code: 'ROUTER_NOT_CONFIGURED', retryable: false },
+      );
+    }
+    const response = await routedLLMCall(request, config, this);
+    this.recordTokenUsage(response.usage);
+    return response;
   }
 
   get isSuspended(): boolean {
@@ -99,6 +130,10 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   get suspendReviewId(): string | undefined {
     return this._suspendReviewId;
+  }
+
+  get suspendedNodeId(): string | undefined {
+    return this._suspendedNodeId;
   }
 
   get tokenUsage(): TokenUsage {

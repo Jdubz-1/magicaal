@@ -16,6 +16,9 @@ export const telemetryRuns = sqliteTable('runs', {
   totalPromptTokens: integer('total_prompt_tokens').notNull().default(0),
   totalCompletionTokens: integer('total_completion_tokens').notNull().default(0),
   estimatedCostUsd: real('estimated_cost_usd').notNull().default(0),
+  reviewId: text('review_id'),
+  suspendedNodeId: text('suspended_node_id'),
+  checkpointJson: text('checkpoint_json'),
 });
 
 export const telemetrySteps = sqliteTable('steps', {
