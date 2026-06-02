@@ -12,5 +12,6 @@ export const config = Object.freeze({
   masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
   jwtSecret: requireEnv('JWT_SECRET'),
   engineBaseUrl: process.env.ENGINE_BASE_URL ?? 'http://engine:4000',
+  publicBaseUrl: process.env.PUBLIC_BASE_URL ?? `http://localhost:${parseInt(process.env.PORT ?? '3000', 10)}`,
   seedOnBoot: process.env.SEED_ON_BOOT === 'true',
 });

@@ -2,8 +2,56 @@ import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
-import { agents, invocationKeys } from '../db/schema';
+import { agents, invocationKeys, invocationPolicies, invocationLog } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+
+function newId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// Simple in-memory rate limit counter (production would use Redis)
+const rateLimitCounters = new Map<string, { count: number; windowStart: number }>();
+
+async function checkRateLimit(
+  agentId: string,
+  tenantId: string,
+): Promise<{ limited: boolean; limit: number; remaining: number; resetAt: number }> {
+  const policyRows = await db
+    .select()
+    .from(invocationPolicies)
+    .where(eq(invocationPolicies.agentId, agentId));
+
+  const policy = policyRows[0];
+  if (!policy?.rateLimit) {
+    return { limited: false, limit: Infinity, remaining: Infinity, resetAt: 0 };
+  }
+
+  const rateCfg = JSON.parse(policy.rateLimit) as {
+    requestsPerWindow: number;
+    windowSeconds: number;
+  };
+
+  const key = `${tenantId}:${agentId}`;
+  const now = Date.now();
+  const windowMs = (rateCfg.windowSeconds ?? 60) * 1000;
+  const limit = rateCfg.requestsPerWindow ?? 100;
+
+  const counter = rateLimitCounters.get(key);
+  if (!counter || now - counter.windowStart >= windowMs) {
+    rateLimitCounters.set(key, { count: 1, windowStart: now });
+    return { limited: false, limit, remaining: limit - 1, resetAt: now + windowMs };
+  }
+
+  counter.count++;
+  const remaining = Math.max(0, limit - counter.count);
+  const resetAt = counter.windowStart + windowMs;
+
+  if (counter.count > limit) {
+    return { limited: true, limit, remaining: 0, resetAt };
+  }
+
+  return { limited: false, limit, remaining, resetAt };
+}
 
 function sha256hex(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -49,6 +97,26 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
 
     const authKey = await resolveInvocationKey(agentId, req.headers.authorization);
 
+    // Rate limit check
+    const rl = await checkRateLimit(agentId, tenantId);
+    res.setHeader('X-RateLimit-Limit', String(rl.limit === Infinity ? 9999 : rl.limit));
+    res.setHeader('X-RateLimit-Remaining', String(rl.remaining === Infinity ? 9999 : rl.remaining));
+    res.setHeader('X-RateLimit-Reset', String(Math.floor(rl.resetAt / 1000)));
+    if (rl.limited) {
+      throw Object.assign(new Error('Rate limit exceeded'), { status: 429, code: 'RATE_LIMIT_EXCEEDED' });
+    }
+
+    // Log invocation for audit
+    await db.insert(invocationLog).values({
+      id: newId(),
+      agentId,
+      tenantId,
+      strategy: authKey ? 'api-key' : 'bearer',
+      requestIp: req.ip ?? 'unknown',
+      status: 'dispatched',
+      createdAt: new Date(),
+    }).catch(() => { /* non-fatal */ });
+
     const response = await engineClient.post('/internal/runs', {
       agentId,
       tenantId,
@@ -84,6 +152,59 @@ export const getRun: RequestHandler = async (req, res, next) => {
     res.json(response.data);
   } catch (err) {
     next(err);
+  }
+};
+
+export const reviewRun: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: agentId, runId } = req.params;
+    const { tenantId } = req.user!;
+
+    const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
+    const agent = agentRows[0];
+    if (!agent || agent.tenantId !== tenantId) {
+      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
+
+    const response = await engineClient.post(`/internal/runs/${runId}/review`, req.body);
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const streamRun: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: agentId, runId } = req.params;
+    const { tenantId } = req.user!;
+
+    const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
+    const agent = agentRows[0];
+    if (!agent || agent.tenantId !== tenantId) {
+      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const engineResponse = await engineClient.get(`/internal/runs/${runId}/stream`, {
+      responseType: 'stream',
+      timeout: 0,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (engineResponse.data as any).pipe(res);
+
+    req.on('close', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (engineResponse.data as any).destroy?.();
+    });
+  } catch (err) {
+    if (!res.headersSent) {
+      next(err);
+    }
   }
 };
 

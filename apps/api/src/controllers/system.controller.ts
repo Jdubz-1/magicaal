@@ -1,5 +1,12 @@
 import type { RequestHandler } from 'express';
+import { eq } from 'drizzle-orm';
+import { db } from '../db/client';
+import { providerPricing } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+
+function newId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export const getSystemHealth: RequestHandler = async (_req, res, next) => {
   try {
@@ -22,6 +29,74 @@ export const listNodes: RequestHandler = async (_req, res, next) => {
   try {
     const response = await engineClient.get('/internal/nodes');
     res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getProviderPricing: RequestHandler = async (_req, res, next) => {
+  try {
+    const rows = await db.select().from(providerPricing);
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const upsertProviderPricing: RequestHandler = async (req, res, next) => {
+  try {
+    const entries = req.body as Array<{
+      provider: string;
+      model: string;
+      promptTokensPerMillion: number;
+      completionTokensPerMillion: number;
+      currency?: string;
+    }>;
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      throw Object.assign(new Error('Body must be a non-empty array of pricing entries'), { status: 400 });
+    }
+
+    const now = new Date();
+    const results = [];
+    for (const entry of entries) {
+      const existing = await db
+        .select()
+        .from(providerPricing)
+        .where(eq(providerPricing.provider, entry.provider));
+      const match = existing.find((r) => r.model === entry.model);
+
+      if (match) {
+        const [updated] = await db
+          .update(providerPricing)
+          .set({
+            promptTokensPerMillion: entry.promptTokensPerMillion,
+            completionTokensPerMillion: entry.completionTokensPerMillion,
+            ...(entry.currency && { currency: entry.currency }),
+            effectiveAt: now,
+          })
+          .where(eq(providerPricing.id, match.id))
+          .returning();
+        results.push(updated);
+      } else {
+        const [created] = await db
+          .insert(providerPricing)
+          .values({
+            id: newId(),
+            provider: entry.provider,
+            model: entry.model,
+            promptTokensPerMillion: entry.promptTokensPerMillion,
+            completionTokensPerMillion: entry.completionTokensPerMillion,
+            currency: entry.currency ?? 'USD',
+            effectiveAt: now,
+            createdAt: now,
+          })
+          .returning();
+        results.push(created);
+      }
+    }
+
+    res.json(results);
   } catch (err) {
     next(err);
   }

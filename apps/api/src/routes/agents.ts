@@ -8,11 +8,14 @@ import {
   publishAgent,
   draftAgent,
   listAgentVersions,
+  getVersionDiff,
+  rollbackVersion,
   getAgentConfig,
   updateAgentConfig,
 } from '../controllers/agents.controller';
-import { dispatchRun, getRun, getRunSteps } from '../controllers/runs.controller';
+import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
+import { handleWebhook } from '../controllers/webhook.controller';
 
 export const agentsRouter: RouterType = Router();
 
@@ -26,12 +29,16 @@ agentsRouter.patch('/:id', updateAgent);
 agentsRouter.post('/:id/publish', publishAgent);
 agentsRouter.post('/:id/draft', draftAgent);
 agentsRouter.get('/:id/versions', listAgentVersions);
+agentsRouter.get('/:id/versions/:vId/diff', getVersionDiff);
+agentsRouter.post('/:id/versions/:vId/rollback', rollbackVersion);
 agentsRouter.get('/:id/config', getAgentConfig);
 agentsRouter.patch('/:id/config', updateAgentConfig);
 
 agentsRouter.post('/:id/runs', dispatchRun);
 agentsRouter.get('/:id/runs/:runId', getRun);
 agentsRouter.get('/:id/runs/:runId/steps', getRunSteps);
+agentsRouter.get('/:id/runs/:runId/stream', streamRun);
+agentsRouter.post('/:id/runs/:runId/review', reviewRun);
 
 agentsRouter.post('/:id/invocation-keys', createInvocationKey);
 agentsRouter.get('/:id/invocation-keys', listInvocationKeys);
