@@ -34,6 +34,30 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">Agents</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">All agents across tenants</div>
           </a>
+          <a class="card" href="/admin/telemetry" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Telemetry</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Run history &amp; token usage</div>
+          </a>
+          <a class="card" href="/admin/reviews" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Human Review</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Pending review queue</div>
+          </a>
+          <a class="card" href="/admin/integrations" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Integrations</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Connection management</div>
+          </a>
+          <a class="card" href="/admin/router-policies" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Router Policies</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Named LLM router configs</div>
+          </a>
+          <a class="card" href="/admin/pricing" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Provider Pricing</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Token cost configuration</div>
+          </a>
+          <a class="card" href="/admin/datasources" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Data Sources</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Registered data connections</div>
+          </a>
           <a class="card" href="/admin/system" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">System</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Health &amp; diagnostics</div>
@@ -586,6 +610,528 @@ adminRouter.get('/system', async (req, res, next) => {
           </table>
         </div>
       </div>`, { title: 'System — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Telemetry Dashboard ───────────────────────────────────────────────────────
+
+adminRouter.get('/telemetry', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    let runs: Array<{ id: string; agentId: string; status: string; triggerType: string; startedAt: string; tokenUsage: { promptTokens: number; completionTokens: number; estimatedCostUsd: number } }> = [];
+    let tokenTotals = { promptTokens: 0, completionTokens: 0, estimatedCostUsd: 0, runCount: 0 };
+    let err2 = '';
+
+    try {
+      const [{ data: tel }, { data: tok }] = await Promise.all([
+        api.get<{ runs: typeof runs }>('/v1/telemetry?limit=50'),
+        api.get<{ totals: typeof tokenTotals }>('/v1/telemetry/tokens'),
+      ]);
+      runs = tel.runs ?? [];
+      tokenTotals = tok.totals ?? tokenTotals;
+    } catch {
+      err2 = 'Could not load telemetry — engine may be unavailable';
+    }
+
+    const statusColor = (s: string) => s === 'completed' ? '#4ade80' : s === 'failed' ? '#fca5a5' : s === 'suspended' ? '#fcd34d' : '#93c5fd';
+
+    const runRows = runs.map((r) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.75rem"><a href="/admin/runs/${escHtml(r.id)}" style="color:#93c5fd">${escHtml(r.id)}</a></td>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(r.agentId)}</td>
+        <td><span style="color:${statusColor(r.status)}">${escHtml(r.status)}</span></td>
+        <td style="color:#94a3b8;font-size:0.75rem">${escHtml(r.triggerType)}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</td>
+        <td style="font-size:0.75rem">$${(r.tokenUsage?.estimatedCostUsd ?? 0).toFixed(4)}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <h1 style="margin:0 0 1.5rem;font-size:1.5rem">Telemetry</h1>
+        ${err2 ? `<div class="alert-error">${escHtml(err2)}</div>` : ''}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem">
+          <div class="card" style="text-align:center">
+            <div style="font-size:1.5rem;font-weight:700">${tokenTotals.runCount}</div>
+            <div style="color:#94a3b8;font-size:0.875rem">Total Runs</div>
+          </div>
+          <div class="card" style="text-align:center">
+            <div style="font-size:1.5rem;font-weight:700">${(tokenTotals.promptTokens + tokenTotals.completionTokens).toLocaleString()}</div>
+            <div style="color:#94a3b8;font-size:0.875rem">Total Tokens</div>
+          </div>
+          <div class="card" style="text-align:center">
+            <div style="font-size:1.5rem;font-weight:700">$${tokenTotals.estimatedCostUsd.toFixed(2)}</div>
+            <div style="color:#94a3b8;font-size:0.875rem">Estimated Cost</div>
+          </div>
+          <div class="card" style="text-align:center">
+            <div style="font-size:1.5rem;font-weight:700">${runs.filter((r) => r.status === 'suspended').length}</div>
+            <div style="color:#fcd34d;font-size:0.875rem">Awaiting Review</div>
+          </div>
+        </div>
+        <div class="card">
+          <h2 style="margin:0 0 1rem;font-size:1rem">Recent Runs</h2>
+          <table>
+            <thead><tr><th>Run ID</th><th>Agent</th><th>Status</th><th>Trigger</th><th>Started</th><th>Cost</th></tr></thead>
+            <tbody>${runRows || '<tr><td colspan="6" style="color:#475569;text-align:center">No runs yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Telemetry — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/runs/:runId', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { runId } = req.params;
+
+    const { data } = await api.get<{
+      run: { id: string; agentId: string; status: string; startedAt: string; completedAt?: string; totalPromptTokens: number; totalCompletionTokens: number; estimatedCostUsd: number };
+      steps: Array<{ id: string; nodeId: string; nodeType: string; status: string; startedAt: string; completedAt?: string; promptTokens: number; completionTokens: number; routingMeta?: { targetUsed?: { provider: string; model: string }; attemptCount?: number } }>;
+    }>(`/v1/telemetry?runId=${encodeURIComponent(runId)}`).catch(() => ({ data: null }));
+
+    if (!data) {
+      res.redirect('/admin/telemetry');
+      return;
+    }
+
+    const stepRows = (data.steps ?? []).map((s) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(s.nodeId)}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${escHtml(s.nodeType)}</td>
+        <td><span style="color:${s.status === 'complete' ? '#4ade80' : s.status === 'failed' ? '#fca5a5' : '#93c5fd'}">${escHtml(s.status)}</span></td>
+        <td style="font-size:0.75rem">${s.startedAt ? new Date(s.startedAt).toLocaleString() : '—'}</td>
+        <td style="font-size:0.75rem">${s.promptTokens ? `${s.promptTokens}+${s.completionTokens}` : '—'}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${s.routingMeta?.targetUsed ? `${s.routingMeta.targetUsed.provider}/${s.routingMeta.targetUsed.model}` : '—'}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <a href="/admin/telemetry" class="btn btn-ghost">&larr; Telemetry</a>
+          <h1 style="margin:0;font-size:1.25rem;font-family:monospace">${escHtml(runId)}</h1>
+        </div>
+        <div class="card" style="margin-bottom:1rem">
+          <div style="display:flex;gap:2rem">
+            <div><div style="color:#94a3b8;font-size:0.75rem">Status</div><div>${escHtml(data.run?.status ?? '—')}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Agent</div><div style="font-family:monospace;font-size:0.875rem">${escHtml(data.run?.agentId ?? '—')}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Started</div><div style="font-size:0.875rem">${data.run?.startedAt ? new Date(data.run.startedAt).toLocaleString() : '—'}</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2 style="margin:0 0 1rem;font-size:1rem">Steps</h2>
+          <table>
+            <thead><tr><th>Node ID</th><th>Type</th><th>Status</th><th>Started</th><th>Tokens (in+out)</th><th>Provider/Model</th></tr></thead>
+            <tbody>${stepRows || '<tr><td colspan="6" style="color:#475569;text-align:center">No steps recorded</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: `Run ${runId} — Admin`, user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Human Review Queue ────────────────────────────────────────────────────────
+
+adminRouter.get('/reviews', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+
+    let suspended: Array<{ id: string; agentId: string; startedAt: string; reviewId?: string }> = [];
+    try {
+      const { data } = await api.get<{ runs: typeof suspended }>('/v1/telemetry?status=suspended&limit=50');
+      suspended = data.runs ?? [];
+    } catch { /* engine unavailable */ }
+
+    const rows = suspended.map((r) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(r.id)}</td>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(r.agentId)}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</td>
+        <td>
+          <form method="POST" action="/admin/reviews/${escHtml(r.id)}/approve" style="display:inline">
+            <button class="btn btn-ghost" style="color:#4ade80;border-color:#166534;font-size:0.75rem">Approve</button>
+          </form>
+          <form method="POST" action="/admin/reviews/${escHtml(r.id)}/reject" style="display:inline;margin-left:0.5rem">
+            <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Reject</button>
+          </form>
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <h1 style="margin:0 0 1.5rem;font-size:1.5rem">Human Review Queue
+          ${suspended.length > 0 ? `<span style="background:#78350f;color:#fcd34d;font-size:0.875rem;padding:0.25rem 0.5rem;border-radius:4px;margin-left:0.5rem">${suspended.length} pending</span>` : ''}
+        </h1>
+        <div class="card">
+          <table>
+            <thead><tr><th>Run ID</th><th>Agent</th><th>Suspended At</th><th>Actions</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No runs awaiting review</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Human Review — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/reviews/:runId/approve', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { runId } = req.params;
+    // Need agentId — fetch run first (simplified: use a direct engine call via API)
+    await api.post(`/v1/telemetry/review/${encodeURIComponent(runId)}`, { action: 'approve' }).catch(() => {});
+    res.redirect('/admin/reviews');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/reviews/:runId/reject', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { runId } = req.params;
+    await api.post(`/v1/telemetry/review/${encodeURIComponent(runId)}`, { action: 'reject' }).catch(() => {});
+    res.redirect('/admin/reviews');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Integration Connections ───────────────────────────────────────────────────
+
+adminRouter.get('/integrations', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    let connections: Array<{ id: string; service: string; displayName: string; authType: string; status: string; createdAt: string }> = [];
+    try {
+      const { data } = await api.get<typeof connections>('/v1/integrations/connections');
+      connections = data;
+    } catch { /* no connections yet */ }
+
+    const statusColor = (s: string) => s === 'active' ? '#4ade80' : s === 'expired' ? '#fcd34d' : '#fca5a5';
+
+    const rows = connections.map((c) => `
+      <tr>
+        <td>${escHtml(c.displayName)}</td>
+        <td style="color:#94a3b8">${escHtml(c.service)}</td>
+        <td style="color:#94a3b8">${escHtml(c.authType)}</td>
+        <td><span style="color:${statusColor(c.status)}">${escHtml(c.status)}</span></td>
+        <td style="color:#94a3b8;font-size:0.75rem">${c.createdAt ? new Date(c.createdAt).toLocaleString() : '—'}</td>
+        <td>
+          <form method="POST" action="/admin/integrations/${escHtml(c.id)}/delete" style="display:inline">
+            <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
+          </form>
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Integration Connections</h1>
+          <a href="/admin/integrations/create" class="btn btn-primary">+ Add Connection</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Service</th><th>Auth Type</th><th>Status</th><th>Created</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:2rem">No connections configured</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Integrations — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/integrations/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/integrations" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Add Integration Connection</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/integrations/create">
+        <div class="form-group"><label>Display Name</label><input name="displayName" required /></div>
+        <div class="form-group"><label>Service (e.g. openai, slack, github)</label><input name="service" required /></div>
+        <div class="form-group">
+          <label>Auth Type</label>
+          <select name="authType">
+            <option value="api_key">API Key</option>
+            <option value="oauth2">OAuth 2.0</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Credentials (JSON)</label><textarea name="credentials" rows="5" placeholder='{"api_key":"sk-..."}'></textarea></div>
+        <button type="submit" class="btn btn-primary">Save Connection</button>
+      </form>
+    </div>`, { title: 'Add Connection — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/integrations/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { displayName, service, authType, credentials } = req.body as { displayName: string; service: string; authType: string; credentials: string };
+    let credObj: Record<string, unknown> = {};
+    try { credObj = JSON.parse(credentials) as Record<string, unknown>; } catch { /* invalid json */ }
+    await api.post('/v1/integrations/connections', { displayName, service, authType, credentials: credObj });
+    res.redirect('/admin/integrations');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/integrations/:id/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/integrations/connections/${req.params.id}`);
+    res.redirect('/admin/integrations');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Router Policies ──────────────────────────────────────────────────────────
+
+adminRouter.get('/router-policies', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    let policies: Array<{ id: string; name: string; overridable: boolean; config: { strategy: string; targets?: unknown[] }; createdAt: string }> = [];
+    try {
+      const { data } = await api.get<typeof policies>('/v1/llm/router-policies');
+      policies = data;
+    } catch { /* no policies yet */ }
+
+    const rows = policies.map((p) => `
+      <tr>
+        <td style="font-weight:600">${escHtml(p.name)}</td>
+        <td style="color:#94a3b8">${escHtml(p.config?.strategy ?? '—')}</td>
+        <td style="color:#94a3b8">${p.config?.targets?.length ?? 0} target(s)</td>
+        <td>${p.overridable ? '<span style="color:#4ade80">yes</span>' : '<span style="color:#fca5a5">locked</span>'}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}</td>
+        <td>
+          <form method="POST" action="/admin/router-policies/${escHtml(p.id)}/delete" style="display:inline">
+            <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
+          </form>
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Named Router Policies</h1>
+          <a href="/admin/router-policies/create" class="btn btn-primary">+ Create Policy</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Strategy</th><th>Targets</th><th>Overridable</th><th>Created</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:2rem">No policies configured</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Router Policies — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/router-policies/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/router-policies" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Create Router Policy</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/router-policies/create">
+        <div class="form-group"><label>Policy Name</label><input name="name" required placeholder="primary-openai" /></div>
+        <div class="form-group">
+          <label>Config (JSON — ModelRouterConfig)</label>
+          <textarea name="config" rows="10" required placeholder='{"strategy":"priority","targets":[{"id":"t1","connectionId":"conn-id","provider":"openai","model":"gpt-4o"}],"triggers":[]}'></textarea>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" name="overridable" value="true" checked /> Overridable by agents</label>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Policy</button>
+      </form>
+    </div>`, { title: 'Create Policy — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/router-policies/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { name, config: configStr, overridable } = req.body as { name: string; config: string; overridable?: string };
+    let configObj: Record<string, unknown> = {};
+    try { configObj = JSON.parse(configStr) as Record<string, unknown>; } catch { /* invalid */ }
+    await api.post('/v1/llm/router-policies', { name, config: configObj, overridable: overridable === 'true' });
+    res.redirect('/admin/router-policies');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/router-policies/:id/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/llm/router-policies/${req.params.id}`);
+    res.redirect('/admin/router-policies');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Provider Pricing ─────────────────────────────────────────────────────────
+
+adminRouter.get('/pricing', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    let pricing: Array<{ id: string; provider: string; model: string; promptTokensPerMillion: number; completionTokensPerMillion: number; currency: string }> = [];
+    try {
+      const { data } = await api.get<typeof pricing>('/v1/system/provider-pricing');
+      pricing = data;
+    } catch { /* no pricing yet */ }
+
+    const rows = pricing.map((p) => `
+      <tr>
+        <td>${escHtml(p.provider)}</td>
+        <td style="font-family:monospace;font-size:0.875rem">${escHtml(p.model)}</td>
+        <td>$${p.promptTokensPerMillion.toFixed(2)}</td>
+        <td>$${p.completionTokensPerMillion.toFixed(2)}</td>
+        <td style="color:#94a3b8">${escHtml(p.currency)}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Provider Pricing</h1>
+          <a href="/admin/pricing/edit" class="btn btn-primary">Update Pricing</a>
+        </div>
+        <p style="color:#94a3b8;margin:0 0 1rem">Prices in USD per million tokens. Used for cost estimation in telemetry.</p>
+        <div class="card">
+          <table>
+            <thead><tr><th>Provider</th><th>Model</th><th>Input ($/M)</th><th>Output ($/M)</th><th>Currency</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:2rem">No pricing data (built-in defaults are used)</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Pricing — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/pricing/edit', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/pricing" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Update Provider Pricing</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/pricing/edit">
+        <div class="form-group"><label>Entries (JSON array)</label>
+          <textarea name="entries" rows="12" placeholder='[{"provider":"openai","model":"gpt-4o","promptTokensPerMillion":2.5,"completionTokensPerMillion":10}]'></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </form>
+    </div>`, { title: 'Edit Pricing — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/pricing/edit', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { entries: entriesStr } = req.body as { entries: string };
+    let entries: unknown[] = [];
+    try { entries = JSON.parse(entriesStr) as unknown[]; } catch { /* invalid */ }
+    await api.post('/v1/system/provider-pricing', entries);
+    res.redirect('/admin/pricing');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Data Sources ─────────────────────────────────────────────────────────────
+
+adminRouter.get('/datasources', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    let sources: Array<{ id: string; name: string; sourceType: string; createdAt: string }> = [];
+    try {
+      const { data } = await api.get<typeof sources>('/v1/datasources');
+      sources = data;
+    } catch { /* no data sources yet */ }
+
+    const rows = sources.map((s) => `
+      <tr>
+        <td style="font-weight:600">${escHtml(s.name)}</td>
+        <td style="color:#94a3b8">${escHtml(s.sourceType)}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
+        <td>
+          <form method="POST" action="/admin/datasources/${escHtml(s.id)}/delete" style="display:inline">
+            <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
+          </form>
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Data Sources</h1>
+          <a href="/admin/datasources/create" class="btn btn-primary">+ Add Data Source</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Created</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No data sources configured</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Data Sources — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/datasources/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/datasources" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Add Data Source</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/datasources/create">
+        <div class="form-group"><label>Name</label><input name="name" required /></div>
+        <div class="form-group"><label>Source Type (e.g. postgres, mysql, s3, bigquery)</label><input name="sourceType" required /></div>
+        <div class="form-group"><label>Connection (JSON)</label><textarea name="connection" rows="5" placeholder='{"host":"localhost","port":5432,"database":"mydb"}'></textarea></div>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </form>
+    </div>`, { title: 'Add Data Source — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/datasources/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { name, sourceType, connection: connStr } = req.body as { name: string; sourceType: string; connection: string };
+    let connObj: Record<string, unknown> = {};
+    try { connObj = JSON.parse(connStr) as Record<string, unknown>; } catch { /* invalid */ }
+    await api.post('/v1/datasources', { name, sourceType, connection: connObj });
+    res.redirect('/admin/datasources');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/datasources/:id/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/datasources/${req.params.id}`);
+    res.redirect('/admin/datasources');
   } catch (err) {
     next(err);
   }

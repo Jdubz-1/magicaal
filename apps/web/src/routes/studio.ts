@@ -97,3 +97,107 @@ studioRouter.get('/:agentId', (req, res) => {
     ),
   );
 });
+
+studioRouter.get('/:agentId/versions', async (req, res, next) => {
+  try {
+    const { agentId } = req.params;
+    const user = req.session!;
+    const api = createApiClient(req.accessToken);
+
+    const [{ data: agent }, { data: versions }] = await Promise.all([
+      api.get<{ id: string; name: string; status: string }>(`/v1/agents/${agentId}`),
+      api.get<Array<{ id: string; versionNumber: number; publishNotes?: string; createdAt: string; contentHash: string }>>(`/v1/agents/${agentId}/versions`),
+    ]);
+
+    const rows = versions
+      .slice()
+      .reverse()
+      .map((v) => `
+        <tr>
+          <td>v${v.versionNumber}</td>
+          <td style="font-family:monospace;font-size:0.75rem;color:#475569">${v.contentHash.slice(0, 8)}</td>
+          <td>${escHtml(v.publishNotes ?? '—')}</td>
+          <td style="color:#94a3b8">${new Date(v.createdAt).toLocaleString()}</td>
+          <td>
+            <a href="/studio/${escHtml(agentId)}/versions/${escHtml(v.id)}/diff" class="btn btn-ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem">Diff</a>
+            <form method="POST" action="/studio/${escHtml(agentId)}/versions/${escHtml(v.id)}/rollback" style="display:inline">
+              <button class="btn btn-ghost" style="font-size:0.75rem;padding:0.25rem 0.5rem">Rollback</button>
+            </form>
+          </td>
+        </tr>`)
+      .join('');
+
+    const body = `
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <a href="/studio/${escHtml(agentId)}" class="btn btn-ghost">&larr; Back to Studio</a>
+          <h1 style="margin:0;font-size:1.25rem">${escHtml(agent.name)} — Version History</h1>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Version</th><th>Hash</th><th>Notes</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center">No versions yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+    res.send(layout(body, { title: 'Version History — MagiCaal', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+studioRouter.get('/:agentId/versions/:vId/diff', async (req, res, next) => {
+  try {
+    const { agentId, vId } = req.params;
+    const user = req.session!;
+    const api = createApiClient(req.accessToken);
+
+    const { data: diff } = await api.get<{
+      changes: Array<{ path: string; type: string; oldValue?: unknown; newValue?: unknown }>;
+      targetVersion: { versionNumber: number };
+      compareVersion: { versionNumber: number } | null;
+    }>(`/v1/agents/${agentId}/versions/${vId}/diff`);
+
+    const changeRows = diff.changes.map((c) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(c.path)}</td>
+        <td><span style="padding:2px 6px;border-radius:3px;font-size:0.75rem;${c.type === 'added' ? 'background:#052e16;color:#4ade80' : c.type === 'removed' ? 'background:#3b1f1f;color:#fca5a5' : 'background:#1e3a5f;color:#93c5fd'}">${c.type}</span></td>
+        <td style="font-family:monospace;font-size:0.6875rem;color:#fca5a5">${c.oldValue !== undefined ? escHtml(JSON.stringify(c.oldValue)) : '—'}</td>
+        <td style="font-family:monospace;font-size:0.6875rem;color:#4ade80">${c.newValue !== undefined ? escHtml(JSON.stringify(c.newValue)) : '—'}</td>
+      </tr>`).join('');
+
+    const body = `
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <a href="/studio/${escHtml(agentId)}/versions" class="btn btn-ghost">&larr; Back</a>
+          <h1 style="margin:0;font-size:1.25rem">
+            v${diff.targetVersion.versionNumber} vs ${diff.compareVersion ? `v${diff.compareVersion.versionNumber}` : 'empty'}
+          </h1>
+          <span style="color:#94a3b8">${diff.changes.length} change${diff.changes.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="card">
+          ${diff.changes.length === 0 ? '<p style="color:#475569;text-align:center">No changes between versions</p>' : `
+          <table>
+            <thead><tr><th>Path</th><th>Type</th><th>Old Value</th><th>New Value</th></tr></thead>
+            <tbody>${changeRows}</tbody>
+          </table>`}
+        </div>
+      </div>`;
+
+    res.send(layout(body, { title: 'Version Diff — MagiCaal', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+studioRouter.post('/:agentId/versions/:vId/rollback', async (req, res, next) => {
+  try {
+    const { agentId, vId } = req.params;
+    const api = createApiClient(req.accessToken);
+    await api.post(`/v1/agents/${agentId}/versions/${vId}/rollback`);
+    res.redirect(`/studio/${agentId}/versions?rolled_back=1`);
+  } catch (err) {
+    next(err);
+  }
+});

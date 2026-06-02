@@ -23,6 +23,34 @@ export function createApp(): Application {
     res.json({ status: 'OK', service: 'web', timestamp: new Date().toISOString() });
   });
 
+  // SSE proxy for run streaming — must be registered before the general /api proxy
+  app.get('/api/agents/:agentId/runs/:runId/stream', requireSession, async (req, res) => {
+    try {
+      const { agentId, runId } = req.params;
+      const api = createApiClient(req.accessToken);
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      const apiResponse = await api.get(`/v1/agents/${agentId}/runs/${runId}/stream`, {
+        responseType: 'stream',
+        timeout: 0,
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (apiResponse.data as any).pipe(res);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      req.on('close', () => (apiResponse.data as any).destroy?.());
+    } catch (err: unknown) {
+      if (!res.headersSent) {
+        const axiosErr = err as { response?: { status: number } };
+        res.status(axiosErr.response?.status ?? 502).json({ error: 'Stream unavailable' });
+      }
+    }
+  });
+
   // API proxy — forwards /api/* to the backend API with auth token
   app.use('/api', requireSession, async (req, res) => {
     try {
