@@ -1,4 +1,4 @@
-import type { TokenUsage } from '@magicaal/core';
+import type { TokenUsage, CanonicalLLMRequest, CanonicalLLMResponse, ModelRouterConfig } from '@magicaal/core';
 
 export interface ResolvedCredentials {
   type: 'oauth' | 'apikey';
@@ -43,4 +43,10 @@ export interface ExecutionContext {
 
   suspend(reviewId: string): void;
   emit(event: string, payload: unknown): void;
+
+  // LLM invocation routed through the configured provider adapter registry
+  llmCall(
+    request: CanonicalLLMRequest,
+    routerConfig?: ModelRouterConfig | null,
+  ): Promise<CanonicalLLMResponse>;
 }
