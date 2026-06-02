@@ -4,17 +4,23 @@ import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
 import type { ExecutionContextImpl } from './context';
 import type { NodeOutput } from '@magicaal/sdk-node';
 import type { StepError } from '@magicaal/core';
+import { sseManager } from '../sse/sse-manager';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export const lifecycle = {
-  async markRunStarted(runId: string): Promise<void> {
+  async markRunStarted(runId: string, agentId: string): Promise<void> {
     await telemetryDb
       .update(telemetryRuns)
       .set({ status: 'running', startedAt: new Date() })
       .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.started', {
+      runId,
+      agentId,
+      timestamp: new Date().toISOString(),
+    });
   },
 
   async markRunComplete(
@@ -34,6 +40,12 @@ export const lifecycle = {
         estimatedCostUsd: usage.estimatedCostUsd,
       })
       .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.completed', {
+      runId,
+      output,
+      timestamp: new Date().toISOString(),
+    });
+    sseManager.close(runId);
   },
 
   async markRunFailed(
@@ -53,17 +65,35 @@ export const lifecycle = {
         estimatedCostUsd: usage.estimatedCostUsd,
       })
       .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.failed', {
+      runId,
+      error: { code: error.code, message: error.message },
+      timestamp: new Date().toISOString(),
+    });
+    sseManager.close(runId);
   },
 
   async markRunSuspended(
     runId: string,
-    _reviewId: string,
-    _ctx: ExecutionContextImpl,
+    reviewId: string,
+    ctx: ExecutionContextImpl,
+    suspendedNodeId?: string,
   ): Promise<void> {
     await telemetryDb
       .update(telemetryRuns)
-      .set({ status: 'suspended' })
+      .set({
+        status: 'suspended',
+        reviewId,
+        suspendedNodeId: suspendedNodeId ?? null,
+        checkpointJson: JSON.stringify(ctx.data),
+      })
       .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.suspended', {
+      runId,
+      reviewId,
+      timestamp: new Date().toISOString(),
+    });
+    sseManager.close(runId);
   },
 
   async writeStepStart(
@@ -86,13 +116,22 @@ export const lifecycle = {
     return stepId;
   },
 
-  async writeStepEnd(stepId: string, output: NodeOutput): Promise<void> {
+  async writeStepEnd(
+    stepId: string,
+    output: NodeOutput,
+    tokenDelta?: { promptTokens: number; completionTokens: number; estimatedCostUsd: number },
+  ): Promise<void> {
     await telemetryDb
       .update(telemetrySteps)
       .set({
         status: output.status === 'complete' ? 'complete' : output.status,
         completedAt: new Date(),
         outputSnapshotJson: JSON.stringify(output.outputs),
+        ...(tokenDelta && {
+          promptTokens: tokenDelta.promptTokens,
+          completionTokens: tokenDelta.completionTokens,
+          estimatedCostUsd: tokenDelta.estimatedCostUsd,
+        }),
       })
       .where(eq(telemetrySteps.id, stepId));
   },
