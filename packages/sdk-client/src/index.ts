@@ -1,6 +1,9 @@
 export { MagiCaalClient } from './client';
 export { AgentClient } from './agent-client';
 export { RunHandleImpl } from './run-handle';
+export { streamRun } from './stream-client';
+export { HumanReviewClient } from './human-review-client';
+export type { ReviewDetails } from './human-review-client';
 
 export {
   MagiCaalError,

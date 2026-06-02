@@ -9,6 +9,7 @@ interface RunResponse {
   status: RunStatus;
   output: Record<string, unknown> | null;
   error: { code: string; message: string } | null;
+  reviewId?: string;
 }
 
 export class RunHandleImpl<TOut = Record<string, unknown>> implements RunHandle<TOut> {
@@ -34,7 +35,8 @@ export class RunHandleImpl<TOut = Record<string, unknown>> implements RunHandle<
         throw new RunFailedError(this.id, detail.error?.message ?? 'Run failed');
       }
       if (run === 'suspended') {
-        throw new RunSuspendedError(this.id, '');
+        const detail = await this._getRun();
+        throw new RunSuspendedError(this.id, detail.reviewId ?? '');
       }
       if (run === 'completed') {
         const detail = await this._getRun();
