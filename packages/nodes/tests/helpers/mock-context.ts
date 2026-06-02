@@ -42,6 +42,7 @@ export function makeMockContext(initial: Record<string, unknown> = {}): MockCont
     recordTrajectoryStep: jest.fn(),
     suspend: jest.fn(),
     emit: jest.fn(),
+    llmCall: jest.fn().mockRejectedValue(new Error('llmCall not mocked in this test')),
   };
 
   return ctx;
