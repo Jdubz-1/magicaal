@@ -7,6 +7,13 @@
   $: nodeTypeDef = $nodeTypes.find((nt) => nt.type === node.type);
   $: schemaProps = nodeTypeDef?.schema?.config?.properties ?? {};
 
+  // Canvas Value Picker: nodes that have outbound edges leading to this node (upstream)
+  $: upstreamNodes = Object.values($graph.nodes).filter((n) =>
+    $graph.edges.some((e) => e.to === node.id && e.from === n.id),
+  );
+
+  let pickerFieldKey: string | null = null;
+
   function updateConfig(key: string, value: unknown) {
     graph.update((g) => ({
       ...g,
@@ -39,6 +46,11 @@
 
   function configValue(key: string): unknown {
     return node.config[key] ?? undefined;
+  }
+
+  function insertUpstreamRef(fieldKey: string, nodeId: string, outputKey: string) {
+    updateConfig(fieldKey, `$.${outputKey}`);
+    pickerFieldKey = null;
   }
 </script>
 
@@ -74,10 +86,30 @@
           style="width:auto"
         />
       {:else}
-        <input type="text"
-          value={String(configValue(key) ?? '')}
-          on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value)}
-        />
+        <div class="field-with-picker">
+          <input type="text"
+            value={String(configValue(key) ?? '')}
+            on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value)}
+          />
+          {#if upstreamNodes.length > 0}
+            <button class="picker-btn" title="Reference upstream node output"
+              on:click={() => pickerFieldKey = pickerFieldKey === key ? null : key}>
+              ↗
+            </button>
+          {/if}
+        </div>
+        {#if pickerFieldKey === key && upstreamNodes.length > 0}
+          <div class="picker-dropdown">
+            <div class="picker-label">Insert reference to:</div>
+            {#each upstreamNodes as upstream}
+              <button class="picker-option"
+                on:click={() => insertUpstreamRef(key, upstream.id, upstream.id)}>
+                <span class="picker-node">{upstream.label ?? upstream.id}</span>
+                <span class="picker-ref">$.{upstream.id}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
   {/each}
@@ -95,4 +127,15 @@
   textarea { font-family: monospace; font-size: 0.75rem; resize: vertical; }
   .btn-danger { background: transparent; border: 1px solid #7f2121; color: #fca5a5; border-radius: 4px; padding: 0.375rem 0.75rem; font-size: 0.8125rem; cursor: pointer; width: 100%; }
   .btn-danger:hover { background: #3b1f1f; }
+  .field-with-picker { display: flex; gap: 0.25rem; }
+  .field-with-picker input { flex: 1; }
+  .picker-btn { background: #1e3a5f; border: 1px solid #1e40af; color: #93c5fd; border-radius: 4px; padding: 0 0.5rem; font-size: 0.75rem; cursor: pointer; flex-shrink: 0; }
+  .picker-btn:hover { background: #1e40af; }
+  .picker-dropdown { background: #1a1d27; border: 1px solid #2d3148; border-radius: 4px; margin-top: 0.25rem; overflow: hidden; }
+  .picker-label { font-size: 0.625rem; color: #475569; padding: 0.375rem 0.625rem 0.125rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .picker-option { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none; border: none; border-top: 1px solid #2d3148; color: #e2e8f0; padding: 0.375rem 0.625rem; font-size: 0.75rem; cursor: pointer; text-align: left; }
+  .picker-option:first-of-type { border-top: none; }
+  .picker-option:hover { background: #2d3148; }
+  .picker-node { color: #e2e8f0; }
+  .picker-ref { color: #7c6af7; font-family: monospace; font-size: 0.6875rem; }
 </style>

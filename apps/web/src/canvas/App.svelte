@@ -6,6 +6,7 @@
   import AgentConfigPanel from './components/AgentConfigPanel.svelte';
   import TestRunPanel from './components/TestRunPanel.svelte';
   import { graph, selectedNode, agent, agentConfig } from './stores/graph';
+  import LintPanel from './components/LintPanel.svelte';
 
   export let agentId: string;
 
@@ -35,8 +36,20 @@
       }
 
       if (configRes.ok) {
-        const configData = await configRes.json() as { triggerConfig?: { triggerType: string; description: string } };
-        agentConfig.set(configData.triggerConfig ?? { triggerType: 'rest', description: '' });
+        const configData = await configRes.json() as {
+          triggerConfig?: {
+            type?: string;
+            expression?: string;
+            webhookUrl?: string;
+          };
+        };
+        const tc = configData.triggerConfig ?? {};
+        agentConfig.set({
+          triggerType: (tc.type ?? 'rest') as 'rest' | 'cron' | 'webhook',
+          description: '',
+          cronExpression: tc.expression ?? '',
+          webhookUrl: tc.webhookUrl ?? '',
+        });
       }
     } catch {
       // agent not yet saved
@@ -57,6 +70,7 @@
     {:else}
       <AgentConfigPanel {agentId} />
     {/if}
+    <LintPanel />
     <TestRunPanel {agentId} />
   </aside>
 </div>

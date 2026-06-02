@@ -6,47 +6,127 @@
 
   let inputPayload = '{}';
   let running = false;
+  let es: EventSource | null = null;
+
+  function stopStream() {
+    if (es) {
+      es.close();
+      es = null;
+    }
+    running = false;
+  }
 
   async function runAgent() {
+    stopStream();
     running = true;
     runState.set({ runId: null, status: 'running', output: null, error: null, steps: [] });
+
+    let parsedInput: Record<string, unknown>;
+    try {
+      parsedInput = JSON.parse(inputPayload) as Record<string, unknown>;
+    } catch {
+      runState.set({ runId: null, status: 'failed', output: null, error: 'Invalid JSON input', steps: [] });
+      running = false;
+      return;
+    }
+
+    let runId: string;
     try {
       const res = await fetch(`/api/agents/${agentId}/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: JSON.parse(inputPayload), mode: 'sync' }),
+        body: JSON.stringify({ input: parsedInput, mode: 'async' }),
       });
-      const data = await res.json() as {
-        id?: string;
-        status: string;
-        output: unknown;
-        error: unknown;
-      };
-
-      const runId = data.id ?? null;
-      let steps: StepResult[] = [];
-
-      if (runId && (data.status === 'completed' || data.status === 'failed')) {
-        try {
-          const stepsRes = await fetch(`/api/agents/${agentId}/runs/${runId}/steps`);
-          if (stepsRes.ok) steps = await stepsRes.json() as StepResult[];
-        } catch {
-          // non-fatal: steps are best-effort
-        }
+      if (!res.ok) {
+        const err = await res.json() as { error?: { message?: string } };
+        throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
       }
-
-      runState.set({
-        runId,
-        status: data.status as 'completed' | 'failed',
-        output: data.output as Record<string, unknown> | null,
-        error: data.error ? JSON.stringify(data.error) : null,
-        steps,
-      });
+      const data = await res.json() as { runId: string };
+      runId = data.runId;
     } catch (err) {
       runState.set({ runId: null, status: 'failed', output: null, error: String(err), steps: [] });
-    } finally {
       running = false;
+      return;
     }
+
+    runState.update((s) => ({ ...s, runId }));
+
+    // Subscribe to SSE stream for live updates
+    es = new EventSource(`/api/agents/${agentId}/runs/${runId}/stream`);
+
+    es.addEventListener('node.started', (e) => {
+      const data = JSON.parse(e.data) as { nodeId: string; nodeType: string };
+      runState.update((s) => ({
+        ...s,
+        steps: [
+          ...s.steps.filter((st) => st.nodeId !== data.nodeId),
+          {
+            id: data.nodeId,
+            nodeId: data.nodeId,
+            nodeType: data.nodeType,
+            status: 'running',
+            startedAt: new Date().toISOString(),
+            completedAt: undefined,
+            input: null,
+            output: null,
+            error: null,
+          } satisfies StepResult,
+        ],
+      }));
+    });
+
+    es.addEventListener('node.completed', (e) => {
+      const data = JSON.parse(e.data) as { nodeId: string; outputs: unknown };
+      runState.update((s) => ({
+        ...s,
+        steps: s.steps.map((st) =>
+          st.nodeId === data.nodeId
+            ? { ...st, status: 'complete', completedAt: new Date().toISOString(), output: data.outputs }
+            : st,
+        ),
+      }));
+    });
+
+    es.addEventListener('node.failed', (e) => {
+      const data = JSON.parse(e.data) as { nodeId: string; error: { message: string } };
+      runState.update((s) => ({
+        ...s,
+        steps: s.steps.map((st) =>
+          st.nodeId === data.nodeId
+            ? { ...st, status: 'failed', completedAt: new Date().toISOString(), error: data.error }
+            : st,
+        ),
+      }));
+    });
+
+    es.addEventListener('run.completed', (e) => {
+      const data = JSON.parse(e.data) as { output: Record<string, unknown> };
+      runState.update((s) => ({ ...s, status: 'completed', output: data.output }));
+      stopStream();
+    });
+
+    es.addEventListener('run.failed', (e) => {
+      const data = JSON.parse(e.data) as { error: { message: string } };
+      runState.update((s) => ({ ...s, status: 'failed', error: data.error.message }));
+      stopStream();
+    });
+
+    es.addEventListener('run.suspended', () => {
+      runState.update((s) => ({ ...s, status: 'failed', error: 'Run suspended — awaiting human review' }));
+      stopStream();
+    });
+
+    es.onerror = () => {
+      // SSE connection dropped without a terminal event — mark as failed
+      if (running) {
+        runState.update((s) => ({
+          ...s,
+          status: s.status === 'running' ? 'failed' : s.status,
+          error: s.error ?? 'Stream connection lost',
+        }));
+        stopStream();
+      }
+    };
   }
 </script>
 
@@ -56,9 +136,14 @@
     <label>Input (JSON)</label>
     <textarea rows="4" bind:value={inputPayload}></textarea>
   </div>
-  <button class="btn-run" disabled={running} on:click={runAgent}>
-    {running ? 'Running…' : '▶ Run'}
-  </button>
+  <div class="run-controls">
+    <button class="btn-run" disabled={running} on:click={runAgent}>
+      {running ? 'Running…' : '▶ Run'}
+    </button>
+    {#if running}
+      <button class="btn-stop" on:click={stopStream}>■ Stop</button>
+    {/if}
+  </div>
 
   {#if $runState.status !== 'idle'}
     <div class="run-result status-{$runState.status}">
@@ -89,7 +174,9 @@
   .form-group { margin-bottom: 0.75rem; }
   label { display: block; font-size: 0.6875rem; color: #94a3b8; margin-bottom: 0.25rem; }
   textarea { background: #0f1117; border: 1px solid #2d3148; border-radius: 4px; color: #e2e8f0; padding: 0.375rem 0.625rem; font-size: 0.75rem; width: 100%; font-family: monospace; resize: vertical; }
-  .btn-run { background: #14532d; color: #86efac; border: 1px solid #166534; border-radius: 6px; padding: 0.5rem 1rem; font-size: 0.8125rem; cursor: pointer; width: 100%; }
+  .run-controls { display: flex; gap: 0.5rem; }
+  .btn-run { background: #14532d; color: #86efac; border: 1px solid #166534; border-radius: 6px; padding: 0.5rem 1rem; font-size: 0.8125rem; cursor: pointer; flex: 1; }
+  .btn-stop { background: #3b1f1f; color: #fca5a5; border: 1px solid #7f2121; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.8125rem; cursor: pointer; }
   .btn-run:hover:not(:disabled) { background: #166534; }
   .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
   .run-result { margin-top: 1rem; border-radius: 6px; padding: 0.75rem; font-size: 0.75rem; }

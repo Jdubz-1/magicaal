@@ -73,13 +73,26 @@
     saving = true;
     saveMsg = '';
     try {
+      const triggerConfig: Record<string, unknown> = { type: $agentConfig.triggerType };
+      if ($agentConfig.triggerType === 'cron') {
+        triggerConfig.expression = $agentConfig.cronExpression;
+      }
       const res = await fetch(`/api/agents/${agentId}/config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ triggerConfig: $agentConfig }),
+        body: JSON.stringify({ triggerConfig }),
       });
       if (!res.ok) throw new Error('Save failed');
       saveMsg = '✓ Saved';
+
+      // If webhook trigger, fetch webhook URL from a publish response or agent config
+      if ($agentConfig.triggerType === 'webhook') {
+        const cfgRes = await fetch(`/api/agents/${agentId}/config`);
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json() as { triggerConfig?: { webhookUrl?: string } };
+          agentConfig.update((c) => ({ ...c, webhookUrl: cfg.triggerConfig?.webhookUrl ?? '' }));
+        }
+      }
     } catch (err) {
       saveMsg = '✗ ' + (err instanceof Error ? err.message : 'Error');
     } finally {
@@ -116,8 +129,39 @@
   <div class="panel-header">Trigger Config</div>
   <div class="form-group">
     <label>Trigger Type</label>
-    <input type="text" value="REST" readonly class="readonly-input" />
+    <select bind:value={$agentConfig.triggerType}>
+      <option value="rest">REST API</option>
+      <option value="cron">Scheduled (Cron)</option>
+      <option value="webhook">Webhook</option>
+    </select>
   </div>
+
+  {#if $agentConfig.triggerType === 'cron'}
+    <div class="form-group">
+      <label>Cron Expression</label>
+      <input
+        type="text"
+        bind:value={$agentConfig.cronExpression}
+        placeholder="0 * * * * (every hour)"
+      />
+      <div class="field-hint">Standard cron format: minute hour day month weekday</div>
+    </div>
+  {/if}
+
+  {#if $agentConfig.triggerType === 'webhook'}
+    <div class="form-group">
+      <label>Webhook URL</label>
+      {#if $agentConfig.webhookUrl}
+        <div class="webhook-url">
+          <code>{$agentConfig.webhookUrl}</code>
+          <div class="field-hint">POST your payload to this URL. No auth headers required.</div>
+        </div>
+      {:else}
+        <div class="field-hint">Publish the agent to generate the webhook URL.</div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="form-group">
     <label>Description</label>
     <input
@@ -157,4 +201,8 @@
   .btn-save:hover:not(:disabled) { background: #1e40af; }
   .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
   .status-msg { font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem; }
+  select { background: #0f1117; border: 1px solid #2d3148; border-radius: 4px; color: #e2e8f0; padding: 0.375rem 0.625rem; font-size: 0.8125rem; width: 100%; }
+  .field-hint { font-size: 0.6875rem; color: #475569; margin-top: 0.25rem; }
+  .webhook-url { background: #0a0c14; border: 1px solid #2d3148; border-radius: 4px; padding: 0.5rem; }
+  .webhook-url code { font-size: 0.6875rem; color: #93c5fd; word-break: break-all; }
 </style>

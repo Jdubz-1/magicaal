@@ -26,9 +26,16 @@ export interface GraphDef {
 export const graph = writable<GraphDef>({ nodes: {}, edges: [] });
 export const selectedNode = writable<NodeDef | null>(null);
 export const agent = writable<{ id: string; name: string; status: string; draftGraphJson?: string | null } | null>(null);
-export const agentConfig = writable<{ triggerType: string; description: string }>({
+export const agentConfig = writable<{
+  triggerType: 'rest' | 'cron' | 'webhook';
+  description: string;
+  cronExpression: string;
+  webhookUrl: string;
+}>({
   triggerType: 'rest',
   description: '',
+  cronExpression: '',
+  webhookUrl: '',
 });
 
 export function addEdge(edge: EdgeDef): void {
