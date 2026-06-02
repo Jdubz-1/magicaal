@@ -25,6 +25,40 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-02 - Phase 2 Gap Closure: 9 Nodes, routingMeta Telemetry, Invocation Auth Admin
+
+**Type:** Feature
+
+**Description:**
+Closed all high/medium priority Phase 2 gaps to bring the platform to full Phase 2 completion. Nine previously deferred nodes are now built, routingMeta is correctly persisted on every LLM telemetry step, and the Invocation Auth admin panel is live.
+
+**Changes:**
+- `packages/nodes/src/nodes/core-http-request.ts` — HTTP client node using built-in `fetch`; supports GET/POST/PUT/PATCH/DELETE; optional Integration Connection auth injection
+- `packages/nodes/src/nodes/core-file-read.ts` — File read node with path traversal protection (WORKSPACE_BASE_PATH)
+- `packages/nodes/src/nodes/core-file-write.ts` — File write node with optional directory creation and path traversal protection
+- `packages/nodes/src/nodes/core-web-search.ts` — Web search node supporting Brave Search and Tavily via Integration Connection
+- `packages/nodes/src/nodes/core-web-scrape.ts` — Web scrape node using cheerio; CSS selector scoping; optional link extraction
+- `packages/nodes/src/nodes/core-db-query.ts` — Parameterized SQL SELECT node; PostgreSQL via `pg` package; SELECT-only enforcement
+- `packages/nodes/src/nodes/core-webhook-receive.ts` — Passthrough node that reads webhook trigger payload from execution context
+- `packages/nodes/src/nodes/core-vector-search.ts` — In-memory cosine similarity search over a context-provided vector index; no external deps
+- `packages/nodes/src/nodes/core-code.ts` — JavaScript sandbox using `isolated-vm` (optional native dep); injects named context keys as globals; `result` variable extraction
+- `packages/sdk/src/node.ts` — Added optional `routingMeta` field to `NodeOutput` interface
+- `packages/nodes/src/nodes/core-llm-call.ts`, `core-structured-extract.ts`, `core-embedding.ts`, `core-agentic-router.ts` — All four LLM-calling nodes now return `routingMeta` in their `NodeOutput`
+- `apps/engine/src/execution/lifecycle.ts` — `writeStepEnd()` now writes `routingMetaJson` and `routerTargetUsed` to telemetry steps when `output.routingMeta` is present
+- `apps/api/src/controllers/invocation-policy.controller.ts` — New controller: `getInvocationPolicy`, `updateInvocationPolicy` (upsert)
+- `apps/api/src/routes/agents.ts` — Added `GET/PATCH /:id/invocation-policy` routes
+- `apps/web/src/routes/admin.ts` — Added Invocation Auth admin panel: agent list, policy editor (strategy + rate limit), key management (create/revoke), plaintext key display on generation
+- `packages/nodes/src/index.ts` — All 9 new nodes registered in `ALL_NODES[]`
+- `packages/nodes/package.json` — Added `cheerio`, `pg` deps; `isolated-vm` as optional dep
+
+**Impact:**
+Phase 2 is fully complete. 35 nodes registered (was 26). Agent graphs can now make HTTP calls, read/write files, search the web, query databases, receive webhooks, search vectors, and execute sandboxed code. LLM routing decisions are now fully visible in telemetry. Admins can manage per-agent invocation auth and API keys from the admin panel.
+
+**Notes:**
+`isolated-vm` native build requires a C++ toolchain and fails on some WSL2 setups; it is declared as `optionalDependencies`. The `core:code` node returns `CODE_SANDBOX_UNAVAILABLE` gracefully when the native module isn't available. The three remaining Phase 2 deferrals (SSE Redis fan-out, Agentic Router config UI, OAuth callback handler) are low priority and do not block Phase 3.
+
+---
+
 ### 2026-06-02 - Phase 2 Security & Correctness Fixes (10 issues)
 
 **Type:** Bugfix

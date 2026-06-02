@@ -152,6 +152,7 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
             _llm_response: output,
             _llm_usage: response.usage,
           },
+          routingMeta: response.routingMeta,
         };
       } catch (err) {
         lastError = err;

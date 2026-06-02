@@ -132,6 +132,10 @@ export const lifecycle = {
           completionTokens: tokenDelta.completionTokens,
           estimatedCostUsd: tokenDelta.estimatedCostUsd,
         }),
+        ...(output.routingMeta && {
+          routingMetaJson: JSON.stringify(output.routingMeta),
+          routerTargetUsed: output.routingMeta.targetUsed.id,
+        }),
       })
       .where(eq(telemetrySteps.id, stepId));
   },

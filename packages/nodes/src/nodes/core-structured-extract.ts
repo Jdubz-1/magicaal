@@ -81,6 +81,7 @@ export const coreStructuredExtract: NodeModule<StructuredExtractConfig> = {
         return {
           status: 'complete' as const,
           outputs: { [config.outputKey]: parsed, _extract_result: parsed },
+          routingMeta: response.routingMeta,
         };
       } catch {
         if (attempt < maxRetries) {

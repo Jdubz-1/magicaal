@@ -25,6 +25,15 @@ import { coreHumanReview } from './nodes/core-human-review';
 import { coreAgenticRouter } from './nodes/core-agentic-router';
 import { coreMemoryRead } from './nodes/core-memory-read';
 import { coreMemoryWrite } from './nodes/core-memory-write';
+import { coreHttpRequest } from './nodes/core-http-request';
+import { coreFileRead } from './nodes/core-file-read';
+import { coreFileWrite } from './nodes/core-file-write';
+import { coreWebSearch } from './nodes/core-web-search';
+import { coreWebScrape } from './nodes/core-web-scrape';
+import { coreDbQuery } from './nodes/core-db-query';
+import { coreWebhookReceive } from './nodes/core-webhook-receive';
+import { coreVectorSearch } from './nodes/core-vector-search';
+import { coreCode } from './nodes/core-code';
 
 export {
   coreStart, coreEnd, coreStop, coreCondition, coreRouter,
@@ -37,6 +46,12 @@ export {
   coreGuardrail, coreHumanReview,
   coreAgenticRouter,
   coreMemoryRead, coreMemoryWrite,
+  coreHttpRequest, coreFileRead, coreFileWrite,
+  coreWebSearch, coreWebScrape,
+  coreDbQuery,
+  coreWebhookReceive,
+  coreVectorSearch,
+  coreCode,
 };
 export { evaluate, evaluateBoolean, evaluateString } from './utils/jsonata';
 
@@ -67,6 +82,7 @@ export const ALL_NODES: NodeModule<any>[] = [
   coreLLMCall,
   coreStructuredExtract,
   coreEmbedding,
+  coreVectorSearch,
   // Guardrails & Review
   coreGuardrail,
   coreHumanReview,
@@ -75,4 +91,14 @@ export const ALL_NODES: NodeModule<any>[] = [
   // In-run memory
   coreMemoryRead,
   coreMemoryWrite,
+  // Integration
+  coreHttpRequest,
+  coreFileRead,
+  coreFileWrite,
+  coreWebSearch,
+  coreWebScrape,
+  coreDbQuery,
+  coreWebhookReceive,
+  // Code
+  coreCode,
 ];

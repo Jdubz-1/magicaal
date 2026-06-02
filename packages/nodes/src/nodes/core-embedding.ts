@@ -93,6 +93,7 @@ export const coreEmbedding: NodeModule<EmbeddingConfig> = {
     return {
       status: 'complete' as const,
       outputs: { [config.outputKey]: vector, _embedding_dimensions: vector.length },
+      routingMeta: response.routingMeta,
     };
   },
 };

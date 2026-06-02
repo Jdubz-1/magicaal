@@ -58,6 +58,10 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">Data Sources</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Registered data connections</div>
           </a>
+          <a class="card" href="/admin/invocation-auth" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Invocation Auth</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">API keys, policies &amp; rate limits</div>
+          </a>
           <a class="card" href="/admin/system" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">System</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Health &amp; diagnostics</div>
@@ -1132,6 +1136,264 @@ adminRouter.post('/datasources/:id/delete', async (req, res, next) => {
     const api = createApiClient(req.accessToken);
     await api.delete(`/v1/datasources/${req.params.id}`);
     res.redirect('/admin/datasources');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Invocation Auth ──────────────────────────────────────────────────────────
+
+interface AgentSummary { id: string; name: string; enabled: boolean }
+interface InvocationKey { id: string; label: string; lastUsedAt: string | null; expiresAt: string | null; revoked: boolean; createdAt: string }
+interface InvocationPolicy { agentId: string; strategy: string; rateLimit: unknown; jwtConfig: unknown }
+
+adminRouter.get('/invocation-auth', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data: agents } = await api.get<AgentSummary[]>('/v1/agents');
+
+    // Fetch key counts for each agent in parallel (best-effort)
+    const keyCounts = await Promise.all(
+      agents.map(async (a) => {
+        try {
+          const { data: keys } = await api.get<InvocationKey[]>(`/v1/agents/${encodeURIComponent(a.id)}/invocation-keys`);
+          return { agentId: a.id, count: keys.filter((k) => !k.revoked).length };
+        } catch {
+          return { agentId: a.id, count: 0 };
+        }
+      }),
+    );
+    const keyCountMap = Object.fromEntries(keyCounts.map((k) => [k.agentId, k.count]));
+
+    const rows = agents.map((a) => `
+      <tr>
+        <td>${escHtml(a.name)}</td>
+        <td>${keyCountMap[a.id] ?? 0} active key(s)</td>
+        <td style="white-space:nowrap">
+          <a href="/admin/invocation-auth/${escHtml(a.id)}" style="color:#7c6af7">Manage</a>
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Invocation Auth</h1>
+          <a href="/admin" style="color:#94a3b8;font-size:0.875rem">← Admin</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Agent</th><th>Active Keys</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="3" style="color:#475569;text-align:center;padding:2rem">No agents found</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Invocation Auth — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { agentId } = req.params;
+
+    const [{ data: agent }, { data: policy }, { data: keys }] = await Promise.all([
+      api.get<AgentSummary>(`/v1/agents/${encodeURIComponent(agentId)}`),
+      api.get<InvocationPolicy>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-policy`),
+      api.get<InvocationKey[]>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys`),
+    ]);
+
+    const strategyOptions = ['api-key', 'jwt', 'public'].map((s) =>
+      `<option value="${s}"${s === policy.strategy ? ' selected' : ''}>${escHtml(s)}</option>`,
+    ).join('');
+
+    const keyRows = keys.map((k) => `
+      <tr style="${k.revoked ? 'opacity:0.45' : ''}">
+        <td>${escHtml(k.label)}</td>
+        <td>${k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—'}</td>
+        <td>${k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : 'Never'}</td>
+        <td>${k.revoked ? '<span style="color:#f87171">Revoked</span>' : '<span style="color:#34d399">Active</span>'}</td>
+        <td>
+          ${!k.revoked ? `<form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/keys/${escHtml(k.id)}/revoke" style="display:inline">
+            <button type="submit" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:inherit;padding:0">Revoke</button>
+          </form>` : ''}
+        </td>
+      </tr>`).join('');
+
+    const newKeyHtml = (res.locals as { newKey?: string }).newKey
+      ? `<div class="alert-error" style="background:#14532d;border-color:#166534;color:#86efac;margin-bottom:1rem">
+          <strong>Save this key — it will not be shown again:</strong><br>
+          <code style="font-size:0.875rem;word-break:break-all">${escHtml((res.locals as { newKey: string }).newKey)}</code>
+        </div>`
+      : '';
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:800px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Invocation Auth — ${escHtml(agent.name)}</h1>
+          <a href="/admin/invocation-auth" style="color:#94a3b8;font-size:0.875rem">← Invocation Auth</a>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem">
+          <h2 style="font-size:1rem;margin:0 0 1rem">Policy</h2>
+          <form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/policy">
+            <div class="form-group">
+              <label>Auth Strategy</label>
+              <select name="strategy">${strategyOptions}</select>
+            </div>
+            <div class="form-group">
+              <label>Rate Limit (requests/min, optional)</label>
+              <input name="rateLimitPerMin" type="number" min="0"
+                value="${escHtml(String((policy.rateLimit as Record<string, number> | null)?.requestsPerWindow ?? ''))}"
+                placeholder="Unlimited" />
+            </div>
+            <button type="submit" class="btn btn-primary">Save Policy</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+            <h2 style="font-size:1rem;margin:0">Invocation Keys</h2>
+          </div>
+          ${newKeyHtml}
+          <form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/keys" style="display:flex;gap:0.75rem;margin-bottom:1rem;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1">
+              <label>New Key Label</label>
+              <input name="label" required placeholder="e.g. production-app" />
+            </div>
+            <button type="submit" class="btn btn-primary">Generate Key</button>
+          </form>
+          <table>
+            <thead><tr><th>Label</th><th>Last Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+            <tbody>${keyRows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No keys created yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: `Invocation Auth — ${agent.name}`, user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/invocation-auth/:agentId/policy', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { agentId } = req.params;
+    const { strategy, rateLimitPerMin } = req.body as { strategy: string; rateLimitPerMin: string };
+
+    const rateLimit = rateLimitPerMin
+      ? { requestsPerWindow: parseInt(rateLimitPerMin, 10), windowSeconds: 60, limitBy: 'tenant' }
+      : null;
+
+    await api.patch(`/v1/agents/${encodeURIComponent(agentId)}/invocation-policy`, {
+      strategy,
+      rateLimit,
+    });
+
+    res.redirect(`/admin/invocation-auth/${encodeURIComponent(agentId)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/invocation-auth/:agentId/keys', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { agentId } = req.params;
+    const { label } = req.body as { label: string };
+
+    const { data: created } = await api.post<{ key: string }>(
+      `/v1/agents/${encodeURIComponent(agentId)}/invocation-keys`,
+      { label },
+    );
+
+    // Pass the plaintext key to the next GET so it can be displayed once
+    res.locals['newKey'] = created.key;
+    // Re-render the detail page with the key displayed
+    const user = req.session!;
+    const api2 = createApiClient(req.accessToken);
+    const [{ data: agent }, { data: policy }, { data: keys }] = await Promise.all([
+      api2.get<AgentSummary>(`/v1/agents/${encodeURIComponent(agentId)}`),
+      api2.get<InvocationPolicy>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-policy`),
+      api2.get<InvocationKey[]>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys`),
+    ]);
+
+    const strategyOptions = ['api-key', 'jwt', 'public'].map((s) =>
+      `<option value="${s}"${s === policy.strategy ? ' selected' : ''}>${escHtml(s)}</option>`,
+    ).join('');
+
+    const keyRows = keys.map((k) => `
+      <tr style="${k.revoked ? 'opacity:0.45' : ''}">
+        <td>${escHtml(k.label)}</td>
+        <td>${k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—'}</td>
+        <td>${k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : 'Never'}</td>
+        <td>${k.revoked ? '<span style="color:#f87171">Revoked</span>' : '<span style="color:#34d399">Active</span>'}</td>
+        <td>
+          ${!k.revoked ? `<form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/keys/${escHtml(k.id)}/revoke" style="display:inline">
+            <button type="submit" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:inherit;padding:0">Revoke</button>
+          </form>` : ''}
+        </td>
+      </tr>`).join('');
+
+    const newKeyHtml = created.key
+      ? `<div class="alert-error" style="background:#14532d;border-color:#166534;color:#86efac;margin-bottom:1rem">
+          <strong>Save this key — it will not be shown again:</strong><br>
+          <code style="font-size:0.875rem;word-break:break-all">${escHtml(created.key)}</code>
+        </div>`
+      : '';
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:800px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Invocation Auth — ${escHtml(agent.name)}</h1>
+          <a href="/admin/invocation-auth" style="color:#94a3b8;font-size:0.875rem">← Invocation Auth</a>
+        </div>
+        <div class="card" style="margin-bottom:1.5rem">
+          <h2 style="font-size:1rem;margin:0 0 1rem">Policy</h2>
+          <form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/policy">
+            <div class="form-group">
+              <label>Auth Strategy</label>
+              <select name="strategy">${strategyOptions}</select>
+            </div>
+            <div class="form-group">
+              <label>Rate Limit (requests/min, optional)</label>
+              <input name="rateLimitPerMin" type="number" min="0"
+                value="${escHtml(String((policy.rateLimit as Record<string, number> | null)?.requestsPerWindow ?? ''))}"
+                placeholder="Unlimited" />
+            </div>
+            <button type="submit" class="btn btn-primary">Save Policy</button>
+          </form>
+        </div>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+            <h2 style="font-size:1rem;margin:0">Invocation Keys</h2>
+          </div>
+          ${newKeyHtml}
+          <form method="POST" action="/admin/invocation-auth/${escHtml(agentId)}/keys" style="display:flex;gap:0.75rem;margin-bottom:1rem;align-items:flex-end">
+            <div class="form-group" style="margin:0;flex:1">
+              <label>New Key Label</label>
+              <input name="label" required placeholder="e.g. production-app" />
+            </div>
+            <button type="submit" class="btn btn-primary">Generate Key</button>
+          </form>
+          <table>
+            <thead><tr><th>Label</th><th>Last Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+            <tbody>${keyRows}</tbody>
+          </table>
+        </div>
+      </div>`, { title: `Invocation Auth — ${agent.name}`, user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/invocation-auth/:agentId/keys/:keyId/revoke', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { agentId, keyId } = req.params;
+    await api.delete(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys/${encodeURIComponent(keyId)}`);
+    res.redirect(`/admin/invocation-auth/${encodeURIComponent(agentId)}`);
   } catch (err) {
     next(err);
   }

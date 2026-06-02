@@ -1,4 +1,4 @@
-import type { NodeModule } from '@magicaal/sdk-node';
+import type { NodeModule, NodeOutput } from '@magicaal/sdk-node';
 import type { ExecutionContext } from '@magicaal/sdk-node';
 import type { AgenticRouterConfig } from '@magicaal/core';
 import type { ModelRouterConfig } from '@magicaal/core';
@@ -159,6 +159,7 @@ export const coreAgenticRouter: NodeModule<AgenticRouterNodeConfig> = {
         : classificationPrompt;
 
     let result: ClassificationResult;
+    let lastRoutingMeta: NodeOutput['routingMeta'];
     try {
       const response = await ctx.llmCall(
         {
@@ -169,6 +170,7 @@ export const coreAgenticRouter: NodeModule<AgenticRouterNodeConfig> = {
         config.router ?? null,
       );
 
+      lastRoutingMeta = response.routingMeta;
       result = JSON.parse(response.content) as ClassificationResult;
     } catch (err) {
       return {
@@ -219,6 +221,7 @@ export const coreAgenticRouter: NodeModule<AgenticRouterNodeConfig> = {
         _route_confidence: confidence,
         _route_reasoning: result.reasoning ?? '',
       },
+      routingMeta: lastRoutingMeta,
     };
   },
 };

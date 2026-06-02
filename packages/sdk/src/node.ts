@@ -4,6 +4,12 @@ export interface NodeOutput {
   status: 'complete' | 'suspended' | 'failed';
   outputs: Record<string, unknown>;
   error?: { code: string; message: string; retryable: boolean };
+  /** Populated by LLM-calling nodes; written to telemetry step record. */
+  routingMeta?: {
+    targetUsed: { id: string; provider: string; model: string; connectionId: string };
+    attemptCount: number;
+    triggerHistory: unknown[];
+  };
 }
 
 export interface NodeModule<TConfig = Record<string, unknown>> {

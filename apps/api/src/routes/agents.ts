@@ -15,6 +15,7 @@ import {
 } from '../controllers/agents.controller';
 import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
+import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
 import { handleWebhook } from '../controllers/webhook.controller';
 
 export const agentsRouter: RouterType = Router();
@@ -40,6 +41,8 @@ agentsRouter.get('/:id/runs/:runId/steps', getRunSteps);
 agentsRouter.get('/:id/runs/:runId/stream', streamRun);
 agentsRouter.post('/:id/runs/:runId/review', reviewRun);
 
+agentsRouter.get('/:id/invocation-policy', getInvocationPolicy);
+agentsRouter.patch('/:id/invocation-policy', updateInvocationPolicy);
 agentsRouter.post('/:id/invocation-keys', createInvocationKey);
 agentsRouter.get('/:id/invocation-keys', listInvocationKeys);
 agentsRouter.delete('/:id/invocation-keys/:keyId', revokeInvocationKey);
