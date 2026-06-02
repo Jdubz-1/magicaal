@@ -25,6 +25,285 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-02 - Phase 2 Security & Correctness Fixes (10 issues)
+
+**Type:** Bugfix
+
+**Description:**
+Applied surgical fixes for all 10 confirmed issues found during the Phase 2 code review. Addressed 5 critical-severity issues (cross-tenant agent access, timing attack in webhook secret comparison, credential resolver errors leaving runs orphaned in pending, fork branch shallow-copy sharing nested refs, empty tenantId accepted by engine webhook dispatch) and 5 high/medium issues (hardcoded localhost webhook URL, hardcoded fallback HMAC key, per-step token usage never persisted, round-robin counter resetting on circuit-state changes, tenant policy overridable:false not enforced).
+
+**Changes:**
+- `apps/api/src/controllers/agents.controller.ts` — Fix 1: added `and(eq(agents.tenantId, tenantId))` to WHERE in `getAgent`, `updateAgent`, `publishAgent`, `draftAgent`, `getVersionDiff` (ownership check), `rollbackVersion`; Fix 6: replaced `http://localhost:${config.port}` with `config.publicBaseUrl`
+- `apps/api/src/controllers/webhook.controller.ts` — Fix 2: `timingSafeEqual` now guards buffer length first (returns 401, not 500 on mismatch); Fix 7: removed `|| 'magicaal-default-key'` fallback — throws 500 with `MISSING_MASTER_KEY` when `MAGICAAL_MASTER_KEY` is unset
+- `apps/engine/src/execution/scheduler.ts` — Fix 3: moved `resolveCredentials` inside the `try/catch` block so credential failures call `markRunFailed` instead of leaving the run in perpetual pending state
+- `apps/engine/src/execution/worker.ts` — Fix 4: fork branch context snapshot changed from `{ ...ctx.data }` (shallow) to `JSON.parse(JSON.stringify(ctx.data))` (deep clone); Fix 8: captures `tokensBefore` snapshot before node execution and passes `tokenDelta` to `writeStepEnd`
+- `apps/engine/src/execution/lifecycle.ts` — Fix 8: `writeStepEnd` now accepts optional `tokenDelta` and persists per-step `promptTokens`, `completionTokens`, `estimatedCostUsd` to `telemetrySteps`
+- `apps/engine/src/controllers/runs.controller.ts` — Fix 5: `webhookDispatch` now rejects requests with missing `x-tenant-id` header with 400 instead of silently using empty string
+- `apps/api/src/config.ts` — Fix 6: added `publicBaseUrl` field (defaults to `http://localhost:<port>`, overridden by `PUBLIC_BASE_URL` env var)
+- `apps/api/.env.example` — Fix 6: added `PUBLIC_BASE_URL=http://localhost:3000` with documentation comment
+- `apps/engine/src/router/router-engine.ts` — Fix 9: round-robin key now uses `rrKey(config.targets)` (all targets, stable) instead of `rrKey(healthy)` (filtered, resets on circuit changes); Fix 10: `resolveRouterConfig` now returns tenant policy immediately if `overridable === false`, blocking node/graph-level overrides
+
+**Impact:**
+Critical security fix: tenants can no longer access agents belonging to other tenants. Webhook signature validation is now immune to length-mismatch crashes. Credential failures are now reflected in run status. Branch execution isolation is correct for nested data structures. Per-step LLM token costs are now visible in telemetry. Router behaviour is now deterministic across circuit-breaker state transitions.
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase G: Remaining Nodes, Tests & Milestone Sign-off
+
+**Type:** Feature
+
+**Description:**
+Completed Phase 2 by adding the final two nodes (`core:memory-read`, `core:memory-write`), writing comprehensive tests for SSE infrastructure and human review end-to-end flow, fixing a correctness bug where `node.completed` was emitted for suspended nodes, and verifying all Phase 2 milestone requirements.
+
+**Changes:**
+- `packages/nodes/src/nodes/core-memory-read.ts` — new: reads named keys from in-run context; optional defaults, `failIfMissing` mode
+- `packages/nodes/src/nodes/core-memory-write.ts` — new: writes computed values (JSONata expressions) to context keys; modes: replace (default), append (array), increment (counter)
+- `packages/nodes/src/index.ts` — registered `coreMemoryRead`, `coreMemoryWrite`; 27 nodes in `ALL_NODES`
+- `apps/engine/src/execution/worker.ts` — **bug fix**: `node.completed` now only emitted when `output.status === 'complete'`; suspended nodes no longer falsely emit completion
+
+**Tests added:**
+- `packages/nodes/tests/unit/nodes/core-memory.test.ts` — 12 tests for both memory nodes: read/defaults/failIfMissing, write/replace/append/increment/multi/error
+- `apps/engine/tests/unit/sse/sse-manager.test.ts` — 6 tests: header setup, multi-subscriber broadcast, disconnect cleanup, per-run isolation, close, no-op broadcast
+- `apps/engine/tests/unit/execution/human-review-e2e.test.ts` — 5 tests: suspension on first run, no spurious `node.completed` on suspension, resume pass-through, step ordering, SSE event sequence
+
+**Phase 2 Milestone Sign-off:**
+
+All five milestone requirements from the roadmap are met:
+
+1. ✅ **LLM graph with guardrails + human review runs live via SSE**: `core:llm-call` + `core:guardrail` + `core:human-review` nodes all implemented and tested. SSE broadcasts `run.started`, `node.started`, `node.completed`, `node.failed`, `run.completed`, `run.failed`, `run.suspended` events.
+
+2. ✅ **Model Router round-robins two OpenAI keys; 429 triggers fallback; `routingMeta.attemptCount == 2`**: Router Engine with `priority` and `round-robin` strategies, reactive `rate_limit` trigger, and `routingMeta` population tested in `router-engine.test.ts`.
+
+3. ✅ **Agentic Router classifies and escalates low-confidence routes to Human Review**: `core:agentic-router` with `confidenceThreshold` sets `_route = '_human_review'` and tested in `core-agentic-router.test.ts`.
+
+4. ✅ **`agent.stream()` delivers typed node-level events in real time**: SDK `AgentClient.stream()` using fetch-based SSE parser, typed `RunStreamEvent` union, Studio TestRunPanel using EventSource.
+
+5. ✅ **`HumanReviewClient.approve()` resumes a suspended run**: `HumanReviewClient` in SDK, `resumeRun()` in engine, end-to-end path tested.
+
+**Final Phase 2 state:**
+- **27 node types** registered in `ALL_NODES`
+- **159 tests passing**: 88 nodes + 40 engine + 31 API
+- **0 TypeScript errors** across all packages
+- All API routes from Phase 2 plan implemented
+- Admin panels for all Phase 2 concerns
+- Studio: LintPanel, Canvas Value Picker, Version History/Diff
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase F: API Completions, Telemetry & Admin/Studio Panels
+
+**Type:** Feature
+
+**Description:**
+Completed the API surface for Phase 2 (version diff/rollback, telemetry routes, data sources CRUD, rate limiting with `X-RateLimit-*` headers, invocation audit logging), added Studio enhancements (graph lint panel, canvas value picker, version history with diff view), and delivered eight new admin panels (telemetry dashboard, run detail, human review queue, integration connections, router policies, provider pricing, data sources).
+
+**Changes:**
+
+*Engine*
+- `apps/engine/src/controllers/telemetry.controller.ts` — new: `getTelemetry`, `getTokenUsage`, `getRunDetail`; aggregate token usage with per-agent breakdown
+- `apps/engine/src/routes/internal.ts` — added `GET /telemetry`, `GET /telemetry/tokens`, `GET /telemetry/runs/:runId`
+
+*API*
+- `apps/api/src/controllers/telemetry.controller.ts` — new: proxies to engine telemetry endpoints with tenant isolation
+- `apps/api/src/routes/telemetry.ts` — new: `GET /v1/telemetry`, `GET /v1/telemetry/tokens`
+- `apps/api/src/controllers/datasources.controller.ts` — new: full CRUD + connection test stub
+- `apps/api/src/routes/datasources.ts` — new: `GET/POST/PATCH/DELETE /v1/datasources` + test endpoint
+- `apps/api/src/controllers/agents.controller.ts` — added `getVersionDiff` (recursive object diff), `rollbackVersion` (copies version to new draft); added `diffObjects()` helper
+- `apps/api/src/routes/agents.ts` — added `GET /:id/versions/:vId/diff`, `POST /:id/versions/:vId/rollback`
+- `apps/api/src/controllers/runs.controller.ts` — added `checkRateLimit()` in-memory counter; `dispatchRun` now enforces rate limits, sets `X-RateLimit-*` headers, and logs to `invocationLog`
+- `apps/api/src/routes/index.ts` — mounted `telemetryRouter`, `datasourcesRouter`
+
+*Studio*
+- `apps/web/src/canvas/components/LintPanel.svelte` — new: static graph lint (unreachable nodes, no-fallback conditional paths, unknown types, empty outbound); error/warning badge display; acknowledge-warnings checkbox to enable publish
+- `apps/web/src/canvas/App.svelte` — integrated `LintPanel` between AgentConfigPanel and TestRunPanel
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — Canvas Value Picker: `↗` button on string fields when upstream nodes exist; dropdown generates `$.nodeId` JSONata reference
+- `apps/web/src/routes/studio.ts` — added version history route (`GET /:agentId/versions`), diff view (`GET /:agentId/versions/:vId/diff`), rollback handler (`POST /:agentId/versions/:vId/rollback`)
+
+*Admin panels (all in `apps/web/src/routes/admin.ts`)*
+- Dashboard: added 6 new navigation cards (Telemetry, Human Review, Integrations, Router Policies, Provider Pricing, Data Sources)
+- `GET /admin/telemetry` — telemetry dashboard with 4 KPI cards + recent runs table
+- `GET /admin/runs/:runId` — run detail with step timeline including token usage and routing trace
+- `GET /admin/reviews` + approve/reject POST handlers — human review queue
+- `GET /admin/integrations` + create/delete — integration connections management with JSON credential form
+- `GET /admin/router-policies` + create/delete — Named Router Policy management with JSON config editor
+- `GET /admin/pricing` + edit — Provider Pricing table (read + bulk JSON update)
+- `GET /admin/datasources` + create/delete — Data Sources management
+
+**Impact:**
+All Phase 2 API endpoints are now implemented. The Studio has a working lint gate on publish, upstream node references via value picker, and version history. Admins can view telemetry, review suspended runs, manage integrations and routing policies, and update provider pricing. 136 tests unchanged and passing.
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase E: Agentic Router, Scheduler & Webhook Trigger
+
+**Type:** Feature
+
+**Description:**
+Added the `core:agentic-router` node (LLM-powered intent classification with confidence threshold HITL escalation), wired up the BullMQ scheduled queue for cron-triggered agents, added webhook trigger support with HMAC-SHA256 URL-embedded secrets, and updated the Studio Agent Config Panel with a trigger type selector showing cron expression input and webhook URL display.
+
+**Changes:**
+- `packages/nodes/src/nodes/core-agentic-router.ts` — new: builds classification prompt from `cases[].description`, calls `ctx.llmCall()` with structured output schema `{ route, confidence, reasoning }`, routes to `_human_review` when `confidence < confidenceThreshold`; `model` field optional (deprecated in favour of `router`)
+- `packages/nodes/src/index.ts` — registered `coreAgenticRouter`
+- `apps/engine/src/execution/scheduler.ts` — added second `Worker` for `runs.scheduled` queue; cron jobs re-enqueue to `runs.trigger` with a fresh runId
+- `apps/engine/src/controllers/runs.controller.ts` — added `webhookDispatch` handler
+- `apps/engine/src/controllers/schedule.controller.ts` — new: `scheduleCronAgent` (adds BullMQ repeating job), `unscheduleCronAgent` (removes)
+- `apps/engine/src/routes/internal.ts` — added `POST /agents/schedule`, `DELETE /agents/:agentId/schedule`, `POST /agents/:agentId/webhook`
+- `apps/api/src/controllers/webhook.controller.ts` — new: `handleWebhook` (HMAC-SHA256 validation, dispatches to engine), `getWebhookUrl`, `computeWebhookSecret`
+- `apps/api/src/controllers/agents.controller.ts` — `publishAgent` now extracts tenant, calls engine schedule endpoint for cron triggers, includes `webhookUrl` in response for webhook triggers
+- `apps/api/src/routes/index.ts` — added public `POST /v1/agents/:id/webhook/:secret` route (no auth)
+- `apps/web/src/canvas/stores/graph.ts` — extended `agentConfig` store type with `triggerType: 'rest'|'cron'|'webhook'`, `cronExpression`, `webhookUrl`
+- `apps/web/src/canvas/components/AgentConfigPanel.svelte` — trigger type `<select>`; cron expression input (conditional); webhook URL display (read-only, conditional); `saveTriggerConfig` builds `triggerConfig` object from form
+- `apps/web/src/canvas/App.svelte` — populates `cronExpression` and `webhookUrl` from loaded trigger config
+
+**Tests added:**
+- `packages/nodes/tests/unit/nodes/core-agentic-router.test.ts` — 6 tests: classification, optional output keys, HITL escalation, unknown key fallback, empty input, no cases
+
+**Impact:**
+Agents can now be triggered by cron schedule or inbound webhook. The Agentic Router classifies intent using an LLM and routes to the correct branch; low-confidence routes escalate to Human Review. 136 tests passing.
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase D: LLM Nodes, Credential Resolver & Human Review
+
+**Type:** Feature
+
+**Description:**
+Added the full LLM execution path: `ctx.llmCall()` on `ExecutionContext` so nodes can call the router without importing engine internals; `core:llm-call`, `core:structured-extract`, and `core:embedding` nodes; `core:guardrail` (3 modes) and `core:human-review` (suspend/resume) nodes; the integration credential resolver (AES-256-GCM decrypt from primary DB); human review checkpoint persistence and resume logic; Integration Connections CRUD API with OAuth initiation stub; and `HumanReviewClient` in the SDK.
+
+**Changes:**
+- `packages/sdk/src/context.ts` — added `llmCall(request, routerConfig?)` to `ExecutionContext` interface
+- `apps/engine/src/execution/context.ts` — implemented `llmCall()` using `routedLLMCall` + `resolveRouterConfig`; added `graphDefaultRouter`/`tenantRouterPolicy` params; added `suspendedNodeId` to suspension state; added `suspend(reviewId, nodeId?)` signature
+- `apps/engine/src/db/telemetry-schema.ts` — added `reviewId`, `suspendedNodeId`, `checkpointJson` columns to `telemetryRuns`
+- `apps/engine/src/db/telemetry-migrate.ts` — `CREATE TABLE IF NOT EXISTS` with new columns + safe `ALTER TABLE ADD COLUMN` for existing DBs
+- `apps/engine/src/execution/lifecycle.ts` — `markRunSuspended` now persists `reviewId`, `suspendedNodeId`, and `checkpointJson`
+- `apps/engine/src/resolver/credential-resolver.ts` — new: reads `integration_connections` via read-only primary DB, decrypts AES-256-GCM credentials, injects into `ctx.credentials[connectionId]`
+- `apps/engine/src/execution/scheduler.ts` — calls `resolveCredentials()` before `executeGraph`; threads `graphDefaultRouter` into context; handles `resumeFromNodeId` for resumed runs
+- `apps/engine/src/execution/resume.ts` — new: `resumeRun()` (approve = restore checkpoint + re-enqueue; reject = mark failed); `requeuesuspendedRunsOnStartup()`
+- `apps/engine/src/controllers/runs.controller.ts` — added `reviewRun` handler (`POST /runs/:id/review`)
+- `apps/engine/src/routes/internal.ts` — added `POST /runs/:id/review` route
+- `packages/nodes/src/nodes/core-llm-call.ts` — new: builds `CanonicalLLMRequest`, calls `ctx.llmCall()`, structured output mode + JSON retry
+- `packages/nodes/src/nodes/core-structured-extract.ts` — new: thin wrapper enforcing `outputSchema`
+- `packages/nodes/src/nodes/core-embedding.ts` — new: embedding call via `ctx.llmCall()` with `embeddingMode` metadata
+- `packages/nodes/src/nodes/core-guardrail.ts` — new: 3 modes (block-and-fail, reroute-to-fallback, redact-and-continue); JSONata rule evaluation
+- `packages/nodes/src/nodes/core-human-review.ts` — new: first-run = suspend + reviewId; resumed-run = pass-through on `_review_approved`
+- `packages/nodes/src/index.ts` — registered all 5 new nodes
+- `packages/nodes/tests/helpers/mock-context.ts` — added `llmCall: jest.fn()` stub
+- `apps/api/src/controllers/integrations.controller.ts` — new: connection CRUD, `encryptCredentials`, OAuth initiation + callback stub
+- `apps/api/src/routes/integrations.ts` — new: connections CRUD + OAuth routes
+- `apps/api/src/controllers/runs.controller.ts` — added `reviewRun` proxy to engine
+- `apps/api/src/routes/agents.ts` — added `POST /:id/runs/:runId/review`
+- `apps/api/src/routes/index.ts` — mounted `integrationsRouter` at `/v1/integrations`
+- `packages/sdk-client/src/human-review-client.ts` — new: `approve()`, `reject(reason)`, `modify(mods)`, `details()`, `onPendingReview(handler)`
+- `packages/sdk-client/src/agent-client.ts` — added `reviewRun(runId): HumanReviewClient`
+- `packages/sdk-client/src/index.ts` — exported `HumanReviewClient`
+
+**Tests added (14 new test files total across sub-phases, 19 new tests this sub-phase):**
+- `packages/nodes/tests/unit/nodes/core-guardrail.test.ts` — 5 tests: all 3 modes + pass/multi-rule
+- `packages/nodes/tests/unit/nodes/core-human-review.test.ts` — 4 tests: suspend, resume, reviewIdKey, log
+- `packages/nodes/tests/unit/nodes/core-llm-call.test.ts` — 5 tests: basic call, structured output, retry, messagesKey, error handling
+- **Note:** JSONata uses `=` for equality (not `==`); all rule expressions must use `$key = value` syntax
+
+**Impact:**
+LLM nodes are now fully wired — a `core:llm-call` node in a graph can call any configured provider via the Model Router. Integration credentials are resolved and decrypted automatically before each run. Human review suspend/resume works end-to-end. 130 tests passing.
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase C: Model Router Core
+
+**Type:** Feature
+
+**Description:**
+Delivered the full Model Router infrastructure: provider adapter registry with built-in OpenAI, Anthropic, and Google adapters; circuit breaker (CLOSED → OPEN → HALF-OPEN state machine); rolling P50 / error rate health tracker; router engine with priority, round-robin, weighted, and least-latency strategies plus reactive triggers (rate_limit, provider_error, timeout, context_overflow, content_policy); pricing cache seeded from built-in defaults. Added API routes for Named Router Policy CRUD and Provider Pricing management. Added `core:prompt-builder` node for template-based prompt assembly.
+
+**Changes:**
+- `packages/sdk/src/provider.ts` — added `credentials: ResolvedCredentials` parameter to `call()` and `stream()` interfaces
+- `apps/engine/src/router/provider-adapter-registry.ts` — new singleton: `register`, `get`, `has`, `list`
+- `apps/engine/src/router/health-tracker.ts` — new singleton: rolling ring buffer P50 + error rate per target
+- `apps/engine/src/router/circuit-breaker.ts` — new singleton: CLOSED/OPEN/HALF_OPEN state machine per target with configurable thresholds and cooldown
+- `apps/engine/src/router/adapters/openai.ts` — OpenAI Chat Completions adapter (tools, structured output, error translation)
+- `apps/engine/src/router/adapters/anthropic.ts` — Anthropic Messages adapter (system prompt, tool_use blocks, structured output via tool)
+- `apps/engine/src/router/adapters/google.ts` — Google Gemini adapter (systemInstruction, functionDeclarations, responseSchema)
+- `apps/engine/src/router/router-engine.ts` — `routedLLMCall()`: target selection by strategy, circuit breaker gating, reactive trigger fallback, routingMeta population, cost estimation from pricing cache; `resolveRouterConfig()`: precedence chain; `initPricingCache()`: seeds built-in defaults + DB overrides
+- `apps/engine/src/registry/startup.ts` — `registerAdapters()`: registers OpenAI/Anthropic/Google adapters at startup
+- `apps/engine/src/index.ts` — calls `registerAdapters()` and `initPricingCache()` at startup
+- `packages/nodes/src/nodes/core-prompt-builder.ts` — new `core:prompt-builder` node with `{{key}}` / `{{nested.key}}` interpolation
+- `packages/nodes/src/index.ts` — added `corePromptBuilder` to `ALL_NODES`
+- `apps/api/src/controllers/llm.controller.ts` — new: Named Router Policy CRUD handlers
+- `apps/api/src/routes/llm.ts` — new: `GET /v1/llm/health`, router policy CRUD routes
+- `apps/api/src/controllers/system.controller.ts` — added `getProviderPricing`, `upsertProviderPricing`
+- `apps/api/src/routes/system.ts` — added `GET/POST /v1/system/provider-pricing`
+- `apps/api/src/routes/index.ts` — mounted `llmRouter` at `/v1/llm`
+- `apps/api/drizzle/migrations/0003_phase2_router.sql` — `CREATE TABLE IF NOT EXISTS` for `named_router_policies` and `provider_pricing`
+- `apps/api/drizzle/migrations/meta/_journal.json` — added migration entry
+
+**Tests added:**
+- `apps/engine/tests/unit/router/circuit-breaker.test.ts` — 7 tests: CLOSED/OPEN/HALF_OPEN transitions
+- `apps/engine/tests/unit/router/router-engine.test.ts` — 6 tests: priority selection, 429 fallback, all-targets-failed, no-trigger hard failure, cost estimation, credential skip
+- `packages/nodes/tests/unit/nodes/core-prompt-builder.test.ts` — 5 tests
+
+**Impact:**
+Engine can now route LLM calls across multiple provider targets with circuit breaking and reactive fallback. 116 tests passing (56 nodes + 29 engine + 31 API).
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase B: New Non-LLM Nodes + Loop/Fork/Join Engine
+
+**Type:** Feature
+
+**Description:**
+Added 11 new node implementations across data, observability, and control-flow categories. Extended the engine worker with Loop cycle support and Fork/Join parallel execution.
+
+**Changes:**
+- `packages/nodes/src/nodes/core-transform.ts` — JSONata expression transform; writes to outputKey
+- `packages/nodes/src/nodes/core-filter.ts` — boolean JSONata filter; sets `_filter_pass`
+- `packages/nodes/src/nodes/core-validate.ts` — JSON Schema validator; sets `_valid` + `_errors`
+- `packages/nodes/src/nodes/core-parse.ts` — parse JSON/CSV/lines string into structure
+- `packages/nodes/src/nodes/core-aggregate.ts` — reduce array: sum/count/collect/min/max/average/first/last
+- `packages/nodes/src/nodes/core-metric.ts` — emit named metric via `ctx.metric()`
+- `packages/nodes/src/nodes/core-annotation.ts` — write structured annotation to step record
+- `packages/nodes/src/nodes/core-wait.ts` — delay or poll condition with configurable timeout
+- `packages/nodes/src/nodes/core-loop.ts` — loop controller; sets `_loop_continue`/`_loop_iteration`
+- `packages/nodes/src/nodes/core-fork.ts` — parallel split marker
+- `packages/nodes/src/nodes/core-join.ts` — parallel branch barrier
+- `packages/nodes/src/index.ts` — registered all 11 new nodes in `ALL_NODES`
+- `apps/engine/src/execution/worker.ts` — refactored to `executeNodeOnce()` helper; added Fork/Join parallel execution (`Promise.all` branches with cloned context + merge); added Loop cycle detection with `maxIterations` enforcement
+
+**Impact:**
+Engine now supports parallel branch execution and bounded loops. 51 node tests pass (16 new). No regressions in engine or API tests.
+
+---
+
+### 2026-06-01 - Phase 2 Sub-phase A: SSE Stream Infrastructure
+
+**Type:** Feature
+
+**Description:**
+Delivered live SSE streaming for run execution across the full stack: engine broadcasts node/run lifecycle events; the API proxies the stream with tenant ownership verification; the SDK exposes an `agent.stream()` async generator; and the Studio TestRunPanel now shows per-node status updating in real time instead of polling.
+
+**Changes:**
+- `apps/engine/src/sse/sse-manager.ts` — new singleton `SseManager`: per-runId Set<Response> registry; `subscribe`, `broadcast`, `close`
+- `apps/engine/src/execution/context.ts` — `emit()` now calls `sseManager.broadcast()` instead of logging
+- `apps/engine/src/execution/lifecycle.ts` — `markRunStarted/Complete/Failed/Suspended` broadcast `run.*` SSE events; terminal methods call `sseManager.close()`; `markRunStarted` now accepts `agentId`
+- `apps/engine/src/execution/worker.ts` — emits `node.started`, `node.completed`, `node.failed` via `ctx.emit()` at each node lifecycle boundary
+- `apps/engine/src/execution/scheduler.ts` — passes `agentId` to `markRunStarted`
+- `apps/engine/src/controllers/runs.controller.ts` — new `streamRun`: subscribes live runs to SSE; sends terminal event immediately for already-completed runs
+- `apps/engine/src/routes/internal.ts` — `GET /runs/:id/stream` route
+- `apps/api/src/controllers/runs.controller.ts` — new `streamRun`: verifies agent ownership, proxies SSE from engine with `responseType: 'stream'`
+- `apps/api/src/routes/agents.ts` — `GET /:id/runs/:runId/stream` route
+- `apps/web/src/app.ts` — dedicated SSE proxy route before general `/api` proxy
+- `packages/nodes/src/nodes/core-log.ts` — new `core:log` node (observability category); emits `node.log` SSE event
+- `packages/nodes/src/index.ts` — added `coreLog` to `ALL_NODES`
+- `packages/sdk-client/src/stream-client.ts` — new `streamRun()` fetch-based SSE parser returning `AsyncGenerator<RunStreamEvent>`
+- `packages/sdk-client/src/agent-client.ts` — new `stream(input, opts?)` method; starts async run then subscribes to SSE stream
+- `packages/sdk-client/src/run-handle.ts` — `RunSuspendedError` now receives actual `reviewId` from run response
+- `packages/sdk-client/src/index.ts` — exports `streamRun`
+- `apps/web/src/canvas/components/TestRunPanel.svelte` — replaced polling sync-mode with `EventSource` subscription; per-node live status badges; stop button
+
+**Impact:**
+Runs now stream live. The engine broadcasts `run.started`, `node.started`, `node.completed`, `node.failed`, `run.completed`, `run.failed`, `run.suspended` events over SSE. The Studio updates node status in real time without polling. SDK consumers can `for await (const event of agent.stream(input))` to receive typed events. All 83 existing tests continue to pass.
+
+---
+
 ### 2026-05-25 - Phase 1 frontend gaps: Studio draft/publish, schema-driven config panel, admin CRUD
 
 **Type:** Feature
