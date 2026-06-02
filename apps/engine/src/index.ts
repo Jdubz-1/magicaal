@@ -2,8 +2,9 @@ import { createApp } from './app';
 import { config } from './config';
 import { logger } from './lib/logger';
 import { runTelemetryMigrations } from './db/telemetry-migrate';
-import { registerNodes } from './registry/startup';
+import { registerNodes, registerAdapters } from './registry/startup';
 import { startScheduler } from './execution/scheduler';
+import { initPricingCache } from './router/router-engine';
 
 async function main(): Promise<void> {
   if (!config.masterKey) {
@@ -12,6 +13,8 @@ async function main(): Promise<void> {
 
   await runTelemetryMigrations();
   registerNodes();
+  registerAdapters();
+  initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();
 
   const app = createApp();
