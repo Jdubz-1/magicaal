@@ -25,7 +25,8 @@ export interface NodeModule<TConfig = Record<string, unknown>> {
       | 'code'
       | 'composition'
       | 'observability'
-      | 'guardrails';
+      | 'guardrails'
+      | 'tool';
     icon?: string;
     canTrigger?: boolean;
     version: string;

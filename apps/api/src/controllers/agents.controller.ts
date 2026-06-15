@@ -380,3 +380,41 @@ export const updateAgentConfig: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+
+interface AgentGraphDefinition {
+  nodes: Record<string, { type: string; config: Record<string, unknown> }>;
+}
+
+async function getAgentGraph(agentId: string, tenantId: string): Promise<AgentGraphDefinition> {
+  const agentRows = await db.select().from(agents).where(and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)));
+  const agent = agentRows[0];
+  if (!agent) throw Object.assign(new Error('Agent not found'), { status: 404 });
+  if (!agent.currentVersionId) throw Object.assign(new Error('Agent has no published version'), { status: 404 });
+  const versionRows = await db.select().from(agentVersions).where(eq(agentVersions.id, agent.currentVersionId));
+  if (!versionRows[0]) throw Object.assign(new Error('Version not found'), { status: 404 });
+  return JSON.parse(versionRows[0].graphJson) as AgentGraphDefinition;
+}
+
+export const getSchemaInput: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const graph = await getAgentGraph(req.params.id, tenantId);
+    const startNode = Object.values(graph.nodes).find((n) => n.type === 'core:start');
+    const inputSchema = startNode?.config?.inputSchema ?? {};
+    res.json({ inputSchema });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getSchemaOutput: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const graph = await getAgentGraph(req.params.id, tenantId);
+    const endNode = Object.values(graph.nodes).find((n) => n.type === 'core:end');
+    const outputSchema = endNode?.config?.outputSchema ?? {};
+    res.json({ outputSchema });
+  } catch (err) {
+    next(err);
+  }
+};

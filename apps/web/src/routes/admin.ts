@@ -1249,8 +1249,19 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
                 value="${escHtml(String((policy.rateLimit as Record<string, number> | null)?.requestsPerWindow ?? ''))}"
                 placeholder="Unlimited" />
             </div>
+            <div id="jwt-config-section" style="display:${policy.strategy === 'jwt' ? 'block' : 'none'};border:1px solid #374151;border-radius:6px;padding:1rem;margin-bottom:1rem;background:#0f1117">
+              <p style="font-size:0.875rem;color:#94a3b8;margin:0 0 0.75rem">JWT Configuration</p>
+              ${(() => {
+                const jwtConf = (policy.jwtConfig ?? {}) as Record<string, unknown>;
+                return `<div class="form-group"><label>JWKS URL</label><input name="jwtJwksUrl" placeholder="https://your-idp.com/.well-known/jwks.json" value="${escHtml(String(jwtConf.jwksUrl ?? ''))}"/></div>
+                <div class="form-group"><label>Issuer (optional)</label><input name="jwtIssuer" placeholder="https://your-idp.com/" value="${escHtml(String(jwtConf.issuer ?? ''))}"/></div>
+                <div class="form-group"><label>Audience (optional)</label><input name="jwtAudience" placeholder="your-api-identifier" value="${escHtml(String(jwtConf.audience ?? ''))}"/></div>
+                <div class="form-group"><label>Required Claims (key=value, one per line)</label><textarea name="jwtRequiredClaims" rows="3">${escHtml(Object.entries((jwtConf.requiredClaims ?? {}) as Record<string,unknown>).map(([k,v])=>`${k}=${v}`).join('\n'))}</textarea></div>`;
+              })()}
+            </div>
             <button type="submit" class="btn btn-primary">Save Policy</button>
           </form>
+          <script>document.querySelector('select[name="strategy"]')?.addEventListener('change',function(e){const s=document.getElementById('jwt-config-section');if(s)s.style.display=(e.target as HTMLSelectElement).value==='jwt'?'block':'none';});</script>
         </div>
 
         <div class="card">
@@ -1280,15 +1291,34 @@ adminRouter.post('/invocation-auth/:agentId/policy', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
     const { agentId } = req.params;
-    const { strategy, rateLimitPerMin } = req.body as { strategy: string; rateLimitPerMin: string };
+    const { strategy, rateLimitPerMin, jwtJwksUrl, jwtIssuer, jwtAudience, jwtRequiredClaims } = req.body as {
+      strategy: string; rateLimitPerMin: string;
+      jwtJwksUrl?: string; jwtIssuer?: string; jwtAudience?: string; jwtRequiredClaims?: string;
+    };
 
     const rateLimit = rateLimitPerMin
       ? { requestsPerWindow: parseInt(rateLimitPerMin, 10), windowSeconds: 60, limitBy: 'tenant' }
       : null;
 
+    let jwtConfig: Record<string, unknown> | null = null;
+    if (strategy === 'jwt' && jwtJwksUrl) {
+      const requiredClaims: Record<string, string> = {};
+      for (const line of (jwtRequiredClaims ?? '').split('\n').filter(Boolean)) {
+        const [k, ...v] = line.split('=');
+        if (k) requiredClaims[k.trim()] = v.join('=').trim();
+      }
+      jwtConfig = {
+        jwksUrl: jwtJwksUrl,
+        ...(jwtIssuer ? { issuer: jwtIssuer } : {}),
+        ...(jwtAudience ? { audience: jwtAudience } : {}),
+        ...(Object.keys(requiredClaims).length > 0 ? { requiredClaims } : {}),
+      };
+    }
+
     await api.patch(`/v1/agents/${encodeURIComponent(agentId)}/invocation-policy`, {
       strategy,
       rateLimit,
+      jwtConfig,
     });
 
     res.redirect(`/admin/invocation-auth/${encodeURIComponent(agentId)}`);
@@ -1394,6 +1424,231 @@ adminRouter.post('/invocation-auth/:agentId/keys/:keyId/revoke', async (req, res
     const { agentId, keyId } = req.params;
     await api.delete(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys/${encodeURIComponent(keyId)}`);
     res.redirect(`/admin/invocation-auth/${encodeURIComponent(agentId)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── MCP Server Management ────────────────────────────────────────────────────
+
+interface McpServer {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http';
+  url: string | null;
+  command: string | null;
+  enabled: boolean;
+  lastTestedAt: string | null;
+  createdAt: string;
+}
+
+adminRouter.get('/mcp-servers', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data: servers } = await api.get<McpServer[]>('/v1/mcp-servers').catch(() => ({ data: [] as McpServer[] }));
+
+    const rows = servers.map((s) => `
+      <tr>
+        <td>${escHtml(s.name)}</td>
+        <td><code>${escHtml(s.transport)}</code></td>
+        <td style="font-size:0.75rem;color:#94a3b8;max-width:200px;word-break:break-all">${escHtml(s.transport === 'http' ? (s.url ?? '—') : (s.command ?? '—'))}</td>
+        <td>${s.lastTestedAt ? `<span style="color:#4ade80">Tested ${new Date(s.lastTestedAt).toLocaleDateString()}</span>` : '<span style="color:#94a3b8">Not tested</span>'}</td>
+        <td>
+          <form method="POST" action="/admin/mcp-servers/${escHtml(s.id)}/test" style="display:inline">
+            <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.75rem">Test</button>
+          </form>
+          <form method="POST" action="/admin/mcp-servers/${escHtml(s.id)}/delete" style="display:inline">
+            <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.75rem;color:#f87171">Delete</button>
+          </form>
+        </td>
+      </tr>`).join('');
+
+    const flash = req.query.msg ? `<div style="background:#14532d;border:1px solid #166534;color:#86efac;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1rem">${escHtml(String(req.query.msg))}</div>` : '';
+    const error = req.query.err ? `<div style="background:#3b1f1f;border:1px solid #7f2121;color:#fca5a5;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1rem">${escHtml(String(req.query.err))}</div>` : '';
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:900px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">MCP Servers</h1>
+          <a href="/admin/mcp-servers/create" class="btn btn-primary">+ Register Server</a>
+        </div>
+        ${flash}${error}
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Transport</th><th>URL / Command</th><th>Status</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No MCP servers registered</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'MCP Servers', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/mcp-servers/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+        <h1 style="margin:0;font-size:1.25rem">Register MCP Server</h1>
+        <a href="/admin/mcp-servers" style="color:#94a3b8;font-size:0.875rem">← MCP Servers</a>
+      </div>
+      <div class="card">
+        <form method="POST" action="/admin/mcp-servers">
+          <div class="form-group"><label>Name</label><input name="name" required placeholder="My MCP Server"/></div>
+          <div class="form-group">
+            <label>Transport</label>
+            <select name="transport" id="transport-select">
+              <option value="stdio">stdio (local process)</option>
+              <option value="http">http (Streamable HTTP)</option>
+            </select>
+          </div>
+          <div id="http-fields">
+            <div class="form-group"><label>URL</label><input name="url" placeholder="http://localhost:3001/mcp"/></div>
+          </div>
+          <div id="stdio-fields" style="display:none">
+            <div class="form-group"><label>Command</label><input name="command" placeholder="npx -y my-mcp-server"/></div>
+            <div class="form-group"><label>Args (space-separated, optional)</label><input name="args" placeholder="--verbose"/></div>
+          </div>
+          <button type="submit" class="btn btn-primary">Register</button>
+        </form>
+        <script>document.getElementById('transport-select')?.addEventListener('change',function(e){const v=(e.target as HTMLSelectElement).value;const http=document.getElementById('http-fields');const stdio=document.getElementById('stdio-fields');if(http)http.style.display=v==='http'?'block':'none';if(stdio)stdio.style.display=v==='stdio'?'block':'none';});</script>
+      </div>
+    </div>`, { title: 'Register MCP Server', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/mcp-servers', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { name, transport, url, command, args } = req.body as { name: string; transport: 'stdio' | 'http'; url?: string; command?: string; args?: string };
+    const argsArr = args ? args.split(' ').filter(Boolean) : undefined;
+    await api.post('/v1/mcp-servers', { name, transport, url, command, args: argsArr });
+    res.redirect('/admin/mcp-servers?msg=Server+registered');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/mcp-servers/:id/test', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { data } = await api.post<{ ok: boolean; tools: Array<{ name: string }> }>(`/v1/mcp-servers/${encodeURIComponent(req.params.id)}/test`);
+    const toolNames = data.tools.map((t) => t.name).join(', ');
+    res.redirect(`/admin/mcp-servers?msg=Test+OK+—+tools%3A+${encodeURIComponent(toolNames || 'none')}`);
+  } catch (err) {
+    res.redirect(`/admin/mcp-servers?err=${encodeURIComponent((err as Error).message)}`);
+  }
+});
+
+adminRouter.post('/mcp-servers/:id/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/mcp-servers/${encodeURIComponent(req.params.id)}`);
+    res.redirect('/admin/mcp-servers?msg=Server+deleted');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Telemetry additions: Evaluate Scores + Routing Events ────────────────────
+
+interface EvaluateScore {
+  runId: string;
+  nodeId: string;
+  scorerType: string;
+  score: number;
+  createdAt: string;
+}
+
+interface RoutingEvent {
+  runId: string;
+  nodeId: string;
+  nodeType: string;
+  agentId: string;
+  attemptCount: number;
+  targetUsed: unknown;
+  triggerHistory: unknown[];
+  timestamp: string;
+}
+
+adminRouter.get('/telemetry/evaluate-scores', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data } = await api.get<{ events: EvaluateScore[] }>('/v1/telemetry?type=evaluate-scores').catch(() => ({ data: { events: [] } }));
+
+    const rows = (data.events ?? []).map((s) => `
+      <tr>
+        <td style="font-size:0.75rem;font-family:monospace">${escHtml(s.nodeId)}</td>
+        <td><code>${escHtml(s.scorerType)}</code></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <div style="width:60px;height:6px;background:#1e2035;border-radius:3px">
+              <div style="width:${Math.round(s.score * 100)}%;height:100%;background:${s.score >= 0.7 ? '#4ade80' : s.score >= 0.4 ? '#fbbf24' : '#f87171'};border-radius:3px"></div>
+            </div>
+            <span>${s.score.toFixed(2)}</span>
+          </div>
+        </td>
+        <td style="font-size:0.75rem;color:#94a3b8">${new Date(s.createdAt).toLocaleString()}</td>
+        <td><a href="/admin/runs/${escHtml(s.runId)}" style="color:#7c6af7;font-size:0.75rem">View run</a></td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1000px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Evaluate Score History</h1>
+          <a href="/admin/telemetry" style="color:#94a3b8;font-size:0.875rem">← Telemetry</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Node ID</th><th>Evaluator Type</th><th>Score</th><th>Timestamp</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No evaluate scores recorded</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Evaluate Score History', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/telemetry/routing-events', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data } = await api.get<{ events: RoutingEvent[] }>('/v1/telemetry/routing-events').catch(() => ({ data: { events: [] } }));
+
+    const rows = (data.events ?? []).map((e) => {
+      const target = e.targetUsed as { provider?: string; model?: string } | null;
+      const triggerSummary = Array.isArray(e.triggerHistory) && e.triggerHistory.length > 0
+        ? `${e.triggerHistory.length} trigger(s)`
+        : '—';
+      return `
+      <tr>
+        <td style="font-size:0.75rem;font-family:monospace">${escHtml(e.nodeId)}</td>
+        <td><code style="font-size:0.7rem">${escHtml(e.nodeType)}</code></td>
+        <td>${escHtml(e.attemptCount.toString())} attempts</td>
+        <td>${target ? `${escHtml(target.provider ?? '')} / ${escHtml(target.model ?? '')}` : '—'}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${triggerSummary}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</td>
+        <td><a href="/admin/runs/${escHtml(e.runId)}" style="color:#7c6af7;font-size:0.75rem">View run</a></td>
+      </tr>`;
+    }).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1100px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Routing Event Log</h1>
+          <a href="/admin/telemetry" style="color:#94a3b8;font-size:0.875rem">← Telemetry</a>
+        </div>
+        <div class="card">
+          <p style="font-size:0.875rem;color:#94a3b8;margin:0 0 1rem">Shows LLM steps where at least one provider fallback occurred.</p>
+          <table>
+            <thead><tr><th>Node ID</th><th>Type</th><th>Attempts</th><th>Final Target</th><th>Triggers</th><th>Timestamp</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="7" style="color:#475569;text-align:center;padding:1.5rem">No routing fallbacks recorded</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Routing Event Log', user: { name: user.userId, role: user.role } }));
   } catch (err) {
     next(err);
   }

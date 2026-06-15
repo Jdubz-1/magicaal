@@ -1,6 +1,7 @@
 <script lang="ts">
   import { graph, selectedNode, type NodeDef } from '../stores/graph';
   import { nodeTypes } from '../stores/nodeTypes';
+  import ExpressionEditor from './ExpressionEditor.svelte';
 
   export let node: NodeDef;
 
@@ -13,6 +14,22 @@
   );
 
   let pickerFieldKey: string | null = null;
+  let exprFieldKey: string | null = null;  // field currently in expression editor mode
+  let evalResult: Record<string, unknown> = {};  // fieldKey → eval result
+
+  async function evaluateExpression(fieldKey: string, expression: string) {
+    try {
+      const resp = await fetch('/studio/evaluate-expression', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expression }),
+      });
+      const data = await resp.json() as { result?: unknown; error?: string };
+      evalResult = { ...evalResult, [fieldKey]: data.error ? `Error: ${data.error}` : JSON.stringify(data.result) };
+    } catch {
+      evalResult = { ...evalResult, [fieldKey]: 'Request failed' };
+    }
+  }
 
   function updateConfig(key: string, value: unknown) {
     graph.update((g) => ({
@@ -86,29 +103,50 @@
           style="width:auto"
         />
       {:else}
-        <div class="field-with-picker">
-          <input type="text"
+        {#if exprFieldKey === key}
+          <!-- Expression Editor mode -->
+          <ExpressionEditor
             value={String(configValue(key) ?? '')}
-            on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value)}
+            fieldName={key}
+            on:change={(e) => updateConfig(key, e.detail)}
+            on:evaluate={(e) => evaluateExpression(key, e.detail)}
           />
-          {#if upstreamNodes.length > 0}
-            <button class="picker-btn" title="Reference upstream node output"
-              on:click={() => pickerFieldKey = pickerFieldKey === key ? null : key}>
-              ↗
-            </button>
+          {#if evalResult[key]}
+            <div class="eval-result">{String(evalResult[key])}</div>
           {/if}
-        </div>
-        {#if pickerFieldKey === key && upstreamNodes.length > 0}
-          <div class="picker-dropdown">
-            <div class="picker-label">Insert reference to:</div>
-            {#each upstreamNodes as upstream}
-              <button class="picker-option"
-                on:click={() => insertUpstreamRef(key, upstream.id, upstream.id)}>
-                <span class="picker-node">{upstream.label ?? upstream.id}</span>
-                <span class="picker-ref">$.{upstream.id}</span>
+          <button class="mode-toggle-btn" on:click={() => { exprFieldKey = null; evalResult = { ...evalResult, [key]: undefined }; }}>
+            ← Value Picker mode
+          </button>
+        {:else}
+          <!-- Value Picker mode -->
+          <div class="field-with-picker">
+            <input type="text"
+              value={String(configValue(key) ?? '')}
+              on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value)}
+            />
+            {#if upstreamNodes.length > 0}
+              <button class="picker-btn" title="Reference upstream node output"
+                on:click={() => { pickerFieldKey = pickerFieldKey === key ? null : key; }}>
+                ↗
               </button>
-            {/each}
+            {/if}
+            <button class="expr-toggle-btn" title="Switch to JSONata expression editor"
+              on:click={() => { exprFieldKey = key; pickerFieldKey = null; }}>
+              ƒ
+            </button>
           </div>
+          {#if pickerFieldKey === key && upstreamNodes.length > 0}
+            <div class="picker-dropdown">
+              <div class="picker-label">Insert reference to:</div>
+              {#each upstreamNodes as upstream}
+                <button class="picker-option"
+                  on:click={() => insertUpstreamRef(key, upstream.id, upstream.id)}>
+                  <span class="picker-node">{upstream.label ?? upstream.id}</span>
+                  <span class="picker-ref">$.{upstream.id}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
         {/if}
       {/if}
     </div>
@@ -138,4 +176,9 @@
   .picker-option:hover { background: #2d3148; }
   .picker-node { color: #e2e8f0; }
   .picker-ref { color: #7c6af7; font-family: monospace; font-size: 0.6875rem; }
+  .expr-toggle-btn { background: #1e1600; border: 1px solid #b45309; color: #f59e0b; border-radius: 4px; padding: 0 0.5rem; font-size: 0.8rem; cursor: pointer; flex-shrink: 0; font-family: monospace; }
+  .expr-toggle-btn:hover { background: #2d1f00; }
+  .mode-toggle-btn { background: none; border: none; color: #64748b; font-size: 0.65rem; cursor: pointer; padding: 2px 0; text-decoration: underline; }
+  .mode-toggle-btn:hover { color: #94a3b8; }
+  .eval-result { font-size: 0.7rem; color: #4ade80; font-family: monospace; background: #0d1117; border: 1px solid #1f2937; border-radius: 3px; padding: 4px 6px; margin-top: 2px; word-break: break-all; }
 </style>

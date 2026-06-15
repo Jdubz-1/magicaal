@@ -3,6 +3,7 @@ const RING_SIZE = 100;
 interface HealthSample {
   durationMs: number;
   isError: boolean;
+  recordedAt: number; // unix ms
 }
 
 class HealthTracker {
@@ -13,7 +14,7 @@ class HealthTracker {
       this.rings.set(targetId, []);
     }
     const ring = this.rings.get(targetId)!;
-    ring.push({ durationMs, isError });
+    ring.push({ durationMs, isError, recordedAt: Date.now() });
     if (ring.length > RING_SIZE) ring.shift();
   }
 
@@ -24,10 +25,14 @@ class HealthTracker {
     return sorted[Math.floor(sorted.length / 2)];
   }
 
-  getErrorRate(targetId: string): number {
+  getErrorRate(targetId: string, windowMs?: number): number {
     const ring = this.rings.get(targetId);
     if (!ring || ring.length === 0) return 0;
-    return ring.filter((s) => s.isError).length / ring.length;
+    const samples = windowMs
+      ? ring.filter((s) => Date.now() - s.recordedAt <= windowMs)
+      : ring;
+    if (samples.length === 0) return 0;
+    return samples.filter((s) => s.isError).length / samples.length;
   }
 
   getSampleCount(targetId: string): number {

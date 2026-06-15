@@ -201,3 +201,20 @@ studioRouter.post('/:agentId/versions/:vId/rollback', async (req, res, next) => 
     next(err);
   }
 });
+
+// Expression evaluation endpoint (called from ExpressionEditor in Studio)
+studioRouter.post('/evaluate-expression', async (req, res, next) => {
+  try {
+    const { expression, context = {} } = req.body as { expression?: string; context?: Record<string, unknown> };
+    if (!expression) return res.json({ result: null });
+    const api = createApiClient(req.accessToken);
+    try {
+      const resp = await api.post('/v1/utils/evaluate', { expression, context });
+      res.json(resp.data);
+    } catch (e) {
+      res.json({ error: e instanceof Error ? e.message : 'Evaluation failed' });
+    }
+  } catch (err) {
+    next(err);
+  }
+});

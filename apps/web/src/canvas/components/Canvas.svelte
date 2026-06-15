@@ -1,10 +1,14 @@
 <script lang="ts">
-  import { graph, selectedNode, type NodeDef, type EdgeDef, addEdge } from '../stores/graph';
+  import { graph, selectedNode, type NodeDef, type EdgeDef, type ToolEdgeDef, addEdge, addToolEdge } from '../stores/graph';
 
   export let agentId: string;
 
+  const TOOL_NODE_TYPES = new Set(['core:tool', 'core:mcp-client']);
+  const AGENT_NODE_TYPES = new Set(['core:tool-call', 'core:react']);
+
   let nodes: NodeDef[] = [];
   let edges: EdgeDef[] = [];
+  let toolEdges: ToolEdgeDef[] = [];
   let draggingNode: NodeDef | null = null;
   let dragOffset = { x: 0, y: 0 };
   let svgEl: SVGSVGElement;
@@ -25,7 +29,14 @@
   $: {
     nodes = Object.values($graph.nodes);
     edges = $graph.edges;
+    toolEdges = $graph.toolEdges ?? [];
   }
+
+  // Count inbound tool edges per agent node for the tool badge
+  $: toolCountByNode = toolEdges.reduce<Record<string, number>>((acc, te) => {
+    acc[te.to] = (acc[te.to] ?? 0) + 1;
+    return acc;
+  }, {});
 
   function selectNode(node: NodeDef) {
     selectedNode.set(node);
@@ -166,7 +177,7 @@
       </marker>
     </defs>
 
-    <!-- Edges -->
+    <!-- Flow edges -->
     {#each edges as edge}
       {@const from = getNodePos(edge.from)}
       {@const to = getNodePos(edge.to)}
@@ -180,9 +191,27 @@
       />
     {/each}
 
+    <!-- Tool edges: dashed amber lines -->
+    {#each toolEdges as te}
+      {@const from = getNodePos(te.from)}
+      {@const to = getNodePos(te.to)}
+      <line
+        x1={from.x + 160} y1={from.y + 20}
+        x2={to.x} y2={to.y + 20}
+        stroke="#f59e0b"
+        stroke-width="1.5"
+        stroke-dasharray="5 3"
+        opacity="0.8"
+      />
+    {/each}
+
     <!-- Nodes -->
     {#each nodes as node}
       {@const pos = node.position ?? { x: 100, y: 100 }}
+      {@const isToolNode = TOOL_NODE_TYPES.has(node.type)}
+      {@const isAgentNode = AGENT_NODE_TYPES.has(node.type)}
+      {@const isSelected = $selectedNode?.id === node.id}
+      {@const toolCount = toolCountByNode[node.id] ?? 0}
       <g
         transform="translate({pos.x},{pos.y})"
         style="cursor:pointer"
@@ -194,12 +223,17 @@
       >
         <rect
           width="160" height="40" rx="6"
-          fill={$selectedNode?.id === node.id ? '#312e7a' : '#1e2035'}
-          stroke={$selectedNode?.id === node.id ? '#7c6af7' : '#2d3148'}
-          stroke-width="1.5"
+          fill={isSelected ? (isToolNode ? '#2d1f00' : '#312e7a') : (isToolNode ? '#1e1600' : '#1e2035')}
+          stroke={isSelected ? (isToolNode ? '#f59e0b' : '#7c6af7') : (isToolNode ? '#b45309' : '#2d3148')}
+          stroke-width={isToolNode ? '2' : '1.5'}
         />
         <text x="12" y="14" fill="#94a3b8" font-size="9" font-family="monospace">{node.type}</text>
         <text x="12" y="29" fill="#e2e8f0" font-size="12" font-family="system-ui">{node.label ?? node.id}</text>
+        <!-- Tool badge on agent nodes -->
+        {#if isAgentNode && toolCount > 0}
+          <circle cx="148" cy="8" r="8" fill="#f59e0b" />
+          <text x="148" y="12" fill="#000" font-size="8" font-family="monospace" text-anchor="middle">{toolCount}</text>
+        {/if}
         <!-- Output port (right side) -->
         <circle cx="160" cy="20" r="5" class="port port-out"
           on:mousedown|stopPropagation={(e) => startEdgeDrag(e, node.id)} />

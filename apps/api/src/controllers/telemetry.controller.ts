@@ -76,3 +76,29 @@ export const getTokenUsage: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getTrajectory: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const { runId } = req.params;
+    const response = await engineClient.get(`/internal/telemetry/trajectory/${runId}`, {
+      params: { tenantId },
+    });
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getRoutingEvents: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const { agentId, limit = '100' } = req.query as { agentId?: string; limit?: string };
+    const params: Record<string, string> = { tenantId, limit };
+    if (agentId) params.agentId = agentId;
+    const response = await engineClient.get('/internal/telemetry/routing-events', { params });
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};

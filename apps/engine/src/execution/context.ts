@@ -94,6 +94,45 @@ export class ExecutionContextImpl implements ExecutionContext {
     this._trajectorySteps.push(step);
   }
 
+  clearTrajectorySteps(): void {
+    this._trajectorySteps = [];
+  }
+
+  // Engine-internal: allows core:mcp-client direct-mode node to call MCP tools
+  async _callMcpTool(nodeId: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+    const { mcpRegistry } = await import('../mcp/mcp-registry.js');
+    return mcpRegistry.callTool(nodeId, this.runId, toolName, args);
+  }
+
+  async dispatchSubRun(
+    agentId: string,
+    input: Record<string, unknown>,
+    opts?: { await?: boolean },
+  ): Promise<{ runId: string; output?: Record<string, unknown> }> {
+    const engineUrl = process.env.ENGINE_INTERNAL_URL ?? 'http://localhost:4000';
+    const postResp = await fetch(`${engineUrl}/internal/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, tenantId: this.tenantId, triggerType: 'sub-graph', input, parentRunId: this.runId }),
+    });
+    if (!postResp.ok) throw Object.assign(new Error(`Sub-run dispatch failed: ${postResp.status}`), { code: 'SUB_RUN_DISPATCH_FAILED', retryable: false });
+    const { runId } = await postResp.json() as { runId: string };
+    if (opts?.await === false) return { runId };
+    // Poll for completion
+    const start = Date.now();
+    const timeout = 300_000;
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const getResp = await fetch(`${engineUrl}/internal/runs/${runId}`);
+      const run = await getResp.json() as { status: string; output?: Record<string, unknown> };
+      if (run.status === 'completed') return { runId, output: run.output };
+      if (run.status === 'failed' || run.status === 'cancelled') {
+        throw Object.assign(new Error(`Sub-run ${runId} ended with status: ${run.status}`), { code: 'SUB_RUN_FAILED', retryable: false });
+      }
+    }
+    throw Object.assign(new Error(`Sub-run ${runId} timed out`), { code: 'SUB_RUN_TIMEOUT', retryable: false });
+  }
+
   suspend(reviewId: string, nodeId?: string): void {
     this._suspended = true;
     this._suspendReviewId = reviewId;

@@ -8,6 +8,30 @@
   let running = false;
   let es: EventSource | null = null;
 
+  const TRAJECTORY_NODE_TYPES = new Set(['core:react', 'core:planner']);
+
+  interface TrajectoryRow {
+    id: string;
+    runId: string;
+    stepId: string;
+    iteration: number;
+    thought: string | null;
+    action: string | null;
+    observation: string | null;
+  }
+
+  let trajectories: TrajectoryRow[] = [];
+  let expandedTrajectory: string | null = null;  // nodeId
+
+  async function fetchTrajectory(runId: string) {
+    try {
+      const resp = await fetch(`/api/telemetry/trajectory/${runId}`);
+      if (!resp.ok) return;
+      const data = await resp.json() as { trajectories: TrajectoryRow[] };
+      trajectories = data.trajectories ?? [];
+    } catch { /* non-critical */ }
+  }
+
   function stopStream() {
     if (es) {
       es.close();
@@ -103,6 +127,8 @@
       const data = JSON.parse(e.data) as { output: Record<string, unknown> };
       runState.update((s) => ({ ...s, status: 'completed', output: data.output }));
       stopStream();
+      // Fetch trajectory data after run completes
+      void fetchTrajectory(runId);
     });
 
     es.addEventListener('run.failed', (e) => {
@@ -162,7 +188,29 @@
         <div class="step step-{step.status}">
           <span class="step-type">{step.nodeType}</span>
           <span class="step-badge badge-{step.status}">{step.status}</span>
+          {#if TRAJECTORY_NODE_TYPES.has(step.nodeType) && $runState.status !== 'running'}
+            {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.id)}
+            {#if stepTrajectories.length > 0}
+              <button class="traj-toggle"
+                on:click={() => expandedTrajectory = expandedTrajectory === step.nodeId ? null : step.nodeId}>
+                ▶ Trajectory ({stepTrajectories.length} steps)
+              </button>
+            {/if}
+          {/if}
         </div>
+        {#if expandedTrajectory === step.nodeId}
+          {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.id)}
+          <div class="trajectory-block">
+            {#each stepTrajectories as t}
+              <div class="traj-step">
+                <span class="traj-iter">Iter {t.iteration}</span>
+                {#if t.thought}<div class="traj-thought"><span class="traj-label">Thought</span> {t.thought}</div>{/if}
+                {#if t.action}<div class="traj-action"><span class="traj-label">Action</span> {t.action}</div>{/if}
+                {#if t.observation}<div class="traj-obs"><span class="traj-label">Obs</span> {t.observation}</div>{/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/each}
     {/if}
   {/if}
@@ -193,4 +241,11 @@
   .badge-complete { background: #14532d; color: #86efac; }
   .badge-failed { background: #7f2121; color: #fca5a5; }
   .badge-running { background: #1c2333; color: #93c5fd; }
+  .traj-toggle { background: none; border: none; color: #f59e0b; font-size: 0.65rem; cursor: pointer; padding: 0; margin-left: auto; }
+  .trajectory-block { background: #0d1117; border: 1px solid #1f2937; border-radius: 4px; margin-bottom: 0.25rem; padding: 0.5rem; }
+  .traj-step { border-bottom: 1px solid #1f2937; padding: 0.25rem 0; }
+  .traj-step:last-child { border-bottom: none; }
+  .traj-iter { font-size: 0.6rem; color: #f59e0b; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 2px; }
+  .traj-thought, .traj-action, .traj-obs { font-size: 0.7rem; color: #94a3b8; margin: 1px 0; }
+  .traj-label { color: #475569; font-size: 0.6rem; text-transform: uppercase; margin-right: 4px; }
 </style>

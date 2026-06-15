@@ -34,6 +34,22 @@ import { coreDbQuery } from './nodes/core-db-query';
 import { coreWebhookReceive } from './nodes/core-webhook-receive';
 import { coreVectorSearch } from './nodes/core-vector-search';
 import { coreCode } from './nodes/core-code';
+// Phase 3 — Tool System & Advanced Agent Nodes
+import { coreTool } from './nodes/core-tool';
+import { coreToolCall } from './nodes/core-tool-call';
+import { coreReact } from './nodes/core-react';
+import { coreMcpClient } from './nodes/core-mcp-client';
+import { corePlanner } from './nodes/core-planner';
+import { coreReflection } from './nodes/core-reflection';
+import { coreContextSummarize } from './nodes/core-context-summarize';
+import { coreTokenBudget } from './nodes/core-token-budget';
+import { coreSubGraph } from './nodes/core-sub-graph';
+import { coreHandoff } from './nodes/core-handoff';
+import { coreFanOut } from './nodes/core-fan-out';
+import { coreReduce } from './nodes/core-reduce';
+import { coreInputMap } from './nodes/core-input-map';
+import { coreOutputMap } from './nodes/core-output-map';
+import { coreEvaluate } from './nodes/core-evaluate';
 
 export {
   coreStart, coreEnd, coreStop, coreCondition, coreRouter,
@@ -52,6 +68,11 @@ export {
   coreWebhookReceive,
   coreVectorSearch,
   coreCode,
+  // Phase 3
+  coreTool, coreToolCall, coreReact, coreMcpClient,
+  corePlanner, coreReflection, coreContextSummarize, coreTokenBudget,
+  coreSubGraph, coreHandoff, coreFanOut, coreReduce, coreInputMap, coreOutputMap,
+  coreEvaluate,
 };
 export { evaluate, evaluateBoolean, evaluateString } from './utils/jsonata';
 
@@ -83,6 +104,16 @@ export const ALL_NODES: NodeModule<any>[] = [
   coreStructuredExtract,
   coreEmbedding,
   coreVectorSearch,
+  // Phase 3 AI/LLM
+  corePlanner,
+  coreReflection,
+  coreContextSummarize,
+  coreTokenBudget,
+  // Tool system
+  coreTool,
+  coreToolCall,
+  coreReact,
+  coreMcpClient,
   // Guardrails & Review
   coreGuardrail,
   coreHumanReview,
@@ -99,6 +130,15 @@ export const ALL_NODES: NodeModule<any>[] = [
   coreWebScrape,
   coreDbQuery,
   coreWebhookReceive,
+  // Composition
+  coreSubGraph,
+  coreHandoff,
+  coreFanOut,
+  coreReduce,
+  coreInputMap,
+  coreOutputMap,
+  // Evaluation
+  coreEvaluate,
   // Code
   coreCode,
 ];

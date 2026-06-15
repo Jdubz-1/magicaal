@@ -7,6 +7,7 @@
   import TestRunPanel from './components/TestRunPanel.svelte';
   import { graph, selectedNode, agent, agentConfig } from './stores/graph';
   import LintPanel from './components/LintPanel.svelte';
+  import ToolPanel from './components/ToolPanel.svelte';
 
   export let agentId: string;
 
@@ -71,6 +72,7 @@
       <AgentConfigPanel {agentId} />
     {/if}
     <LintPanel />
+    <ToolPanel />
     <TestRunPanel {agentId} />
   </aside>
 </div>

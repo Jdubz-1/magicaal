@@ -12,6 +12,8 @@ import {
   rollbackVersion,
   getAgentConfig,
   updateAgentConfig,
+  getSchemaInput,
+  getSchemaOutput,
 } from '../controllers/agents.controller';
 import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
@@ -34,6 +36,8 @@ agentsRouter.get('/:id/versions/:vId/diff', getVersionDiff);
 agentsRouter.post('/:id/versions/:vId/rollback', rollbackVersion);
 agentsRouter.get('/:id/config', getAgentConfig);
 agentsRouter.patch('/:id/config', updateAgentConfig);
+agentsRouter.get('/:id/schema/input', getSchemaInput);
+agentsRouter.get('/:id/schema/output', getSchemaOutput);
 
 agentsRouter.post('/:id/runs', dispatchRun);
 agentsRouter.get('/:id/runs/:runId', getRun);

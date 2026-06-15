@@ -68,10 +68,42 @@ function selectTarget(
       return sorted;
     }
 
+    case 'cost-optimized': {
+      const sorted = [...healthy].sort((a, b) => {
+        const pa = pricingCache.get(`${a.provider}:${a.model}`)?.promptTokensPerMillion ?? Infinity;
+        const pb = pricingCache.get(`${b.provider}:${b.model}`)?.promptTokensPerMillion ?? Infinity;
+        return pa - pb;
+      });
+      return sorted;
+    }
+
     case 'priority':
     default:
       return healthy;
   }
+}
+
+function checkProactiveTriggers(
+  config: ModelRouterConfig,
+  target: ModelRouterTarget,
+): { triggered: boolean; condition: RouterTriggerCondition | null } {
+  for (const trigger of config.triggers) {
+    const cond = trigger.condition;
+    if (cond.type === 'latency_degraded') {
+      const p50 = healthTracker.getP50(target.id);
+      if (p50 !== null && p50 > (cond as { p50ThresholdMs: number }).p50ThresholdMs) {
+        return { triggered: true, condition: cond };
+      }
+    }
+    if (cond.type === 'error_rate') {
+      const c = cond as { threshold: number; windowMs: number };
+      const rate = healthTracker.getErrorRate(target.id, c.windowMs);
+      if (rate > c.threshold) {
+        return { triggered: true, condition: cond };
+      }
+    }
+  }
+  return { triggered: false, condition: null };
 }
 
 function isReactiveTriggerMet(
@@ -114,6 +146,14 @@ export async function routedLLMCall(
   for (const target of orderedTargets) {
     if (!circuitBreaker.canAttempt(target.id, config.circuitBreaker)) {
       logger.debug({ targetId: target.id }, 'Skipping target: circuit open');
+      continue;
+    }
+
+    // Check proactive triggers before attempting this target
+    const proactive = checkProactiveTriggers(config, target);
+    if (proactive.triggered) {
+      triggerHistory.push({ target, trigger: proactive.condition!, skipped: true });
+      logger.info({ targetId: target.id, trigger: proactive.condition }, 'Proactive trigger fired — skipping target');
       continue;
     }
 

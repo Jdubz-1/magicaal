@@ -1,8 +1,8 @@
 # MagiCaal — Development Progress
 
-**Last updated:** 2026-06-02  
+**Last updated:** 2026-06-15  
 **Tracks against:** `MAGICAAL_DEV_ROADMAP.md` v0.2  
-**Current branch:** `DEV-main` (16 commits ahead of origin)
+**Current branch:** `DEV-main`
 
 ---
 
@@ -13,7 +13,7 @@
 | 0 | Foundation | ✅ Complete | |
 | 1 | Core Engine & Minimal Studio | ✅ Complete | |
 | 2 | Full Node Set, Production Readiness & Model Router | ✅ Complete | All 35 nodes built; routingMeta persisted; Invocation Auth admin panel added |
-| 3 | Tool System & Advanced Agent Nodes | ❌ Not started | |
+| 3 | Tool System & Advanced Agent Nodes | ✅ Complete | 15 new nodes; Tool Executor; MCP client; cost-optimized router; JWT auth; Studio tool panel |
 | 4 | Graph-as-Code & Session Management | ❌ Not started | |
 | 5 | Integrations & Marketplace | ❌ Not started | |
 | 6 | Workspace & Coding Environment | ❌ Not started | |
@@ -205,9 +205,75 @@ All high/medium priority gaps closed. Remaining deferred items are low priority 
 
 ---
 
-## Phase 3 — Tool System & Advanced Agent Nodes ❌ Not started
+## Phase 3 — Tool System & Advanced Agent Nodes ✅ Complete
 
-**Prerequisites met:** Phase 2 node registry and execution worker are stable.
+### ✅ Delivered (2026-06-15)
+
+**Engine**
+- Tool Executor (`tool-executor.ts`) — `assembleTools`, `runAgentLoop` (tool-call + react modes), `invokeGraphTool`, `invokeMcpTool`, `runSubGraph`
+- Graph utils (`graph-utils.ts`) — `resolveEdges` extracted to avoid circular imports
+- Worker — `core:tool-call` and `core:react` special cases (delegate to Tool Executor); `core:fan-out` and `core:reduce` special cases with `findReduceNode` helper
+- Context — `clearTrajectorySteps`, `dispatchSubRun`, `_callMcpTool`
+- Lifecycle — `writeTrajectorySteps`, `writeEvaluateScore`; MCP cleanup on run end
+- MCP Client (`mcp/mcp-client.ts`) — JSON-RPC 2.0, stdio + HTTP transports, `initialize`, `listTools`, `callTool`, `disconnect`
+- MCP Registry (`mcp/mcp-registry.ts`) — per-run client pool with `releaseForRun`
+- Router Engine — `cost-optimized` strategy; proactive `checkProactiveTriggers` for `latency_degraded`/`error_rate`
+- Health Tracker — timestamps on samples; `getErrorRate(targetId, windowMs?)`
+- Invocation Auth — full JWT strategy via `jose` (JWKS fetch, issuer/audience validation, required claims, error codes)
+
+**Packages — nodes (Phase 3, 15 new = 50 total)**
+
+| Node | Category | Track |
+|---|---|---|
+| `core:tool` | tool | A |
+| `core:tool-call` | ai-llm | A |
+| `core:react` | ai-llm | A |
+| `core:mcp-client` | integration | A |
+| `core:planner` | ai-llm | B |
+| `core:reflection` | ai-llm | B |
+| `core:context-summarize` | ai-llm | B |
+| `core:token-budget` | ai-llm | B |
+| `core:sub-graph` | composition | C |
+| `core:handoff` | composition | C |
+| `core:fan-out` | composition | C |
+| `core:reduce` | composition | C |
+| `core:input-map` | composition | C |
+| `core:output-map` | composition | C |
+| `core:evaluate` | composition | D |
+
+**SDK** — added `'tool'` to node category union
+
+**API**
+- `GET/POST/DELETE /v1/mcp-servers` + `POST /v1/mcp-servers/:id/test` — MCP server CRUD
+- `GET /v1/agents/:id/schema/input|output` — schema discovery
+- `GET /v1/telemetry/trajectory/:runId` — trajectory proxy
+- `GET /v1/telemetry/routing-events` — routing fallback event log
+- Engine-internal: `/internal/telemetry/trajectory/:runId`, `/internal/telemetry/routing-events`, `/internal/mcp-servers/test`
+
+**Frontend — Studio**
+- Canvas: tool edges (dashed amber), tool node amber borders, agent tool badge (count)
+- `ToolPanel.svelte` — new sidebar panel for tool inspection
+- `ExpressionEditor.svelte` — raw JSONata editor (monospace, amber caret)
+- `NodeConfigPanel.svelte` — expression editor toggle per string field
+- `TestRunPanel.svelte` — collapsible trajectory display for ReAct/Planner steps
+- `LintPanel.svelte` — tool node validation rules (error on missing tool edge / missing flow edge; warning on agent node without tools)
+- `App.svelte` — ToolPanel in right sidebar
+
+**Frontend — Admin**
+- `/admin/mcp-servers` — MCP server management (list, register, test, delete)
+- `/admin/invocation-auth/:agentId/policy` — JWT config form (JWKS URL, issuer, audience, required claims)
+- `/admin/telemetry/evaluate-scores` — Evaluate Score History
+- `/admin/telemetry/routing-events` — Routing Event Log
+
+**Test coverage:** all existing 206 tests pass (135 nodes + 40 engine + 31 API)
+
+---
+
+## Phase 4 — Graph-as-Code & Session Management ❌ Not started
+
+**Prerequisites:** Phase 2 stable agent CRUD ✅; Phase 3 execution context shape ✅
+
+---
 
 **What needs to be built:**
 - Tool Executor — `runAgentLoop()`, sub-context forking for graph tool invocations, trajectory recording

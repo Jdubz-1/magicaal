@@ -25,6 +25,46 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-15 - Phase 3: Tool System, Advanced Agent Nodes, MCP, and Model Router Phase 3
+
+**Type:** Feature
+
+**Description:**
+Full Phase 3 implementation. The platform can now run true agentic loops: `core:tool-call` and `core:react` nodes drive LLM agents that use tools via the new Tool Executor. 15 new nodes added across four tracks: agentic (tool, tool-call, react, mcp-client), AI/LLM (planner, reflection, context-summarize, token-budget), composition (sub-graph, handoff, fan-out, reduce, input-map, output-map), and evaluation (evaluate). The Model Router gains `cost-optimized` strategy and proactive `latency_degraded`/`error_rate` triggers. JWT invocation auth is fully wired in the engine. The Studio canvas renders tool edges (dashed amber) and tool nodes with amber borders, a new ToolPanel shows connected tools, and an Expression Editor allows raw JSONata field editing. Admin gains MCP Server management, JWT config UI, Evaluate Score History, and Routing Event Log panels.
+
+**Changes:**
+- `apps/engine/src/execution/tool-executor.ts` — new: `assembleTools`, `runAgentLoop`, `invokeGraphTool`, `invokeMcpTool`, `runSubGraph`
+- `apps/engine/src/execution/graph-utils.ts` — new: extracted `resolveEdges` utility
+- `apps/engine/src/execution/worker.ts` — fan-out/reduce and tool-call/react special cases; `findReduceNode` helper
+- `apps/engine/src/execution/context.ts` — `clearTrajectorySteps`, `dispatchSubRun`, `_callMcpTool`
+- `apps/engine/src/execution/lifecycle.ts` — `writeTrajectorySteps`, `writeEvaluateScore`; MCP client cleanup on run end
+- `apps/engine/src/mcp/mcp-client.ts` — JSON-RPC 2.0 client (stdio + HTTP transports)
+- `apps/engine/src/mcp/mcp-registry.ts` — per-run MCP client pool
+- `apps/engine/src/router/router-engine.ts` — `cost-optimized` strategy; `checkProactiveTriggers` for `latency_degraded`/`error_rate`
+- `apps/engine/src/router/health-tracker.ts` — timestamps on samples; `getErrorRate(windowMs)`
+- `apps/engine/src/auth/invocation-auth.ts` — JWT strategy with JWKS validation via jose
+- `packages/nodes/src/nodes/core-{tool,tool-call,react,mcp-client,planner,reflection,context-summarize,token-budget,sub-graph,handoff,fan-out,reduce,input-map,output-map,evaluate}.ts` — 15 new nodes
+- `packages/sdk/src/node.ts` — added `'tool'` to the node category union
+- `apps/api/src/routes/mcp-servers.ts` + `controllers/mcp-servers.controller.ts` — MCP CRUD API
+- `apps/api/src/controllers/agents.controller.ts` — `getSchemaInput`, `getSchemaOutput`
+- `apps/api/src/controllers/telemetry.controller.ts` — `getTrajectory`, `getRoutingEvents`
+- `apps/engine/src/controllers/telemetry.controller.ts` — `getTrajectory`, `getRoutingEvents` engine-internal endpoints
+- `apps/engine/src/controllers/mcp-servers.controller.ts` — `testMcpServerInternal`
+- `apps/web/src/canvas/stores/graph.ts` — `ToolEdgeDef`, `toolEdges` in `GraphDef`, `addToolEdge`
+- `apps/web/src/canvas/components/Canvas.svelte` — tool edge rendering (dashed amber), tool node amber borders, agent tool badges
+- `apps/web/src/canvas/components/ToolPanel.svelte` — new sidebar panel for tool inspection
+- `apps/web/src/canvas/components/ExpressionEditor.svelte` — new styled textarea JSONata editor
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — expression editor toggle per field
+- `apps/web/src/canvas/components/TestRunPanel.svelte` — trajectory display for ReAct/Planner steps
+- `apps/web/src/canvas/components/LintPanel.svelte` — tool node validation rules
+- `apps/web/src/canvas/App.svelte` — ToolPanel added to right sidebar
+- `apps/web/src/routes/admin.ts` — MCP Server management, JWT config UI, Evaluate Score History, Routing Event Log
+
+**Impact:**
+Platform now supports full agentic loops. `core:tool-call` and `core:react` agents can invoke graph tools, MCP tools, and sub-graphs. Trajectory data is recorded per iteration and visible in the Studio test run panel. `cost-optimized` routing and proactive triggers complete the Model Router's Phase 3 capability. JWT invocation auth enables enterprise IdP integration without API keys. Node count grows from 35 to 50.
+
+---
+
 ### 2026-06-02 - Phase 2 Gap Closure: 9 Nodes, routingMeta Telemetry, Invocation Auth Admin
 
 **Type:** Feature

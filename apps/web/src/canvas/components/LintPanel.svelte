@@ -95,6 +95,40 @@
       }
     }
 
+    // Tool system rules
+    const toolEdges = g.toolEdges ?? [];
+    for (const node of nodes) {
+      if (node.type === 'core:tool') {
+        const outbound = edges.filter((e) => e.from === node.id);
+        if (outbound.length !== 1) {
+          issues.push({
+            severity: 'error',
+            message: `Tool node "${node.label ?? node.id}" must have exactly one outbound flow edge (has ${outbound.length})`,
+            nodeId: node.id,
+          });
+        }
+        const inboundTool = toolEdges.filter((te) => te.from === node.id);
+        if (inboundTool.length === 0) {
+          issues.push({
+            severity: 'error',
+            message: `Tool node "${node.label ?? node.id}" must be connected to an agent node via a tool edge`,
+            nodeId: node.id,
+          });
+        }
+      }
+
+      if (node.type === 'core:tool-call' || node.type === 'core:react') {
+        const inboundTools = toolEdges.filter((te) => te.to === node.id);
+        if (inboundTools.length === 0) {
+          issues.push({
+            severity: 'warning',
+            message: `Agent node "${node.label ?? node.id}" (${node.type}) has no tools connected — it will only be able to generate text without tool invocations`,
+            nodeId: node.id,
+          });
+        }
+      }
+    }
+
     return issues;
   }
 

@@ -1,50 +1,45 @@
-import type { AgentGraphDefinition, EdgeDefinition, NodeDefinition } from '@magicaal/core';
-import { evaluate } from '@magicaal/nodes';
+import type { AgentGraphDefinition, NodeDefinition } from '@magicaal/core';
 import { registry } from '../registry/node-registry';
 import { lifecycle } from './lifecycle';
 import { ExecutionContextImpl } from './context';
 import type { RunParams } from './context';
 import { logger } from '../lib/logger';
+import { runAgentLoop, registerExecuteNodeOnce } from './tool-executor';
+import type { NodeOutput } from '@magicaal/sdk-node';
+import { resolveEdges } from './graph-utils';
+
+export { resolveEdges };
 
 const DEFAULT_MAX_LOOP_ITERATIONS = 50;
 
-export async function resolveEdges(
-  edges: EdgeDefinition[],
-  fromId: string,
-  data: Record<string, unknown>,
-): Promise<string[]> {
-  const fromEdges = edges.filter((e) => e.from === fromId);
-
-  const unconditional = fromEdges.filter((e) => e.type === 'unconditional');
-  if (unconditional.length > 0) {
-    return unconditional.map((e) => e.to);
-  }
-
-  const conditional = fromEdges.filter((e) => e.type === 'conditional');
-  const matched: string[] = [];
-  for (const edge of conditional) {
-    if (edge.condition) {
-      try {
-        const result = await evaluate(edge.condition, data);
-        if (result === true || result === 1) {
-          matched.push(edge.to);
-        }
-      } catch {
-        // condition evaluation failure means edge is not taken
-      }
-    }
-  }
-  if (matched.length > 0) return matched;
-
-  const fallback = fromEdges.filter((e) => e.type === 'fallback');
-  return fallback.map((e) => e.to);
-}
+// Circular-import break: give tool-executor a reference to executeNodeOnce
+// after this module is fully loaded.
+let _registered = false;
 
 function findJoinNode(graph: AgentGraphDefinition): string | null {
   for (const [nodeId, nodeDef] of Object.entries(graph.nodes)) {
     if (nodeDef.type === 'core:join') {
       const inbound = graph.edges.filter((e) => e.to === nodeId);
       if (inbound.length >= 2) return nodeId;
+    }
+  }
+  return null;
+}
+
+function findReduceNode(graph: AgentGraphDefinition, branchHeads: string[]): string | null {
+  // BFS from each branch head to find the first core:reduce node
+  const visited = new Set<string>(branchHeads);
+  const queue = [...branchHeads];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    const nodeDef = graph.nodes[id];
+    if (nodeDef?.type === 'core:reduce') return id;
+    const outbound = graph.edges.filter((e) => e.from === id).map((e) => e.to);
+    for (const next of outbound) {
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
     }
   }
   return null;
@@ -124,6 +119,13 @@ export async function executeGraph(
   graph: AgentGraphDefinition,
   ctx: ExecutionContextImpl,
 ): Promise<void> {
+  // Register once after module is loaded to avoid circular import issues
+  if (!_registered) {
+    registerExecuteNodeOnce(
+      executeNodeOnce as unknown as (runId: string, node: NodeDefinition, ctx: ExecutionContextImpl) => Promise<NodeOutput>,
+    );
+    _registered = true;
+  }
   const queue: string[] = [graph.entry];
   const visited = new Set<string>();
   const loopIterations = new Map<string, number>(); // nodeId → iteration count
@@ -136,6 +138,64 @@ export async function executeGraph(
     const nodeDef = graph.nodes[nodeId];
     if (!nodeDef) {
       logger.warn({ runId, nodeId }, 'Node not found in graph definition, skipping');
+      continue;
+    }
+
+    // ── Agentic loop nodes (tool-call / react) ────────────────────────────
+    if (nodeDef.type === 'core:tool-call' || nodeDef.type === 'core:react') {
+      const mode = nodeDef.type === 'core:react' ? 'react' : 'tool-call';
+      const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);
+      const ts = new Date().toISOString();
+      ctx.emit('node.started', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, timestamp: ts });
+
+      const tokensBefore = { ...ctx.tokenUsage };
+      let output;
+      try {
+        output = await runAgentLoop(nodeDef, graph, ctx, mode);
+      } catch (err) {
+        const error = {
+          code: 'AGENT_LOOP_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+          retryable: false,
+        };
+        await lifecycle.writeStepFailed(stepId, error);
+        ctx.emit('node.failed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, error, timestamp: new Date().toISOString() });
+        throw err;
+      }
+
+      // Flush trajectory steps to telemetry
+      const trajectories = ctx.trajectorySteps;
+      if (trajectories.length > 0) {
+        await lifecycle.writeTrajectorySteps(stepId, runId, trajectories);
+        ctx.clearTrajectorySteps();
+      }
+
+      const tokensAfter = ctx.tokenUsage;
+      const tokenDelta = {
+        promptTokens: tokensAfter.promptTokens - tokensBefore.promptTokens,
+        completionTokens: tokensAfter.completionTokens - tokensBefore.completionTokens,
+        estimatedCostUsd: tokensAfter.estimatedCostUsd - tokensBefore.estimatedCostUsd,
+      };
+      await lifecycle.writeStepEnd(stepId, output, tokenDelta);
+
+      if (output.status === 'failed') {
+        ctx.emit('node.failed', {
+          runId,
+          nodeId: nodeDef.id,
+          nodeType: nodeDef.type,
+          error: output.error,
+          timestamp: new Date().toISOString(),
+        });
+        throw Object.assign(new Error(output.error?.message ?? 'Agent loop failed'), {
+          code: output.error?.code ?? 'AGENT_LOOP_FAILED',
+        });
+      }
+
+      ctx.emit('node.completed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, outputs: output.outputs, timestamp: new Date().toISOString() });
+      if (output.outputs) Object.assign(ctx.data, output.outputs);
+
+      const nextNodes = await resolveEdges(graph.edges, nodeId, ctx.data);
+      queue.push(...nextNodes.filter((n) => !visited.has(n)));
       continue;
     }
 
@@ -218,6 +278,77 @@ export async function executeGraph(
 
         const afterJoin = await resolveEdges(graph.edges, joinNodeId, ctx.data);
         queue.push(...afterJoin.filter((n) => !visited.has(n)));
+      }
+      continue;
+    }
+
+    // ── Fan-Out/Reduce dynamic parallel execution ─────────────────────────
+    if (nodeDef.type === 'core:fan-out') {
+      const fanOutOutput = await executeNodeOnce(runId, nodeDef, ctx);
+      if (fanOutOutput.status === 'suspended' || ctx.isSuspended) return;
+      if (fanOutOutput.outputs._terminated === true) return;
+
+      const arrayKey = (nodeDef.config as { arrayKey?: string }).arrayKey ?? 'items';
+      const items = ctx.get<unknown[]>(arrayKey) ?? [];
+
+      const branchHeads = await resolveEdges(graph.edges, nodeId, ctx.data);
+      const reduceNodeId = findReduceNode(graph, branchHeads);
+
+      const branchResults = await Promise.all(
+        items.map(async (item, index) => {
+          const branchCtx = new ExecutionContextImpl({
+            runId: ctx.runId,
+            agentId: ctx.agentId,
+            tenantId: ctx.tenantId,
+            triggerType: ctx.triggerType,
+            input: {
+              ...JSON.parse(JSON.stringify(ctx.data)) as Record<string, unknown>,
+              _fanout_item: item,
+              _fanout_index: index,
+            },
+            graphDefaultRouter: ctx.graphDefaultRouter,
+            tenantRouterPolicy: ctx.tenantRouterPolicy,
+          } as RunParams);
+          Object.assign(
+            (branchCtx as unknown as { credentials: Record<string, unknown> }).credentials,
+            ctx.credentials,
+          );
+
+          const bQueue = [...branchHeads];
+          const bVisited = new Set<string>([nodeId]);
+
+          while (bQueue.length > 0) {
+            const bid = bQueue.shift()!;
+            if (bVisited.has(bid) || bid === reduceNodeId) continue;
+            bVisited.add(bid);
+            const bDef = graph.nodes[bid];
+            if (!bDef) continue;
+            const bOut = await executeNodeOnce(runId, bDef, branchCtx);
+            if (bOut.status === 'suspended' || branchCtx.isSuspended) break;
+            if (bOut.outputs._terminated === true) break;
+            const bNext = await resolveEdges(graph.edges, bid, branchCtx.data);
+            bQueue.push(...bNext.filter((n) => !bVisited.has(n) && n !== reduceNodeId));
+          }
+
+          return branchCtx.data;
+        }),
+      );
+
+      // Store results for core:reduce to consume
+      ctx.set('_fanout_results', branchResults);
+      ctx.set('_fanout_count', items.length);
+
+      // Execute reduce node and continue from its successors
+      if (reduceNodeId && !visited.has(reduceNodeId)) {
+        visited.add(reduceNodeId);
+        const reduceDef = graph.nodes[reduceNodeId];
+        if (reduceDef) {
+          const reduceOutput = await executeNodeOnce(runId, reduceDef, ctx);
+          if (reduceOutput.status === 'suspended' || ctx.isSuspended) return;
+          if (reduceOutput.outputs._terminated === true) return;
+          const afterReduce = await resolveEdges(graph.edges, reduceNodeId, ctx.data);
+          queue.push(...afterReduce.filter((n) => !visited.has(n)));
+        }
       }
       continue;
     }

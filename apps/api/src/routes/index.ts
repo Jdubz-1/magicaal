@@ -9,6 +9,7 @@ import { llmRouter } from './llm';
 import { integrationsRouter } from './integrations';
 import { telemetryRouter } from './telemetry';
 import { datasourcesRouter } from './datasources';
+import { mcpServersRouter } from './mcp-servers';
 import { handleWebhook } from '../controllers/webhook.controller';
 
 export const router: RouterType = Router();
@@ -22,6 +23,7 @@ router.use('/v1/llm', llmRouter);
 router.use('/v1/integrations', integrationsRouter);
 router.use('/v1/telemetry', telemetryRouter);
 router.use('/v1/datasources', datasourcesRouter);
+router.use('/v1/mcp-servers', mcpServersRouter);
 // Public webhook endpoint — no auth middleware; secret is in URL
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 router.use('/v1', systemRouter);

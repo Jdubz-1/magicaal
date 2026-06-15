@@ -1,10 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
-import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
+import { telemetryRuns, telemetrySteps, telemetryTrajectories, telemetryEvaluateScores } from '../db/telemetry-schema';
+import type { TrajectoryStep, NodeOutput } from '@magicaal/sdk-node';
 import type { ExecutionContextImpl } from './context';
-import type { NodeOutput } from '@magicaal/sdk-node';
 import type { StepError } from '@magicaal/core';
 import { sseManager } from '../sse/sse-manager';
+import { mcpRegistry } from '../mcp/mcp-registry';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -46,6 +47,7 @@ export const lifecycle = {
       timestamp: new Date().toISOString(),
     });
     sseManager.close(runId);
+    void mcpRegistry.releaseForRun(runId);
   },
 
   async markRunFailed(
@@ -71,6 +73,7 @@ export const lifecycle = {
       timestamp: new Date().toISOString(),
     });
     sseManager.close(runId);
+    void mcpRegistry.releaseForRun(runId);
   },
 
   async markRunSuspended(
@@ -149,5 +152,42 @@ export const lifecycle = {
         errorJson: JSON.stringify(error),
       })
       .where(eq(telemetrySteps.id, stepId));
+  },
+
+  async writeTrajectorySteps(stepId: string, runId: string, steps: TrajectoryStep[]): Promise<void> {
+    if (steps.length === 0) return;
+    const now = new Date();
+    await telemetryDb.insert(telemetryTrajectories).values(
+      steps.map((s) => ({
+        id: newId(),
+        runId,
+        stepId,
+        iteration: s.iteration,
+        thought: s.reasoning ?? null,
+        action: s.toolSelected ?? null,
+        observation: s.toolOutputs ? JSON.stringify(s.toolOutputs) : null,
+        createdAt: now,
+      })),
+    );
+  },
+
+  async writeEvaluateScore(
+    stepId: string,
+    runId: string,
+    nodeId: string,
+    scorerType: string,
+    score: number,
+    rubric?: unknown,
+  ): Promise<void> {
+    await telemetryDb.insert(telemetryEvaluateScores).values({
+      id: newId(),
+      runId,
+      stepId,
+      nodeId,
+      scorerType,
+      score,
+      rubricJson: rubric !== undefined ? JSON.stringify(rubric) : null,
+      createdAt: new Date(),
+    });
   },
 };
