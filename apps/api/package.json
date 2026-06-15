@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@magicaal/core": "workspace:*",
+    "@magicaal/nodes": "workspace:*",
     "argon2": "^0.43.0",
     "axios": "^1.9.0",
     "cookie-parser": "^1.4.7",

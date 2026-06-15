@@ -45,15 +45,19 @@ export const corePlanner: NodeModule<PlannerConfig> = {
       outputSchema: config.planSchema,
     };
 
-    const response = await ctx.llmCall(request, config.router ?? null);
+    try {
+      const response = await ctx.llmCall(request, config.router ?? null);
 
-    let plan: unknown = response.content;
-    if (config.planSchema) {
-      try { plan = JSON.parse(response.content); } catch { /* keep as string */ }
+      let plan: unknown = response.content;
+      if (config.planSchema) {
+        try { plan = JSON.parse(response.content); } catch { /* keep as string */ }
+      }
+
+      ctx.recordTrajectoryStep({ iteration: 1, reasoning: response.content, llmResponse: response.content });
+      ctx.set(config.outputKey, plan);
+      return { status: 'complete', outputs: { [config.outputKey]: plan }, routingMeta: response.routingMeta };
+    } catch (err) {
+      return { status: 'failed', outputs: {}, error: { code: 'LLM_CALL_FAILED', message: err instanceof Error ? err.message : String(err), retryable: true } };
     }
-
-    ctx.recordTrajectoryStep({ iteration: 1, reasoning: response.content, llmResponse: response.content });
-    ctx.set(config.outputKey, plan);
-    return { status: 'complete', outputs: { [config.outputKey]: plan }, routingMeta: response.routingMeta };
   },
 };

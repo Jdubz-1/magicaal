@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
-import { validateInvocationKey } from '../auth/invocation-auth';
+import { validateInvocationRequest } from '../auth/invocation-auth';
 import { graphLoader } from '../graph/graph-loader';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
@@ -14,21 +14,23 @@ function newRunId(): string {
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, authKey } = req.body as {
+    const { agentId, tenantId, triggerType = 'api', input = {}, authKey, authorizationHeader } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
       input?: Record<string, unknown>;
       authKey?: string;
+      authorizationHeader?: string;
     };
 
     if (!agentId || !tenantId) {
       throw Object.assign(new Error('agentId and tenantId are required'), { status: 400 });
     }
 
-    if (authKey) {
-      await validateInvocationKey(agentId, authKey);
-    }
+    // Use the full Authorization header when available (supports JWT + public strategies);
+    // fall back to reconstructing it from the legacy authKey field (api-key strategy).
+    const effectiveAuthHeader = authorizationHeader ?? (authKey ? `Bearer ${authKey}` : undefined);
+    await validateInvocationRequest(agentId, effectiveAuthHeader);
 
     const runId = newRunId();
     const now = new Date();

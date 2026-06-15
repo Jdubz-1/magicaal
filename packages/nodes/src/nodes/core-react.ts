@@ -34,10 +34,12 @@ export const coreReact: NodeModule<ReactConfig> = {
     output: { type: 'object', properties: {} },
   },
   // Execution is handled by the Tool Executor in the engine (worker.ts special case).
+  // This execute() is only reached outside the engine (e.g. unit tests).
   async execute() {
-    throw Object.assign(
-      new Error('core:react must be executed via the engine Tool Executor'),
-      { code: 'INTERNAL_ERROR', retryable: false },
-    );
+    return {
+      status: 'failed' as const,
+      outputs: {},
+      error: { code: 'ENGINE_REQUIRED', message: 'core:react must be executed via the engine Tool Executor', retryable: false },
+    };
   },
 };

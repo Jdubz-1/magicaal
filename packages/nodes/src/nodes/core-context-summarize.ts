@@ -37,15 +37,18 @@ export const coreContextSummarize: NodeModule<ContextSummarizeConfig> = {
       ? input.map((m) => (typeof m === 'object' && m !== null ? JSON.stringify(m) : String(m))).join('\n')
       : String(input ?? '');
 
-    const response = await ctx.llmCall(
-      {
-        system: config.systemPrompt ?? 'Summarize the following content concisely, preserving all key information.',
-        messages: [{ role: 'user' as const, content: text }],
-      },
-      config.router ?? null,
-    );
-
-    ctx.set(config.outputKey, response.content);
-    return { status: 'complete', outputs: { [config.outputKey]: response.content }, routingMeta: response.routingMeta };
+    try {
+      const response = await ctx.llmCall(
+        {
+          system: config.systemPrompt ?? 'Summarize the following content concisely, preserving all key information.',
+          messages: [{ role: 'user' as const, content: text }],
+        },
+        config.router ?? null,
+      );
+      ctx.set(config.outputKey, response.content);
+      return { status: 'complete', outputs: { [config.outputKey]: response.content }, routingMeta: response.routingMeta };
+    } catch (err) {
+      return { status: 'failed', outputs: {}, error: { code: 'LLM_CALL_FAILED', message: err instanceof Error ? err.message : String(err), retryable: true } };
+    }
   },
 };

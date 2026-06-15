@@ -13,6 +13,9 @@ importers:
       '@magicaal/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@magicaal/nodes':
+        specifier: workspace:*
+        version: link:../../packages/nodes
       argon2:
         specifier: ^0.43.0
         version: 0.43.1

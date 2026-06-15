@@ -73,25 +73,29 @@ export const coreEvaluate: NodeModule<EvaluateConfig> = {
       label = score === 1.0 ? 'exact-match' : 'mismatch';
     } else if (config.evaluatorType === 'llm-judge') {
       const cfg = config as EvaluateConfig & LlmJudgeConfig;
-      const response = await ctx.llmCall(
-        {
-          system: cfg.rubric + '\n\nReturn a JSON object with keys "score" (0.0-1.0) and "reasoning" (string).',
-          messages: [{ role: 'user' as const, content: `Evaluate this output:\n\n${JSON.stringify(input, null, 2)}` }],
-          outputSchema: {
-            type: 'object',
-            required: ['score', 'reasoning'],
-            properties: { score: { type: 'number' }, reasoning: { type: 'string' } },
-          },
-        },
-        cfg.router ?? null,
-      );
       try {
-        const parsed = JSON.parse(response.content) as { score: number; reasoning: string };
-        score = Math.max(0, Math.min(1, parsed.score));
-        label = parsed.reasoning?.slice(0, 100) ?? 'llm-judge';
-      } catch {
-        score = 0;
-        label = 'parse-failed';
+        const response = await ctx.llmCall(
+          {
+            system: cfg.rubric + '\n\nReturn a JSON object with keys "score" (0.0-1.0) and "reasoning" (string).',
+            messages: [{ role: 'user' as const, content: `Evaluate this output:\n\n${JSON.stringify(input, null, 2)}` }],
+            outputSchema: {
+              type: 'object',
+              required: ['score', 'reasoning'],
+              properties: { score: { type: 'number' }, reasoning: { type: 'string' } },
+            },
+          },
+          cfg.router ?? null,
+        );
+        try {
+          const parsed = JSON.parse(response.content) as { score: number; reasoning: string };
+          score = Math.max(0, Math.min(1, parsed.score));
+          label = parsed.reasoning?.slice(0, 100) ?? 'llm-judge';
+        } catch {
+          score = 0;
+          label = 'parse-failed';
+        }
+      } catch (err) {
+        return { status: 'failed', outputs: {}, error: { code: 'LLM_CALL_FAILED', message: err instanceof Error ? err.message : String(err), retryable: true } };
       }
     }
 

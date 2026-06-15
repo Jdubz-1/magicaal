@@ -41,13 +41,18 @@ export const coreReflection: NodeModule<ReflectionConfig> = {
     let current = ctx.get(config.inputKey) ?? '';
 
     for (let i = 1; i <= maxIter; i++) {
-      const response = await ctx.llmCall(
-        {
-          system: config.systemPrompt,
-          messages: [{ role: 'user' as const, content: String(current) }],
-        },
-        config.router ?? null,
-      );
+      let response;
+      try {
+        response = await ctx.llmCall(
+          {
+            system: config.systemPrompt,
+            messages: [{ role: 'user' as const, content: String(current) }],
+          },
+          config.router ?? null,
+        );
+      } catch (err) {
+        return { status: 'failed', outputs: {}, error: { code: 'LLM_CALL_FAILED', message: err instanceof Error ? err.message : String(err), retryable: true } };
+      }
       current = response.content;
       ctx.set(config.outputKey, current);
 

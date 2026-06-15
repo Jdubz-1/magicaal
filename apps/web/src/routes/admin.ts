@@ -1261,7 +1261,7 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
             </div>
             <button type="submit" class="btn btn-primary">Save Policy</button>
           </form>
-          <script>document.querySelector('select[name="strategy"]')?.addEventListener('change',function(e){const s=document.getElementById('jwt-config-section');if(s)s.style.display=(e.target as HTMLSelectElement).value==='jwt'?'block':'none';});</script>
+          <script>document.querySelector('select[name="strategy"]')?.addEventListener('change',function(e){const s=document.getElementById('jwt-config-section');if(s)s.style.display=e.target.value==='jwt'?'block':'none';});</script>
         </div>
 
         <div class="card">
@@ -1513,7 +1513,7 @@ adminRouter.get('/mcp-servers/create', (req, res) => {
           </div>
           <button type="submit" class="btn btn-primary">Register</button>
         </form>
-        <script>document.getElementById('transport-select')?.addEventListener('change',function(e){const v=(e.target as HTMLSelectElement).value;const http=document.getElementById('http-fields');const stdio=document.getElementById('stdio-fields');if(http)http.style.display=v==='http'?'block':'none';if(stdio)stdio.style.display=v==='stdio'?'block':'none';});</script>
+        <script>document.getElementById('transport-select')?.addEventListener('change',function(e){const v=e.target.value;const http=document.getElementById('http-fields');const stdio=document.getElementById('stdio-fields');if(http)http.style.display=v==='http'?'block':'none';if(stdio)stdio.style.display=v==='stdio'?'block':'none';});</script>
       </div>
     </div>`, { title: 'Register MCP Server', user: { name: user.userId, role: user.role } }));
 });

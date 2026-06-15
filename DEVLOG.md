@@ -25,6 +25,33 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-15 - Phase 3 Critical/High Issue Resolution (ISS-001 through ISS-018)
+
+**Type:** Bugfix
+
+**Description:**
+Post-code-review fix pass addressing all 12 critical and high severity issues identified in the Phase 3 review. Five critical issues meant shipped features were completely non-functional (JWT auth bypassed, trajectory display broken, expression evaluate always 404, admin script syntax errors). Seven high severity issues covered security, error handling, and configuration.
+
+**Changes:**
+- `apps/engine/src/execution/worker.ts` — add `stepId` to SSE `node.started`/`node.completed` broadcasts; inject `_currentNodeId` on ctx before `module.execute()` for MCP node ID resolution (ISS-001, ISS-002)
+- `apps/engine/src/controllers/runs.controller.ts` — switch to `validateInvocationRequest` + accept `authorizationHeader` field (ISS-005)
+- `apps/api/src/controllers/runs.controller.ts` — pass `authorizationHeader: req.headers.authorization` to engine (ISS-005)
+- `apps/engine/src/auth/invocation-auth.ts` — retry on `JWKSNoMatchingKey` with fresh JWKS set before failing (ISS-008)
+- `apps/engine/src/controllers/telemetry.controller.ts` — mandatory tenant check in `getTrajectory`; `inArray` limit on runs query + JSON.parse try-catch in `getRoutingEvents` (ISS-007, ISS-015)
+- `apps/engine/src/config.ts` + `.env.example` + `context.ts` — `ENGINE_INTERNAL_URL` added to config, documented, and used instead of bare `process.env` (ISS-018)
+- `packages/nodes/src/nodes/core-tool-call.ts` + `core-react.ts` — `execute()` returns `NodeOutput { status: 'failed' }` instead of throwing (ISS-006)
+- `packages/nodes/src/nodes/core-mcp-client.ts` — use `_currentNodeId` instead of `ctx.agentId`; wrap `_callMcpTool` in try-catch (ISS-002, ISS-010)
+- `packages/nodes/src/nodes/core-planner.ts` + `core-reflection.ts` + `core-context-summarize.ts` + `core-evaluate.ts` — wrap `ctx.llmCall` in try-catch, return typed `NodeOutput` on LLM error (ISS-009)
+- `apps/api/package.json` + `apps/api/src/routes/utils.ts` + `apps/api/src/controllers/evaluate.controller.ts` — new `POST /v1/utils/evaluate` endpoint using `@magicaal/nodes` evaluate() (ISS-003)
+- `apps/web/src/canvas/stores/run.ts` + `TestRunPanel.svelte` — add `stepId` to `StepResult`; store stepId from SSE; fix trajectory filter to use `step.stepId` (ISS-001)
+- `apps/web/src/routes/admin.ts` — remove TypeScript `as HTMLSelectElement` cast from inline browser `<script>` tags (ISS-004)
+- `.ai_docs/MAGICAAL_ISSUES.md` — 12 issues marked resolved
+
+**Impact:**
+JWT invocation auth now works end-to-end. Trajectory display in the Studio test run panel now correctly matches DB step records. The Expression Editor Evaluate button is functional. Admin JWT config and MCP server transport toggle now work in the browser. MCP direct mode correctly identifies the calling node. LLM errors in planner/reflection/summarize/evaluate return structured failure instead of crashing. Sub-graph dispatch works in Docker. Routing events query is bounded.
+
+---
+
 ### 2026-06-15 - Phase 3: Tool System, Advanced Agent Nodes, MCP, and Model Router Phase 3
 
 **Type:** Feature

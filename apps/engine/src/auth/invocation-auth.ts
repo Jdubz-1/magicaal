@@ -137,9 +137,31 @@ async function validateJwt(agentId: string, token: string, jwtConfig: JwtConfig)
       throw Object.assign(new Error('JWT token expired'), { status: 401, code: 'JWT_EXPIRED' });
     }
     if (err instanceof joseErrors.JWKSNoMatchingKey) {
-      // Invalidate JWKS cache and retry once
+      // Key rotation: invalidate cache and retry once with a fresh JWKS set
       jwksCache.delete(jwtConfig.jwksUrl);
-      throw Object.assign(new Error('JWT signature invalid — no matching key'), { status: 401, code: 'JWT_INVALID_SIGNATURE' });
+      try {
+        const freshJwks = createRemoteJWKSet(new URL(jwtConfig.jwksUrl));
+        jwksCache.set(jwtConfig.jwksUrl, freshJwks);
+        const { payload: retryPayload } = await jwtVerify(token, freshJwks, {
+          issuer: jwtConfig.issuer,
+          audience: jwtConfig.audience,
+        });
+        if (jwtConfig.requiredClaims) {
+          for (const [claim, expected] of Object.entries(jwtConfig.requiredClaims)) {
+            if (retryPayload[claim] !== expected) {
+              throw Object.assign(
+                new Error(`Required JWT claim "${claim}" missing or incorrect`),
+                { status: 401, code: 'JWT_MISSING_CLAIM' },
+              );
+            }
+          }
+        }
+        await enforceRateLimit(agentId);
+        return { keyId: 'jwt', agentId, tenantId: agentRow.tenant_id };
+      } catch (retryErr) {
+        if (retryErr && typeof retryErr === 'object' && 'code' in retryErr) throw retryErr;
+        throw Object.assign(new Error('JWT signature invalid — no matching key'), { status: 401, code: 'JWT_INVALID_SIGNATURE' });
+      }
     }
     if (err instanceof joseErrors.JWSSignatureVerificationFailed || err instanceof joseErrors.JWSInvalid) {
       throw Object.assign(new Error('JWT signature verification failed'), { status: 401, code: 'JWT_INVALID_SIGNATURE' });

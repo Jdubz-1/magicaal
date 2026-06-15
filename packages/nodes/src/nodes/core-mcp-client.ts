@@ -58,10 +58,19 @@ export const coreMcpClient: NodeModule<McpClientConfig> = {
         error: { code: 'MCP_NOT_AVAILABLE', message: 'MCP not available outside engine context', retryable: false },
       };
     }
+    // Use _currentNodeId injected by the engine worker before execute() is called
+    const nodeId = (ctx as unknown as Record<string, unknown>)._currentNodeId as string | undefined;
+    if (!nodeId) {
+      return { status: 'failed', outputs: {}, error: { code: 'MCP_NODE_ID_MISSING', message: 'Node ID not available — must run inside the engine', retryable: false } };
+    }
     const args = ctx.get<Record<string, unknown>>(config.inputKey ?? 'input') ?? {};
-    const result = await ctxExt._callMcpTool(ctx.agentId, config.toolName, args);
     const outputKey = config.outputKey ?? 'mcp_result';
-    ctx.set(outputKey, result);
-    return { status: 'complete', outputs: { [outputKey]: result } };
+    try {
+      const result = await ctxExt._callMcpTool(nodeId, config.toolName, args);
+      ctx.set(outputKey, result);
+      return { status: 'complete', outputs: { [outputKey]: result } };
+    } catch (err) {
+      return { status: 'failed', outputs: {}, error: { code: 'MCP_TOOL_ERROR', message: err instanceof Error ? err.message : String(err), retryable: false } };
+    }
   },
 };

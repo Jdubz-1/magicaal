@@ -54,9 +54,11 @@ async function executeNodeOnce(
   const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);
   const ts = new Date().toISOString();
 
-  ctx.emit('node.started', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, timestamp: ts });
+  ctx.emit('node.started', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, stepId, timestamp: ts });
 
   const tokensBefore = { ...ctx.tokenUsage };
+  // Inject current node ID so nodes can identify themselves (e.g. core:mcp-client direct mode)
+  (ctx as unknown as Record<string, unknown>)._currentNodeId = nodeDef.id;
   let output;
   try {
     output = await module.execute(ctx, nodeDef.config);
@@ -75,6 +77,8 @@ async function executeNodeOnce(
       timestamp: new Date().toISOString(),
     });
     throw err;
+  } finally {
+    delete (ctx as unknown as Record<string, unknown>)._currentNodeId;
   }
 
   const tokensAfter = ctx.tokenUsage;
@@ -106,6 +110,7 @@ async function executeNodeOnce(
       runId,
       nodeId: nodeDef.id,
       nodeType: nodeDef.type,
+      stepId,
       outputs: output.outputs,
       timestamp: new Date().toISOString(),
     });
@@ -146,7 +151,7 @@ export async function executeGraph(
       const mode = nodeDef.type === 'core:react' ? 'react' : 'tool-call';
       const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);
       const ts = new Date().toISOString();
-      ctx.emit('node.started', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, timestamp: ts });
+      ctx.emit('node.started', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, stepId, timestamp: ts });
 
       const tokensBefore = { ...ctx.tokenUsage };
       let output;
@@ -191,7 +196,7 @@ export async function executeGraph(
         });
       }
 
-      ctx.emit('node.completed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, outputs: output.outputs, timestamp: new Date().toISOString() });
+      ctx.emit('node.completed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, stepId, outputs: output.outputs, timestamp: new Date().toISOString() });
       if (output.outputs) Object.assign(ctx.data, output.outputs);
 
       const nextNodes = await resolveEdges(graph.edges, nodeId, ctx.data);

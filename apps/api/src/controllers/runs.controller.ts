@@ -123,6 +123,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       triggerType: 'api',
       input,
       authKey,
+      authorizationHeader: req.headers.authorization,
     });
 
     const { runId } = response.data as { runId: string };

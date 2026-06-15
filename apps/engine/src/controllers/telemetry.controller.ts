@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps, telemetryTrajectories } from '../db/telemetry-schema';
 
@@ -103,13 +103,12 @@ export const getTrajectory: RequestHandler = async (req, res, next) => {
     const { runId } = req.params;
     const { tenantId } = req.query as { tenantId?: string };
 
-    // Verify run belongs to tenant
-    if (tenantId) {
-      const runRows = await telemetryDb.select().from(telemetryRuns).where(
-        and(eq(telemetryRuns.id, runId), eq(telemetryRuns.tenantId, tenantId)),
-      );
-      if (!runRows[0]) throw Object.assign(new Error('Run not found'), { status: 404 });
-    }
+    if (!tenantId) throw Object.assign(new Error('tenantId is required'), { status: 400 });
+
+    const runRows = await telemetryDb.select().from(telemetryRuns).where(
+      and(eq(telemetryRuns.id, runId), eq(telemetryRuns.tenantId, tenantId)),
+    );
+    if (!runRows[0]) throw Object.assign(new Error('Run not found'), { status: 404 });
 
     const rows = await telemetryDb
       .select()
@@ -143,22 +142,23 @@ export const getRoutingEvents: RequestHandler = async (req, res, next) => {
       .orderBy(desc(telemetrySteps.startedAt))
       .limit(limitNum * 5); // over-fetch since we'll filter below
 
-    // Find runs for agentId filtering
+    // Find runs for agentId filtering — query only the runs referenced by the fetched steps
     const runIds = [...new Set(steps.map((s) => s.runId))];
     const runsMap = new Map<string, string>(); // runId → agentId
     if (runIds.length > 0) {
       const runs = await telemetryDb
         .select({ id: telemetryRuns.id, agentId: telemetryRuns.agentId })
         .from(telemetryRuns)
-        .where(eq(telemetryRuns.tenantId, tenantId));
+        .where(and(eq(telemetryRuns.tenantId, tenantId), inArray(telemetryRuns.id, runIds)));
       for (const r of runs) runsMap.set(r.id, r.agentId);
     }
 
     const events = steps
       .map((s) => {
-        const meta = s.routingMetaJson
-          ? JSON.parse(s.routingMetaJson) as { targetUsed?: unknown; attemptCount?: number; triggerHistory?: unknown[] }
-          : null;
+        let meta: { targetUsed?: unknown; attemptCount?: number; triggerHistory?: unknown[] } | null = null;
+        if (s.routingMetaJson) {
+          try { meta = JSON.parse(s.routingMetaJson); } catch { /* skip malformed row */ }
+        }
         return { s, meta, agentIdFromRun: runsMap.get(s.runId) ?? '' };
       })
       // Only include steps where a fallback occurred (attemptCount > 1)

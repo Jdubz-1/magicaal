@@ -4,6 +4,7 @@ export interface StepResult {
   id: string;
   nodeId: string;
   nodeType: string;
+  stepId?: string;
   status: string;
   startedAt: string;
   completedAt?: string;

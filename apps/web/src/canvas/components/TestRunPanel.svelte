@@ -79,7 +79,7 @@
     es = new EventSource(`/api/agents/${agentId}/runs/${runId}/stream`);
 
     es.addEventListener('node.started', (e) => {
-      const data = JSON.parse(e.data) as { nodeId: string; nodeType: string };
+      const data = JSON.parse(e.data) as { nodeId: string; nodeType: string; stepId?: string };
       runState.update((s) => ({
         ...s,
         steps: [
@@ -88,6 +88,7 @@
             id: data.nodeId,
             nodeId: data.nodeId,
             nodeType: data.nodeType,
+            stepId: data.stepId,
             status: 'running',
             startedAt: new Date().toISOString(),
             completedAt: undefined,
@@ -189,7 +190,7 @@
           <span class="step-type">{step.nodeType}</span>
           <span class="step-badge badge-{step.status}">{step.status}</span>
           {#if TRAJECTORY_NODE_TYPES.has(step.nodeType) && $runState.status !== 'running'}
-            {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.id)}
+            {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.stepId)}
             {#if stepTrajectories.length > 0}
               <button class="traj-toggle"
                 on:click={() => expandedTrajectory = expandedTrajectory === step.nodeId ? null : step.nodeId}>
@@ -199,7 +200,7 @@
           {/if}
         </div>
         {#if expandedTrajectory === step.nodeId}
-          {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.id)}
+          {@const stepTrajectories = trajectories.filter((t) => t.stepId === step.stepId)}
           <div class="trajectory-block">
             {#each stepTrajectories as t}
               <div class="traj-step">

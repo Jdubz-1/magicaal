@@ -4,6 +4,7 @@ import { evaluate } from '@magicaal/nodes';
 import { logger } from '../lib/logger';
 import { sseManager } from '../sse/sse-manager';
 import { routedLLMCall, resolveRouterConfig } from '../router/router-engine';
+import { config } from '../config';
 
 export interface RunParams {
   runId: string;
@@ -109,7 +110,7 @@ export class ExecutionContextImpl implements ExecutionContext {
     input: Record<string, unknown>,
     opts?: { await?: boolean },
   ): Promise<{ runId: string; output?: Record<string, unknown> }> {
-    const engineUrl = process.env.ENGINE_INTERNAL_URL ?? 'http://localhost:4000';
+    const engineUrl = config.engineInternalUrl;
     const postResp = await fetch(`${engineUrl}/internal/runs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
