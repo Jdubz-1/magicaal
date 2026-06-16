@@ -66,6 +66,18 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">System</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Health &amp; diagnostics</div>
           </a>
+          <a class="card" href="/admin/sessions" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Sessions</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Session context management</div>
+          </a>
+          <a class="card" href="/admin/system/sync" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Sync Log</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Boot-time agent sync events</div>
+          </a>
+          <a class="card" href="/admin/system/caal" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Caal AI</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">AI assistant configuration</div>
+          </a>
         </div>
       </div>`,
       { title: 'Admin — MagiCaal', user: { name: user.userId, role: user.role } },
@@ -1649,6 +1661,303 @@ adminRouter.get('/telemetry/routing-events', async (req, res, next) => {
           </table>
         </div>
       </div>`, { title: 'Routing Event Log', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Sessions Management ───────────────────────────────────────────────────────
+
+interface SessionRow {
+  id: string;
+  agentId: string;
+  status: string;
+  lastActiveAt: string;
+  expiresAt: string | null;
+  schemaVersion: number;
+  createdAt: string;
+}
+
+adminRouter.get('/sessions', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const statusFilter = (req.query.status as string) ?? '';
+    const agentFilter = (req.query.agentId as string) ?? '';
+
+    let sessions: SessionRow[] = [];
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (agentFilter) params.set('agentId', agentFilter);
+      const { data } = await api.get<{ sessions: SessionRow[] }>(`/v1/sessions?${params.toString()}`);
+      sessions = data.sessions ?? [];
+    } catch { /* empty */ }
+
+    const statusColor = (s: string) =>
+      s === 'active' ? '#4ade80' : s === 'stale_schema' ? '#fcd34d' : '#f87171';
+
+    const rows = sessions.map((s) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.7rem;max-width:160px;overflow:hidden;text-overflow:ellipsis">${escHtml(s.id)}</td>
+        <td style="font-family:monospace;font-size:0.75rem">${escHtml(s.agentId)}</td>
+        <td><span style="color:${statusColor(s.status)}">${escHtml(s.status)}</span></td>
+        <td style="font-size:0.75rem;color:#94a3b8">${s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">v${escHtml(String(s.schemaVersion))}</td>
+        <td style="white-space:nowrap;font-size:0.75rem">
+          <form method="POST" action="/admin/sessions/${encodeURIComponent(s.id)}/reset" style="display:inline">
+            <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem">Reset</button>
+          </form>
+          <form method="POST" action="/admin/sessions/${encodeURIComponent(s.id)}/delete" style="display:inline">
+            <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem;color:#f87171">Delete</button>
+          </form>
+          ${s.status === 'stale_schema' ? `<form method="POST" action="/admin/sessions/${encodeURIComponent(s.id)}/migrate" style="display:inline">
+            <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.7rem;color:#fcd34d">Migrate</button>
+          </form>` : ''}
+        </td>
+      </tr>`).join('');
+
+    const statusOptions = ['', 'active', 'stale_schema', 'expired'].map((s) =>
+      `<option value="${s}"${s === statusFilter ? ' selected' : ''}>${s || 'All statuses'}</option>`,
+    ).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1200px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Sessions</h1>
+          <a href="/admin" style="color:#94a3b8;font-size:0.875rem">← Admin</a>
+        </div>
+        <form method="GET" action="/admin/sessions" style="display:flex;gap:0.75rem;margin-bottom:1rem;align-items:flex-end">
+          <div class="form-group" style="margin:0">
+            <label>Status</label>
+            <select name="status">${statusOptions}</select>
+          </div>
+          <div class="form-group" style="margin:0;flex:1">
+            <label>Agent ID</label>
+            <input name="agentId" value="${escHtml(agentFilter)}" placeholder="Filter by agent" />
+          </div>
+          <button type="submit" class="btn btn-ghost">Filter</button>
+          <form method="POST" action="/admin/sessions/migrate-all-stale" style="display:inline">
+            <button type="submit" class="btn btn-primary">Migrate All Stale</button>
+          </form>
+        </form>
+        <div class="card">
+          <table>
+            <thead><tr><th>Session ID</th><th>Agent</th><th>Status</th><th>Last Active</th><th>Schema</th><th>Actions</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:2rem">No sessions found</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Sessions — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/sessions/:sessionId/reset', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { sessionId } = req.params;
+    // The session reset endpoint is mounted under the agent; use internal path
+    await api.post(`/internal/sessions/${encodeURIComponent(sessionId)}/reset`).catch(() => {});
+    res.redirect('/admin/sessions');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/sessions/:sessionId/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/internal/sessions/${encodeURIComponent(req.params.sessionId)}`).catch(() => {});
+    res.redirect('/admin/sessions');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/sessions/:sessionId/migrate', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.post(`/internal/sessions/${encodeURIComponent(req.params.sessionId)}/migrate`).catch(() => {});
+    res.redirect('/admin/sessions');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/sessions/migrate-all-stale', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.post('/internal/sessions/migrate-stale').catch(() => {});
+    res.redirect('/admin/sessions');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Sync Event Log ───────────────────────────────────────────────────────────
+
+interface SyncEvent {
+  id: string;
+  trigger: string;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  stale: number;
+  errors: number;
+  summaryJson: string;
+  createdAt: string;
+}
+
+adminRouter.get('/system/sync', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+
+    let syncEvents: SyncEvent[] = [];
+    let lastSync: SyncEvent | null = null;
+    try {
+      const [{ data: last }, { data: log }] = await Promise.all([
+        api.get<{ event: SyncEvent | null }>('/v1/system/sync'),
+        api.get<{ events: SyncEvent[] }>('/v1/system/sync/log?limit=20'),
+      ]);
+      lastSync = last.event;
+      syncEvents = log.events ?? [];
+    } catch { /* sync log may be empty */ }
+
+    const lastSyncHtml = lastSync ? `
+      <div class="card" style="margin-bottom:1.5rem;border-color:${lastSync.errors > 0 ? '#7f2121' : '#166534'}">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">
+          <h2 style="margin:0;font-size:1rem">Last Sync</h2>
+          <span style="font-size:0.75rem;color:#94a3b8">${new Date(lastSync.createdAt).toLocaleString()}</span>
+          <span style="font-size:0.75rem;background:#1e2235;padding:0.15rem 0.5rem;border-radius:4px;color:#94a3b8">${escHtml(lastSync.trigger)}</span>
+        </div>
+        <div style="display:flex;gap:1.5rem;font-size:0.875rem">
+          <span style="color:#4ade80">+${lastSync.inserted} inserted</span>
+          <span style="color:#fbbf24">~${lastSync.updated} updated</span>
+          <span style="color:#94a3b8">${lastSync.skipped} skipped</span>
+          <span style="color:#f87171">${lastSync.stale} stale</span>
+          ${lastSync.errors > 0 ? `<span style="color:#f87171;font-weight:600">${lastSync.errors} errors</span>` : ''}
+        </div>
+      </div>` : `<div class="card" style="margin-bottom:1.5rem;color:#64748b">No sync events recorded yet.</div>`;
+
+    const evtRows = syncEvents.map((e) => {
+      let summary: Record<string, unknown> = {};
+      try { summary = JSON.parse(e.summaryJson) as Record<string, unknown>; } catch { /* ignore */ }
+      return `
+        <tr>
+          <td style="font-size:0.75rem;color:#94a3b8">${new Date(e.createdAt).toLocaleString()}</td>
+          <td><code style="font-size:0.75rem">${escHtml(e.trigger)}</code></td>
+          <td style="color:#4ade80">+${e.inserted}</td>
+          <td style="color:#fbbf24">~${e.updated}</td>
+          <td style="color:#94a3b8">${e.skipped}</td>
+          <td style="color:#f87171">${e.stale}</td>
+          <td>${e.errors > 0 ? `<span style="color:#f87171;font-weight:600">${e.errors}</span>` : '—'}</td>
+          <td style="font-size:0.7rem;color:#64748b;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(JSON.stringify(summary).slice(0, 80))}</td>
+        </tr>`;
+    }).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1100px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Boot Sync Log</h1>
+          <a href="/admin/system" style="color:#94a3b8;font-size:0.875rem">← System</a>
+        </div>
+        ${lastSyncHtml}
+        <div class="card">
+          <h2 style="margin:0 0 1rem;font-size:1rem">Event History</h2>
+          <table>
+            <thead><tr><th>Time</th><th>Trigger</th><th>Inserted</th><th>Updated</th><th>Skipped</th><th>Stale</th><th>Errors</th><th>Summary</th></tr></thead>
+            <tbody>${evtRows || '<tr><td colspan="8" style="color:#475569;text-align:center;padding:1.5rem">No sync events</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Sync Log — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Caal Configuration ───────────────────────────────────────────────────────
+
+adminRouter.get('/system/caal', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+
+    let config: Record<string, unknown> = {};
+    try {
+      const { data } = await api.get<Record<string, unknown>>('/v1/system/caal-config');
+      config = data;
+    } catch { /* no config yet */ }
+
+    const checked = (field: string) => config[field] ? ' checked' : '';
+    const val = (field: string, def = '') => escHtml(String(config[field] ?? def));
+
+    const genModeOptions = ['complete', 'skeleton'].map((m) =>
+      `<option value="${m}"${config['generationMode'] === m ? ' selected' : ''}>${m}</option>`).join('');
+    const confirmModeOptions = ['always_confirm', 'confirm_structural', 'apply_directly'].map((m) =>
+      `<option value="${m}"${config['confirmationMode'] === m ? ' selected' : ''}>${m}</option>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:700px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Caal AI Configuration</h1>
+          <a href="/admin/system" style="color:#94a3b8;font-size:0.875rem">← System</a>
+        </div>
+        <p style="color:#94a3b8;margin:0 0 1.5rem;font-size:0.875rem">
+          Platform-wide settings for the Caal AI assistant. Changes apply immediately to new sessions.
+        </p>
+        <form class="card" method="POST" action="/admin/system/caal">
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+              <input type="checkbox" name="enabled" value="true"${checked('enabled')} style="width:auto" />
+              Enable Caal AI Assistant
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Model Override <span style="color:#64748b;font-size:0.6875rem">(leave blank to use router)</span></label>
+            <input name="modelOverride" value="${val('modelOverride')}" placeholder="e.g. claude-sonnet-4-6" />
+          </div>
+          <div class="form-group">
+            <label>Generation Mode</label>
+            <select name="generationMode">${genModeOptions}</select>
+          </div>
+          <div class="form-group">
+            <label>Confirmation Mode</label>
+            <select name="confirmationMode">${confirmModeOptions}</select>
+          </div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+              <input type="checkbox" name="showReasoning" value="true"${checked('showReasoning')} style="width:auto" />
+              Show Reasoning in Response
+            </label>
+          </div>
+          <div class="form-group">
+            <label>System Prompt Suffix <span style="color:#64748b;font-size:0.6875rem">(appended to Caal system prompt)</span></label>
+            <textarea name="systemPromptSuffix" rows="4">${val('systemPromptSuffix')}</textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Configuration</button>
+        </form>
+      </div>`, { title: 'Caal Config — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/system/caal', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { enabled, modelOverride, generationMode, confirmationMode, showReasoning, systemPromptSuffix } =
+      req.body as Record<string, string>;
+    await api.patch('/v1/system/caal-config', {
+      enabled: enabled === 'true',
+      modelOverride: modelOverride || null,
+      generationMode,
+      confirmationMode,
+      showReasoning: showReasoning === 'true',
+      systemPromptSuffix: systemPromptSuffix || null,
+    });
+    res.redirect('/admin/system/caal');
   } catch (err) {
     next(err);
   }
