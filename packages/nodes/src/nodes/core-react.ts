@@ -7,6 +7,7 @@ interface ReactConfig {
   systemPrompt?: string;
   maxIterations?: number;
   router?: ModelRouterConfig;
+  injectSessionHistory?: string;
 }
 
 export const coreReact: NodeModule<ReactConfig> = {
@@ -28,6 +29,7 @@ export const coreReact: NodeModule<ReactConfig> = {
         systemPrompt:  { type: 'string', description: 'Optional system prompt for the agent' },
         maxIterations: { type: 'number', description: 'Maximum reasoning iterations (default 10)' },
         router:        { type: 'object', description: 'ModelRouterConfig — inline or named policy reference' },
+        injectSessionHistory: { type: 'string', description: 'Context key holding prior CanonicalMessage[] turns; prepended to the conversation history before this node runs.' },
       },
     },
     input:  { type: 'object', properties: {} },

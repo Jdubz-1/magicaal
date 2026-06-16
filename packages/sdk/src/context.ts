@@ -22,6 +22,7 @@ export interface ExecutionContext {
   readonly agentId: string;
   readonly tenantId: string;
   readonly triggerType: string;
+  readonly sessionId?: string;
 
   data: Record<string, unknown>;
 

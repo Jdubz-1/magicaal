@@ -50,6 +50,10 @@ import { coreReduce } from './nodes/core-reduce';
 import { coreInputMap } from './nodes/core-input-map';
 import { coreOutputMap } from './nodes/core-output-map';
 import { coreEvaluate } from './nodes/core-evaluate';
+// Phase 4 — Session nodes
+import { coreSessionRead } from './nodes/core-session-read';
+import { coreSessionWrite } from './nodes/core-session-write';
+import { coreSessionClear } from './nodes/core-session-clear';
 
 export {
   coreStart, coreEnd, coreStop, coreCondition, coreRouter,
@@ -73,6 +77,8 @@ export {
   corePlanner, coreReflection, coreContextSummarize, coreTokenBudget,
   coreSubGraph, coreHandoff, coreFanOut, coreReduce, coreInputMap, coreOutputMap,
   coreEvaluate,
+  // Phase 4
+  coreSessionRead, coreSessionWrite, coreSessionClear,
 };
 export { evaluate, evaluateBoolean, evaluateString } from './utils/jsonata';
 
@@ -141,4 +147,8 @@ export const ALL_NODES: NodeModule<any>[] = [
   coreEvaluate,
   // Code
   coreCode,
+  // Phase 4 — Session
+  coreSessionRead,
+  coreSessionWrite,
+  coreSessionClear,
 ];

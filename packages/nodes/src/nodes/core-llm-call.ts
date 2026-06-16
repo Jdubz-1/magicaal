@@ -8,6 +8,9 @@ interface LLMCallConfig {
   userMessage?: string;
   messagesKey?: string;
 
+  // Session history injection — prepend stored CanonicalMessage[] from this context key
+  injectSessionHistory?: string;
+
   // Router
   router?: ModelRouterConfig;
 
@@ -66,6 +69,10 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
           type: 'number',
           description: 'Number of retries when outputSchema is set and the response is invalid JSON (default: 2)',
         },
+        injectSessionHistory: {
+          type: 'string',
+          description: 'Context key holding a CanonicalMessage[] from a prior session; prepended before the current user message to provide conversation continuity.',
+        },
       },
     },
     input: {},
@@ -86,6 +93,14 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
     } else {
       const text = config.userMessage ?? '';
       messages = [{ role: 'user', content: text }];
+    }
+
+    // Prepend stored session history as prior conversation turns
+    if (config.injectSessionHistory) {
+      const history = ctx.get<CanonicalMessage[]>(config.injectSessionHistory) ?? [];
+      if (history.length > 0) {
+        messages = [...history, ...messages];
+      }
     }
 
     const request = {
