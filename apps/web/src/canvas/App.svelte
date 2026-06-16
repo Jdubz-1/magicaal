@@ -8,8 +8,18 @@
   import { graph, selectedNode, agent, agentConfig } from './stores/graph';
   import LintPanel from './components/LintPanel.svelte';
   import ToolPanel from './components/ToolPanel.svelte';
+  import CaalPanel from './components/CaalPanel.svelte';
+  import CodeSourceBanner from './components/CodeSourceBanner.svelte';
+  import SessionContextPanel from './components/SessionContextPanel.svelte';
+  import PromptVersionPanel from './components/PromptVersionPanel.svelte';
+  import TestCasesPanel from './components/TestCasesPanel.svelte';
 
   export let agentId: string;
+
+  let readonly = false;
+  let authoringHandle = '';
+  let lastSyncAt: string | null = null;
+  let activeSessionId: string | null = null;
 
   onMount(async () => {
     if (!agentId) return;
@@ -20,10 +30,13 @@
         fetch(`/api/agents/${agentId}/config`),
       ]);
 
-      let agentData: { status: string; draftGraphJson?: string | null } | null = null;
+      let agentData: { status: string; draftGraphJson?: string | null; authoringMode?: string; handle?: string; updatedAt?: string } | null = null;
       if (agentRes.ok) {
-        agentData = await agentRes.json() as { status: string; draftGraphJson?: string | null };
+        agentData = await agentRes.json() as typeof agentData;
         agent.set(agentData as Parameters<typeof agent.set>[0]);
+        readonly = agentData?.authoringMode === 'code-defined';
+        authoringHandle = agentData?.handle ?? '';
+        if (readonly) lastSyncAt = agentData?.updatedAt ?? null;
       }
 
       if (agentData?.status === 'draft' && agentData.draftGraphJson) {
@@ -55,25 +68,77 @@
     } catch {
       // agent not yet saved
     }
+
+    // Listen for canvas events dispatched by CaalPanel
+    window.addEventListener('caal:canvas-highlight', handleCanvasHighlight);
+    window.addEventListener('caal:canvas-focus', handleCanvasFocus);
+    window.addEventListener('caal:apply-proposal', handleApplyProposal);
   });
+
+  function handleCanvasHighlight(e: Event) {
+    const detail = (e as CustomEvent<{ nodeIds: string[]; color: string; durationMs: number }>).detail;
+    window.dispatchEvent(new CustomEvent('canvas:highlight', { detail }));
+  }
+
+  function handleCanvasFocus(e: Event) {
+    const detail = (e as CustomEvent<{ nodeId: string; zoom: number }>).detail;
+    window.dispatchEvent(new CustomEvent('canvas:focus', { detail }));
+  }
+
+  function handleApplyProposal(e: Event) {
+    const proposal = (e as CustomEvent<{ patches: Array<{ op: string; target?: string; data?: Record<string, unknown> }> }>).detail;
+    // Apply patches to the graph store
+    graph.update((g) => {
+      const updated = structuredClone(g) as {
+        nodes: Record<string, unknown>;
+        edges: unknown[];
+        toolEdges: unknown[];
+      };
+      for (const patch of proposal.patches) {
+        if (patch.op === 'add_node' && patch.data) {
+          const nodeData = patch.data as { id: string; type: string; config?: Record<string, unknown> };
+          updated.nodes[nodeData.id] = nodeData;
+        } else if (patch.op === 'update_node' && patch.target && patch.data) {
+          const existing = updated.nodes[patch.target] as Record<string, unknown> | undefined;
+          if (existing) {
+            updated.nodes[patch.target] = { ...existing, ...patch.data };
+          }
+        } else if (patch.op === 'delete_node' && patch.target) {
+          delete updated.nodes[patch.target];
+        } else if (patch.op === 'add_edge' && patch.data) {
+          updated.edges = [...(updated.edges ?? []), patch.data];
+        } else if (patch.op === 'add_tool_edge' && patch.data) {
+          updated.toolEdges = [...(updated.toolEdges ?? []), patch.data];
+        }
+      }
+      return updated;
+    });
+  }
 </script>
 
 <div class="studio">
-  <aside class="palette">
-    <NodePalette />
+  <aside class="palette" class:readonly>
+    <NodePalette {readonly} />
   </aside>
   <main class="canvas-area">
-    <Canvas {agentId} />
+    {#if readonly}
+      <CodeSourceBanner handle={authoringHandle} {lastSyncAt} />
+    {/if}
+    <Canvas {agentId} {readonly} />
   </main>
   <aside class="panel">
     {#if $selectedNode}
-      <NodeConfigPanel node={$selectedNode} />
+      <NodeConfigPanel node={$selectedNode} {readonly} />
     {:else}
-      <AgentConfigPanel {agentId} />
+      <AgentConfigPanel {agentId} {readonly} />
     {/if}
     <LintPanel />
     <ToolPanel />
-    <TestRunPanel {agentId} />
+    <TestRunPanel {agentId} on:sessionId={(e) => (activeSessionId = e.detail)} />
+    <SessionContextPanel {agentId} sessionId={activeSessionId} />
+    <PromptVersionPanel {agentId} />
+    <TestCasesPanel {agentId} />
+    <CaalPanel {agentId} />
   </aside>
 </div>
 
