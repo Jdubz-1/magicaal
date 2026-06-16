@@ -339,8 +339,9 @@ export async function executeGraph(
         }),
       );
 
-      // Store results for core:reduce to consume
-      ctx.set('_fanout_results', branchResults);
+      // Store results for core:reduce to consume; use configured key (default: _fanout_results)
+      const fanOutResultsKey = (nodeDef.config as { resultsKey?: string }).resultsKey ?? '_fanout_results';
+      ctx.set(fanOutResultsKey, branchResults);
       ctx.set('_fanout_count', items.length);
 
       // Execute reduce node and continue from its successors

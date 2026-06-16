@@ -70,9 +70,12 @@ function selectTarget(
 
     case 'cost-optimized': {
       const sorted = [...healthy].sort((a, b) => {
-        const pa = pricingCache.get(`${a.provider}:${a.model}`)?.promptTokensPerMillion ?? Infinity;
-        const pb = pricingCache.get(`${b.provider}:${b.model}`)?.promptTokensPerMillion ?? Infinity;
-        return pa - pb;
+        const pa = pricingCache.get(`${a.provider}:${a.model}`);
+        const pb = pricingCache.get(`${b.provider}:${b.model}`);
+        // Blended cost: sum of prompt + completion rates; rewards models cheap on both sides
+        const costA = pa ? pa.promptTokensPerMillion + pa.completionTokensPerMillion : Infinity;
+        const costB = pb ? pb.promptTokensPerMillion + pb.completionTokensPerMillion : Infinity;
+        return costA - costB;
       });
       return sorted;
     }
@@ -224,6 +227,30 @@ export async function routedLLMCall(
       }
 
       // Continue to next target
+    }
+  }
+
+  // If every target was proactively skipped (no actual LLM calls were made), try the first
+  // target as a last resort rather than throwing. This prevents all-skip deadlock when
+  // latency_degraded or error_rate triggers fire on every target simultaneously.
+  if (attemptCount === 0 && orderedTargets.length > 0) {
+    const lastResort = orderedTargets[0];
+    const credentials = ctx.credentials[lastResort.connectionId];
+    if (credentials) {
+      const adapter = providerAdapterRegistry.get(lastResort.provider);
+      const start = Date.now();
+      const response = await adapter.call(request, lastResort, credentials);
+      const durationMs = Date.now() - start;
+      healthTracker.record(lastResort.id, durationMs, false);
+      circuitBreaker.recordSuccess(lastResort.id, config.circuitBreaker);
+      response.routingMeta = { targetUsed: lastResort, attemptCount: 1, triggerHistory };
+      const pricing = pricingCache.get(`${lastResort.provider}:${lastResort.model}`);
+      if (pricing) {
+        response.usage.estimatedCostUsd =
+          (response.usage.promptTokens / 1_000_000) * pricing.promptTokensPerMillion +
+          (response.usage.completionTokens / 1_000_000) * pricing.completionTokensPerMillion;
+      }
+      return response;
     }
   }
 

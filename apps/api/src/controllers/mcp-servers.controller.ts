@@ -127,6 +127,7 @@ function formatServer(row: typeof mcpServers.$inferSelect) {
     url: row.url,
     command: row.command,
     args: row.argsJson ? JSON.parse(row.argsJson) : null,
+    env: row.envJson ? JSON.parse(row.envJson) as Record<string, string> : null,
     enabled: row.enabled,
     lastTestedAt: row.lastTestedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),

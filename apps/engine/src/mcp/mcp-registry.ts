@@ -17,24 +17,25 @@ interface McpServerRow {
 function getServerConfig(serverId: string): McpServerConfig {
   const dbPath = appConfig.databasePath.replace(/^file:/, '');
   const db = new Database(dbPath, { readonly: true });
-  const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(serverId) as McpServerRow | undefined;
-  db.close();
-  if (!row) throw new Error(`MCP server not found: ${serverId}`);
-  return {
-    id: row.id,
-    transport: row.transport,
-    url: row.url ?? undefined,
-    command: row.command ?? undefined,
-    args: row.args_json ? (JSON.parse(row.args_json) as string[]) : undefined,
-    env: row.env_json ? (JSON.parse(row.env_json) as Record<string, string>) : undefined,
-  };
+  try {
+    const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(serverId) as McpServerRow | undefined;
+    if (!row) throw new Error(`MCP server not found: ${serverId}`);
+    return {
+      id: row.id,
+      transport: row.transport,
+      url: row.url ?? undefined,
+      command: row.command ?? undefined,
+      args: row.args_json ? (JSON.parse(row.args_json) as string[]) : undefined,
+      env: row.env_json ? (JSON.parse(row.env_json) as Record<string, string>) : undefined,
+    };
+  } finally {
+    db.close();
+  }
 }
 
 class McpRegistry {
   // Key: `${nodeId}:${runId}` → connected McpClient
   private _clients = new Map<string, McpClient>();
-  // Key: nodeId → serverId (populated by assembleTools)
-  private _nodeToServer = new Map<string, string>();
 
   private _key(nodeId: string, runId: string): string {
     return `${nodeId}:${runId}`;
@@ -42,7 +43,6 @@ class McpRegistry {
 
   // Called by tool-executor when a core:mcp-client node is encountered
   async getClient(nodeId: string, serverId: string, runId: string): Promise<McpClient> {
-    this._nodeToServer.set(nodeId, serverId);
     const key = this._key(nodeId, runId);
     if (this._clients.has(key)) return this._clients.get(key)!;
 

@@ -126,10 +126,19 @@ export class McpClient {
       clientInfo: { name: 'magicaal-engine', version: '0.1.0' },
     }) as { capabilities?: Record<string, unknown> };
     this._capabilities = result?.capabilities ?? {};
-    // Send initialized notification (no response expected)
+    // Send initialized notification (fire-and-forget per MCP spec, but await flush)
     const notification = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n';
     if (this._config.transport === 'stdio') {
-      this._process?.stdin?.write(notification);
+      await new Promise<void>((resolve, reject) =>
+        this._process?.stdin?.write(notification, (err) => (err ? reject(err) : resolve())),
+      );
+    } else {
+      // HTTP: send as a one-way POST; server may not respond (notifications/initialized has no response)
+      await fetch(this._config.url!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: notification.trim(),
+      }).catch(() => { /* notifications are fire-and-forget; ignore HTTP errors */ });
     }
   }
 

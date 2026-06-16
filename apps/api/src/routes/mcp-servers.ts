@@ -16,4 +16,4 @@ mcpServersRouter.get('/', listMcpServers);
 mcpServersRouter.get('/:id', getMcpServer);
 mcpServersRouter.post('/', requireMinRole('tenant_admin'), createMcpServer);
 mcpServersRouter.delete('/:id', requireMinRole('tenant_admin'), deleteMcpServer);
-mcpServersRouter.post('/:id/test', testMcpServer);
+mcpServersRouter.post('/:id/test', requireMinRole('tenant_admin'), testMcpServer);

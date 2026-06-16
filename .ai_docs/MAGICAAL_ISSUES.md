@@ -204,7 +204,7 @@ All four nodes call `ctx.llmCall(...)` without a try-catch. Network failures, pr
 
 ---
 
-#### ISS-014 · `medium` · `open`
+#### ISS-014 · `medium` · `resolved`
 
 **Title:** `getRoutingEvents`: `JSON.parse(s.routingMetaJson)` without try-catch causes 500 on malformed data
 
@@ -454,26 +454,26 @@ The `'public'` strategy branch queries the `agents` table for `tenant_id` but pe
 | ISS-008 | high | **resolved** | JWKS cache not invalidated on config change; key rotation breaks auth |
 | ISS-009 | high | **resolved** | 4 LLM nodes missing try-catch on `ctx.llmCall` — unhandled exceptions |
 | ISS-010 | high | **resolved** | MCP direct mode `_callMcpTool` missing try-catch |
-| ISS-011 | medium | open | `dispatchSubRun` poll: missing `response.ok` check before JSON parse |
-| ISS-012 | medium | open | DB handle leak in `mcp-registry.getServerConfig` on query error |
-| ISS-013 | medium | open | MCP test endpoint has no timeout — hangs on unresponsive servers |
-| ISS-014 | medium | open | `getRoutingEvents`: `JSON.parse(routingMetaJson)` without try-catch |
+| ISS-011 | medium | **resolved** | `dispatchSubRun` poll: missing `response.ok` check before JSON parse |
+| ISS-012 | medium | **resolved** | DB handle leak in `mcp-registry.getServerConfig` on query error |
+| ISS-013 | medium | **resolved** | MCP test endpoint has no timeout — hangs on unresponsive servers |
+| ISS-014 | medium | **resolved** | `getRoutingEvents`: `JSON.parse(routingMetaJson)` without try-catch |
 | ISS-015 | high | **resolved** | `getRoutingEvents` runs query fetches entire tenant table — no limit |
-| ISS-016 | medium | open | Proactive triggers can skip all targets with no fallback |
-| ISS-017 | low | open | `cost-optimized` ignores completion tokens — incorrect for reasoning models |
+| ISS-016 | medium | **resolved** | Proactive triggers can skip all targets with no fallback |
+| ISS-017 | low | **resolved** | `cost-optimized` ignores completion tokens — incorrect for reasoning models |
 | ISS-018 | high | **resolved** | `ENGINE_INTERNAL_URL` undocumented — `dispatchSubRun` fails in Docker |
-| ISS-019 | medium | open | `formatServer` omits `env` field from API response |
-| ISS-020 | medium | open | Trajectory `toolInputs` silently dropped — no DB column |
-| ISS-021 | medium | open | Hardcoded `_fanout_results` key breaks with sequential fan-out/reduce pairs |
-| ISS-022 | low | open | Dead code in `tool-executor.ts:287` |
-| ISS-023 | medium | open | Expression editor field mode persists across node changes |
-| ISS-024 | medium | open | Value picker generates syntactically invalid JSONata (nodeId as output key) |
-| ISS-025 | medium | open | `testMcpServer` route allows developer role — inconsistent authz |
-| ISS-026 | medium | open | Schema endpoints return `{}` for absent schema instead of 404 or null |
-| ISS-027 | low | open | `_callMcpTool` dynamic import uses `.js` extension — fails in Jest |
-| ISS-028 | low | open | MCP `initialized` notification not awaited before `listTools` |
-| ISS-029 | low | open | `_nodeToServer` map in MCP registry is populated but never read |
-| ISS-030 | low | open | `validateInvocationRequest` public strategy skips `enabled` check |
+| ISS-019 | medium | **resolved** | `formatServer` omits `env` field from API response |
+| ISS-020 | medium | **resolved** | Trajectory `toolInputs` silently dropped — no DB column |
+| ISS-021 | medium | **resolved** | Hardcoded `_fanout_results` key breaks with sequential fan-out/reduce pairs |
+| ISS-022 | low | **resolved** | Dead code in `tool-executor.ts:287` |
+| ISS-023 | medium | **resolved** | Expression editor field mode persists across node changes |
+| ISS-024 | medium | **resolved** | Value picker generates syntactically invalid JSONata (nodeId as output key) |
+| ISS-025 | medium | **resolved** | `testMcpServer` route allows developer role — inconsistent authz |
+| ISS-026 | medium | **resolved** | Schema endpoints return `{}` for absent schema instead of 404 or null |
+| ISS-027 | low | **resolved** | `_callMcpTool` dynamic import uses `.js` extension — fails in Jest |
+| ISS-028 | low | **resolved** | MCP `initialized` notification not awaited before `listTools` |
+| ISS-029 | low | **resolved** | `_nodeToServer` map in MCP registry is populated but never read |
+| ISS-030 | low | **resolved** | `validateInvocationRequest` public strategy skips `enabled` check |
 
 **Total:** 30 issues · 5 critical · 7 high · 12 medium · 6 low  
-**Resolved:** 12 (all critical + high) · **Open:** 18 (medium + low)
+**Resolved:** 30 (all issues resolved) · **Open:** 0

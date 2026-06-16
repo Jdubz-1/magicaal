@@ -284,7 +284,6 @@ async function invokeMcpTool(
   args: Record<string, unknown>,
   ctx: ExecutionContextImpl,
 ): Promise<string> {
-  const node = ctx.data.__graph ? undefined : undefined; // graph not accessible here; use registry
   // The mcpRegistry was populated by assembleTools using the node's serverId
   const result = await mcpRegistry.callTool(mcpClientNodeId, ctx.runId, toolName, args);
   return typeof result === 'string' ? result : JSON.stringify(result);

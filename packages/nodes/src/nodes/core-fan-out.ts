@@ -3,6 +3,7 @@ import type { NodeModule } from '@magicaal/sdk-node';
 interface FanOutConfig {
   arrayKey: string;
   itemKey?: string;
+  resultsKey?: string;
 }
 
 export const coreFanOut: NodeModule<FanOutConfig> = {
@@ -19,8 +20,9 @@ export const coreFanOut: NodeModule<FanOutConfig> = {
       type: 'object',
       required: ['arrayKey'],
       properties: {
-        arrayKey: { type: 'string', description: 'Context key containing the array to fan out over' },
-        itemKey:  { type: 'string', description: 'Context key for each item in each branch (default: _fanout_item)' },
+        arrayKey:   { type: 'string', description: 'Context key containing the array to fan out over' },
+        itemKey:    { type: 'string', description: 'Context key for each item in each branch (default: _fanout_item)' },
+        resultsKey: { type: 'string', description: 'Context key where branch results are written (default: _fanout_results). Must match the paired core:reduce resultsKey.' },
       },
     },
     input:  {},

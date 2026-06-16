@@ -185,9 +185,13 @@ export async function validateInvocationRequest(
 
   if (strategy === 'public') {
     const agentRow = db
-      .prepare('SELECT tenant_id FROM agents WHERE id = ?')
+      .prepare('SELECT tenant_id FROM agents WHERE id = ? AND enabled = 1')
       .get(agentId) as { tenant_id: string } | undefined;
-    return { keyId: 'public', agentId, tenantId: agentRow?.tenant_id ?? '' };
+    if (!agentRow) {
+      throw Object.assign(new Error('Agent not found or disabled'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
+    await enforceRateLimit(agentId);
+    return { keyId: 'public', agentId, tenantId: agentRow.tenant_id };
   }
 
   const bearer = authorizationHeader?.replace(/^Bearer\s+/i, '').trim();

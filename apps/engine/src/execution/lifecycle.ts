@@ -165,6 +165,7 @@ export const lifecycle = {
         iteration: s.iteration,
         thought: s.reasoning ?? null,
         action: s.toolSelected ?? null,
+        toolInputsJson: s.toolInputs ? JSON.stringify(s.toolInputs) : null,
         observation: s.toolOutputs ? JSON.stringify(s.toolOutputs) : null,
         createdAt: now,
       })),

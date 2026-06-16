@@ -400,7 +400,10 @@ export const getSchemaInput: RequestHandler = async (req, res, next) => {
     const { tenantId } = req.user!;
     const graph = await getAgentGraph(req.params.id, tenantId);
     const startNode = Object.values(graph.nodes).find((n) => n.type === 'core:start');
-    const inputSchema = startNode?.config?.inputSchema ?? {};
+    const inputSchema = (startNode?.config?.inputSchema as object | null | undefined) ?? null;
+    if (!inputSchema) {
+      return res.status(404).json({ error: 'No input schema defined on this agent' });
+    }
     res.json({ inputSchema });
   } catch (err) {
     next(err);
@@ -412,7 +415,10 @@ export const getSchemaOutput: RequestHandler = async (req, res, next) => {
     const { tenantId } = req.user!;
     const graph = await getAgentGraph(req.params.id, tenantId);
     const endNode = Object.values(graph.nodes).find((n) => n.type === 'core:end');
-    const outputSchema = endNode?.config?.outputSchema ?? {};
+    const outputSchema = (endNode?.config?.outputSchema as object | null | undefined) ?? null;
+    if (!outputSchema) {
+      return res.status(404).json({ error: 'No output schema defined on this agent' });
+    }
     res.json({ outputSchema });
   } catch (err) {
     next(err);

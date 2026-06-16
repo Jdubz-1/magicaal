@@ -89,5 +89,10 @@ export async function runTelemetryMigrations(): Promise<void> {
     created_at INTEGER NOT NULL
   )`);
 
+  // Add tool_inputs_json column to trajectories (safe on existing DBs)
+  try {
+    telemetryDb.run(sql`ALTER TABLE trajectories ADD COLUMN tool_inputs_json TEXT`);
+  } catch { /* column already exists */ }
+
   logger.info('Telemetry database migrations complete');
 }

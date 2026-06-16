@@ -17,6 +17,21 @@
   let exprFieldKey: string | null = null;  // field currently in expression editor mode
   let evalResult: Record<string, unknown> = {};  // fieldKey → eval result
 
+  // Reset editor state when the selected node changes (ISS-023)
+  $: if (node?.id) {
+    exprFieldKey = null;
+    evalResult = {};
+    pickerFieldKey = null;
+  }
+
+  // Get actual output key names from a node's type schema (ISS-024)
+  function getUpstreamOutputKeys(upstream: NodeDef): string[] {
+    const typeDef = $nodeTypes.find((nt) => nt.type === upstream.type);
+    const props = (typeDef?.schema?.output as { properties?: Record<string, unknown> } | undefined)?.properties;
+    if (props && Object.keys(props).length > 0) return Object.keys(props);
+    return ['output']; // fallback for nodes without declared output schema
+  }
+
   async function evaluateExpression(fieldKey: string, expression: string) {
     try {
       const resp = await fetch('/studio/evaluate-expression', {
@@ -139,11 +154,13 @@
             <div class="picker-dropdown">
               <div class="picker-label">Insert reference to:</div>
               {#each upstreamNodes as upstream}
-                <button class="picker-option"
-                  on:click={() => insertUpstreamRef(key, upstream.id, upstream.id)}>
-                  <span class="picker-node">{upstream.label ?? upstream.id}</span>
-                  <span class="picker-ref">$.{upstream.id}</span>
-                </button>
+                {#each getUpstreamOutputKeys(upstream) as outputKey}
+                  <button class="picker-option"
+                    on:click={() => insertUpstreamRef(key, upstream.id, outputKey)}>
+                    <span class="picker-node">{upstream.label ?? upstream.id}</span>
+                    <span class="picker-ref">$.{outputKey}</span>
+                  </button>
+                {/each}
               {/each}
             </div>
           {/if}

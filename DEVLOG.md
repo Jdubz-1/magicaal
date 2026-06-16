@@ -25,6 +25,34 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-15 - Phase 3 Medium/Low Issue Resolution (ISS-011 to ISS-030)
+
+**Type:** Bugfix
+
+**Description:**
+Closed all remaining 18 open issues from the Phase 3 code review (medium and low severity). ISS-014 was already resolved as a side effect of the ISS-015 fix; all others received explicit fixes. All 30 Phase 3 issues are now resolved.
+
+**Changes:**
+- `apps/engine/src/execution/context.ts` — add `response.ok` check in dispatchSubRun poll (ISS-011); convert `_callMcpTool` to static import (ISS-027)
+- `apps/engine/src/execution/tool-executor.ts` — delete dead code line (ISS-022)
+- `apps/engine/src/mcp/mcp-registry.ts` — try-finally in getServerConfig (ISS-012); remove dead `_nodeToServer` map (ISS-029)
+- `apps/engine/src/mcp/mcp-client.ts` — await `initialized` notification write; send notification for HTTP transport (ISS-028)
+- `apps/engine/src/controllers/mcp-servers.controller.ts` — 15s timeout via Promise.race on test sequence (ISS-013)
+- `apps/engine/src/router/router-engine.ts` — last-resort fallback when all targets proactively skipped (ISS-016); blended cost (prompt + completion) for cost-optimized strategy (ISS-017)
+- `apps/engine/src/db/telemetry-schema.ts` + `telemetry-migrate.ts` + `lifecycle.ts` — add `tool_inputs_json` column to trajectories table; migrate safely; populate from `TrajectoryStep.toolInputs` (ISS-020)
+- `packages/nodes/src/nodes/core-fan-out.ts` + `core-reduce.ts` + `apps/engine/src/execution/worker.ts` — configurable `resultsKey` on fan-out/reduce pair; defaults to `_fanout_results` (ISS-021)
+- `apps/api/src/controllers/mcp-servers.controller.ts` — add `env` field to formatServer (ISS-019)
+- `apps/api/src/routes/mcp-servers.ts` — add `requireMinRole('tenant_admin')` to test route (ISS-025)
+- `apps/api/src/controllers/agents.controller.ts` — return 404 for absent input/output schema (ISS-026)
+- `apps/engine/src/auth/invocation-auth.ts` — public strategy: require agent enabled, enforce rate limit (ISS-030)
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — reset expression editor state on node change (ISS-023); value picker now shows real output key names from node schema (ISS-024)
+- `.ai_docs/MAGICAAL_ISSUES.md` — all 30 issues marked resolved
+
+**Impact:**
+All Phase 3 issues cleared. MCP clients no longer leak DB handles. Sub-run polling fails fast on bad status. Test endpoint times out instead of hanging. Cost-optimized routing correctly weights completion tokens. Trajectory records now include tool inputs. Sequential fan-out/reduce graphs work correctly with distinct result keys. Public strategy agents are rate-limited and disabled-agent invocations are rejected. Value picker in Studio generates valid JSONata.
+
+---
+
 ### 2026-06-15 - Phase 3 Critical/High Issue Resolution (ISS-001 through ISS-018)
 
 **Type:** Bugfix

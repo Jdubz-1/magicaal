@@ -48,6 +48,7 @@ export const telemetryTrajectories = sqliteTable('trajectories', {
   iteration: integer('iteration').notNull(),
   thought: text('thought'),
   action: text('action'),
+  toolInputsJson: text('tool_inputs_json'),
   observation: text('observation'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });

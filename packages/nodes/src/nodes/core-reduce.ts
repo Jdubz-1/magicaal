@@ -3,6 +3,7 @@ import type { NodeModule } from '@magicaal/sdk-node';
 interface ReduceConfig {
   outputKey: string;
   mergeStrategy?: 'collect' | 'merge' | 'last-wins';
+  resultsKey?: string;
 }
 
 export const coreReduce: NodeModule<ReduceConfig> = {
@@ -21,13 +22,15 @@ export const coreReduce: NodeModule<ReduceConfig> = {
       properties: {
         outputKey:     { type: 'string', description: 'Context key to write the merged results' },
         mergeStrategy: { type: 'string', enum: ['collect', 'merge', 'last-wins'], description: 'How to merge branch outputs (default: collect)' },
+        resultsKey:    { type: 'string', description: 'Context key to read branch results from (default: _fanout_results). Must match the paired core:fan-out resultsKey.' },
       },
     },
     input:  {},
     output: {},
   },
   async execute(ctx, config) {
-    const results = ctx.get<unknown[]>('_fanout_results') ?? [];
+    const resultsKey = config.resultsKey ?? '_fanout_results';
+    const results = ctx.get<unknown[]>(resultsKey) ?? [];
     const strategy = config.mergeStrategy ?? 'collect';
     const outputKey = config.outputKey;
 

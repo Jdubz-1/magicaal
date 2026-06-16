@@ -5,6 +5,7 @@ import { logger } from '../lib/logger';
 import { sseManager } from '../sse/sse-manager';
 import { routedLLMCall, resolveRouterConfig } from '../router/router-engine';
 import { config } from '../config';
+import { mcpRegistry } from '../mcp/mcp-registry';
 
 export interface RunParams {
   runId: string;
@@ -101,7 +102,6 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   // Engine-internal: allows core:mcp-client direct-mode node to call MCP tools
   async _callMcpTool(nodeId: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
-    const { mcpRegistry } = await import('../mcp/mcp-registry.js');
     return mcpRegistry.callTool(nodeId, this.runId, toolName, args);
   }
 
@@ -125,6 +125,9 @@ export class ExecutionContextImpl implements ExecutionContext {
     while (Date.now() - start < timeout) {
       await new Promise((r) => setTimeout(r, 1000));
       const getResp = await fetch(`${engineUrl}/internal/runs/${runId}`);
+      if (!getResp.ok) {
+        throw Object.assign(new Error(`Sub-run status check failed: ${getResp.status}`), { code: 'SUB_RUN_STATUS_ERROR', retryable: false });
+      }
       const run = await getResp.json() as { status: string; output?: Record<string, unknown> };
       if (run.status === 'completed') return { runId, output: run.output };
       if (run.status === 'failed' || run.status === 'cancelled') {
