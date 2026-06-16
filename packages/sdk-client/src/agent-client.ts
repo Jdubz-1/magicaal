@@ -3,9 +3,11 @@ import type { InvokeOptions, StartOptions, RunStreamEvent } from './types';
 import { RunHandleImpl } from './run-handle';
 import { streamRun } from './stream-client';
 import { HumanReviewClient } from './human-review-client';
+import { SessionClient, type SessionSummary } from './session-client';
 
 interface DispatchResponse {
   runId: string;
+  sessionId?: string;
 }
 
 export class AgentClient<TIn = Record<string, unknown>, TOut = Record<string, unknown>> {
@@ -14,12 +16,32 @@ export class AgentClient<TIn = Record<string, unknown>, TOut = Record<string, un
     private readonly http: AxiosInstance,
   ) {}
 
+  /** Return a SessionClient for reading/clearing a specific session. */
+  session(sessionId: string): SessionClient {
+    return new SessionClient(sessionId, this.agentId, this.http);
+  }
+
+  /** Convenience accessors for session management. */
+  readonly sessions = {
+    list: async (opts?: { status?: string; limit?: number }): Promise<SessionSummary[]> => {
+      const params = new URLSearchParams();
+      if (opts?.status) params.set('status', opts.status);
+      if (opts?.limit) params.set('limit', String(opts.limit));
+      const res = await this.http.get<SessionSummary[]>(
+        `/v1/agents/${this.agentId}/sessions?${params.toString()}`,
+      );
+      return res.data;
+    },
+  };
+
   async invoke(input: TIn, opts?: InvokeOptions): Promise<TOut> {
     const res = await this.http.post<DispatchResponse | TOut>(
       `/v1/agents/${this.agentId}/runs`,
       {
         input,
         mode: opts?.async ? 'async' : 'sync',
+        ...(opts?.sessionId && { session_id: opts.sessionId }),
+        ...(opts?.sessionMetadata && { session_metadata: opts.sessionMetadata }),
       },
       { timeout: opts?.timeout },
     );
@@ -33,10 +55,15 @@ export class AgentClient<TIn = Record<string, unknown>, TOut = Record<string, un
     return res.data as TOut;
   }
 
-  async start(input: TIn, _opts?: StartOptions): Promise<RunHandleImpl<TOut>> {
+  async start(input: TIn, opts?: StartOptions): Promise<RunHandleImpl<TOut>> {
     const res = await this.http.post<DispatchResponse>(
       `/v1/agents/${this.agentId}/runs`,
-      { input, mode: 'async' },
+      {
+        input,
+        mode: 'async',
+        ...(opts?.sessionId && { session_id: opts.sessionId }),
+        ...(opts?.sessionMetadata && { session_metadata: opts.sessionMetadata }),
+      },
     );
     const { runId } = res.data;
     return new RunHandleImpl<TOut>(runId, this.agentId, this.http);

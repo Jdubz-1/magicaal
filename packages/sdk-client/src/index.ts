@@ -4,6 +4,10 @@ export { RunHandleImpl } from './run-handle';
 export { streamRun } from './stream-client';
 export { HumanReviewClient } from './human-review-client';
 export type { ReviewDetails } from './human-review-client';
+export { SessionClient } from './session-client';
+export type { SessionSummary, SessionContext } from './session-client';
+export { WorkspaceContextBuilder } from './workspace-context-builder';
+export type { ContextSchemaDefinition, ContextMessage, ContextDocument } from './workspace-context-builder';
 
 export {
   MagiCaalError,
