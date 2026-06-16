@@ -440,6 +440,351 @@ The `'public'` strategy branch queries the `agents` table for `tenant_id` but pe
 
 ---
 
+---
+
+## Phase 4 Issues
+
+All issues below were identified in the Phase 4 code review (2026-06-16). Phase 4 added: Graph-as-Code compiler/CLI, Session Manager, session nodes, boot-time sync, prompt/test-case/Caal routes, SDK SessionClient, and Studio/Admin additions.
+
+### Bugs — Functionality Broken
+
+---
+
+#### ISS-031 · `critical` · `resolved`
+
+**Title:** Dead ternary in `invokeCaal` — `clientSessionId` from request body always ignored
+
+**File:** `apps/api/src/controllers/caal.controller.ts:37-39`
+
+**Description:**  
+Both branches of the ternary produce identical strings:
+```typescript
+const sessionId = clientSessionId
+  ? `_platform:caal-assistant:${tenantId}:${userId}:${agentId ?? 'global'}`
+  : `_platform:caal-assistant:${tenantId}:${userId}:${agentId ?? 'global'}`;
+```
+The `clientSessionId` value extracted from the request body is accepted but never used. Every invocation from the same `userId` + `agentId` goes to the same session regardless of what `sessionId` the client sends. It is impossible for a caller to specify a custom session or create multiple independent Caal sessions for the same user/agent pair.
+
+**Fix guidance:** Use `clientSessionId` as the session suffix when provided:
+```typescript
+const sessionId = `_platform:caal-assistant:${tenantId}:${userId}:${clientSessionId ?? agentId ?? 'global'}`;
+```
+
+---
+
+#### ISS-032 · `critical` · `resolved`
+
+**Title:** `agents_dist` Docker volume not re-populated on redeployment — stale agents served after rebuild
+
+**File:** `docker-compose.yml:7-8`, `apps/api/Dockerfile:52-53`
+
+**Description:**  
+The `agent-builder` service targets `FROM scratch AS agent-builder` and copies compiled agent JSON into the image at `/agents-out`. Docker Compose mounts the named volume `agents_dist:/agents-out`. Docker only initialises a named volume from image contents on first creation (when the volume is empty). On every subsequent `docker-compose up` after rebuilding the image with new agent definitions, the volume already exists and Docker does not re-copy from the updated image. The API service continues serving the stale agent definitions from the first-ever build.
+
+**Fix guidance:** Change `agent-builder` to a non-scratch base (e.g., `FROM alpine AS agent-builder`) with an entrypoint that actively copies files into the volume at container start:
+```dockerfile
+FROM alpine AS agent-builder
+COPY --from=builder /monorepo/dist/agents /agents-src
+ENTRYPOINT ["/bin/sh", "-c", "cp -r /agents-src/. /agents-out/ && echo 'Agents copied'"]
+```
+Mount `agents_dist:/agents-out` on the service so the copy happens at every `up`. The `api` service `depends_on: agent-builder: condition: service_completed_successfully` ensures ordering.
+
+---
+
+#### ISS-033 · `critical` · `resolved`
+
+**Title:** All Caal integration tools have reversed `execute(config, ctx)` parameter order — every tool throws `TypeError` at runtime
+
+**File:** `packages/integrations/caal/src/tools/graph.ts` (all execute methods)  
+**Also:** `packages/integrations/caal/src/tools/platform.ts` (all execute methods)
+
+**Description:**  
+The `NodeModule` interface in `packages/sdk/src/node.ts:39` declares:
+```typescript
+execute(ctx: ExecutionContext, config: TConfig): Promise<NodeOutput>;
+```
+Every Caal integration tool uses the reversed signature `execute(_config, ctx)` or `execute(config, ctx)`. At runtime, the execution engine calls `node.execute(ctx, config)`, so:
+- The first parameter (named `_config` or `config`) actually receives the `ExecutionContext`
+- The second parameter (named `ctx`) actually receives the config object `{}`
+
+When any tool body calls `ctx.get(...)` or `ctx.set(...)`, it is calling `.get()` on a plain config object, which has no such method → `TypeError: ctx.get is not a function`. Every Caal tool (all 13 in graph.ts and platform.ts) will throw this error on invocation. The entire Caal tool layer is non-functional.
+
+Additionally, tools with non-empty config (e.g., `graphGetNode`, `graphAddNode`, `platformGetNodeSchema`) cast their first parameter — the actual ExecutionContext — to a config interface: `const cfg = config as { nodeId: string }`, which causes the extracted values to be undefined.
+
+**Fix guidance:** Swap parameter order in all Caal tool `execute` methods to match the interface:
+```typescript
+// Before (wrong)
+async execute(_config, ctx) {
+  const graphState = ctx.get('graphState');
+
+// After (correct)
+async execute(ctx, _config) {
+  const graphState = ctx.get('graphState');
+```
+Apply this fix to all tools in `graph.ts` and `platform.ts`. Tools that use config values (e.g., `graphGetNode`) additionally need `const cfg = config as { nodeId: string }` where `config` is the second (correct) parameter.
+
+---
+
+#### ISS-034 · `high` · `resolved`
+
+**Title:** `assertionsJson` stored without JSON validation — malformed input causes 500 on test suite run
+
+**File:** `apps/api/src/controllers/test-cases.controller.ts:36`  
+**Also:** Line 202 (`runTestSuite`)
+
+**Description:**  
+`createTestCase` accepts `assertionsJson` as a plain string and stores it directly in the DB without validating it is well-formed JSON. In `runTestSuite` (line 202), `JSON.parse(tc.assertionsJson)` is called inside the per-test-case loop with no try-catch. If a test case was created with malformed JSON (e.g., via a direct API call or a frontend bug), the entire suite run throws an unhandled exception and returns a 500 response — failing all test cases rather than isolating the broken one.
+
+**Fix guidance:** In `createTestCase`, validate before INSERT:
+```typescript
+try { JSON.parse(assertionsJson); }
+catch { throw Object.assign(new Error('assertionsJson is not valid JSON'), { status: 400 }); }
+```
+Also wrap the `JSON.parse` in `runTestSuite` in a try-catch that marks just that test case as failed with `error: 'Invalid assertionsJson'`.
+
+---
+
+#### ISS-035 · `high` · `resolved`
+
+**Title:** Canvas tool edges wired to `explainer` (`core:llm-call`) — highlight/focus never fires on explain path
+
+**File:** `agents/caal.agent.ts:172-175`
+
+**Description:**  
+`caal.canvas.highlight` and `caal.canvas.focus` are wired to the `explainer` node via `this.tool(...)`:
+```typescript
+this.tool('caal.canvas.highlight', 'explainer');
+this.tool('caal.canvas.focus', 'explainer');
+```
+`explainer` is a `core:llm-call` node. `core:llm-call` is not an agentic loop — it does not support tool calls. The execution engine only invokes tool edges for `core:tool-call` and `core:react` nodes. These tool edges are silently ignored at runtime. Canvas highlight and focus are therefore never triggered from the explain/question path.
+
+**Fix guidance:** Remove `this.tool('caal.canvas.highlight', 'explainer')` and `this.tool('caal.canvas.focus', 'explainer')`. Canvas effects from explain/question responses must be handled by the `response-assembler` transform outputting highlight/focus keys that the Studio frontend interprets from the final run output (already done for `canvasHighlight` / `canvasFocus` in the response-assembler expression).
+
+---
+
+### Bugs — Data Integrity and Correctness
+
+---
+
+#### ISS-036 · `medium` · `resolved`
+
+**Title:** `internalExpireSessions` fetches all active sessions then queries each individually — N+1 pattern
+
+**File:** `apps/api/src/controllers/sessions.controller.ts:349-366`
+
+**Description:**  
+`internalExpireSessions` issues a broad `SELECT` for all sessions with `status = 'active'` across all tenants (no LIMIT), then iterates the result and issues one UPDATE per row. For deployments with thousands of active sessions this produces N+1 DB queries and holds the result set in memory. This is called on an hourly scheduler interval.
+
+**Fix guidance:** Replace the loop with a single bulk UPDATE:
+```typescript
+await db
+  .update(sessions)
+  .set({ status: 'expired', updatedAt: new Date() })
+  .where(and(eq(sessions.status, 'active'), lte(sessions.expiresAt, new Date())));
+```
+
+---
+
+#### ISS-037 · `medium` · `resolved`
+
+**Title:** `schema` assertion type ignores the provided JSON Schema — always passes for any object
+
+**File:** `apps/api/src/controllers/test-cases.controller.ts:211-214`
+
+**Description:**  
+The `schema` assertion branch performs only a `typeof caseOutput === 'object'` check:
+```typescript
+passed = typeof caseOutput === 'object' && caseOutput !== null;
+```
+It completely ignores `assertion.schema` (the JSON Schema value the developer configured). A test asserting `{ type: 'object', required: ['name'] }` passes even when the output contains no `name` field. Schema assertions are non-functional as quality gates.
+
+**Fix guidance:** Install `ajv` and validate the output against the schema:
+```typescript
+import Ajv from 'ajv';
+const ajv = new Ajv();
+const valid = ajv.validate(assertion.schema, caseOutput);
+passed = valid;
+message = valid ? undefined : ajv.errorsText();
+```
+
+---
+
+#### ISS-038 · `medium` · `resolved`
+
+**Title:** `evaluate_score` assertion always returns `passed = true` — quality gates never enforced
+
+**File:** `apps/api/src/controllers/test-cases.controller.ts:215-218`
+
+**Description:**  
+The `evaluate_score` branch unconditionally sets `passed = true`:
+```typescript
+passed = true;
+message = 'evaluate_score assertions require manual review';
+```
+A test suite containing `evaluate_score` assertions always reports 100% pass regardless of actual output quality. Developers will see green test runs even when LLM outputs do not meet their quality threshold. The test suite dashboard is misleading.
+
+**Fix guidance:** Either block `evaluate_score` assertions at creation time with a 400 error ("evaluate_score is not yet supported") so developers are not silently misled, or implement the score evaluation logic against telemetry data.
+
+---
+
+#### ISS-039 · `medium` · `resolved`
+
+**Title:** `TestCasesPanel.svelte` sends wrong field name to `createTestCase` — no assertions ever stored
+
+**File:** `apps/web/src/canvas/components/TestCasesPanel.svelte`
+
+**Description:**  
+The panel builds a request body with `{ assertions: assertionsArray }` (an array value under the key `assertions`). The `createTestCase` controller reads `req.body.assertionsJson` (a JSON string). The field name mismatch means the controller never receives the assertions. Every test case created from the Studio UI is stored with `assertionsJson = undefined`, which is inserted as an empty or null value. When the suite runs, `JSON.parse(undefined)` throws a 500 error (see also ISS-034).
+
+**Fix guidance:** In `TestCasesPanel.svelte`, stringify the array before sending:
+```typescript
+body: JSON.stringify({ ..., assertionsJson: JSON.stringify(assertions) })
+```
+
+---
+
+#### ISS-040 · `medium` · `resolved`
+
+**Title:** Compiler does not validate that `toolEdge` target node IDs exist — orphaned tool edges compile silently
+
+**File:** `packages/compiler/src/compile.ts`
+
+**Description:**  
+`compile()` validates that both `from` and `to` node IDs on regular edges exist in the node map, but performs no equivalent check on `toolEdges`. A typo such as `this.tool('caal.graph.read', 'mdoifier')` (misspelled node ID) passes compilation and produces a compiled JSON file with a dangling tool edge. At runtime the execution engine finds no node matching `mdoifier` and silently drops the tool edge, leaving the intended agent node without its tool.
+
+**Fix guidance:** After `const { nodes, edges, toolEdges } = snapshot;`, add:
+```typescript
+for (const te of toolEdges) {
+  if (!nodes[te.to]) {
+    details.push(`toolEdge target node "${te.to}" does not exist`);
+  }
+}
+```
+
+---
+
+#### ISS-041 · `medium` · `resolved`
+
+**Title:** `build.ts` writes empty manifest when all agents fail to compile — marks all synced agents stale on next boot
+
+**File:** `packages/cli/src/commands/build.ts:99-101`
+
+**Description:**  
+The manifest is written unconditionally at line 100 regardless of outcome:
+```typescript
+writeFileSync(manifestPath, JSON.stringify({ agents: built }, null, 2), 'utf8');
+```
+If every agent file fails to compile (build errors), `built` is `[]` and `agents.manifest.json` is written as `{ "agents": [] }`. On the next API boot, `bootTimeSync` reads this empty manifest and marks every existing `code-defined` agent as `stale: true` (lines 58-75 of `boot-sync.ts`), effectively removing them from service — despite the failure being a compilation error, not an intentional deletion.
+
+**Fix guidance:** Skip manifest write when `built.length === 0 && errors.length > 0`:
+```typescript
+if (built.length === 0 && errors.length > 0) {
+  console.warn('No agents compiled successfully — manifest not written to prevent accidental staling.');
+} else {
+  writeFileSync(manifestPath, JSON.stringify({ agents: built }, null, 2), 'utf8');
+}
+```
+
+---
+
+#### ISS-042 · `medium` · `resolved`
+
+**Title:** `caal.agent.ts` session-write references `$.sessionMessages` but context-assembler renames it to `history`
+
+**File:** `agents/caal.agent.ts:118`  
+**Also:** Lines 44-50 (context-assembler expression)
+
+**Description:**  
+`session-read` maps the session key `messages` into context as `sessionMessages`. The `context-assembler` transform then renames it:
+```jsonata
+"history": $.sessionMessages ?? []
+```
+If the execution engine replaces context data with a node's transform output (standard behaviour for `core:transform`), the key `sessionMessages` no longer exists in context after `context-assembler` runs. The LLM nodes and downstream nodes operate on the assembled context. When `session-write` executes, its expression:
+```
+messages: '$append($.sessionMessages ?? [], [{"role":"user",...}])'
+```
+evaluates `$.sessionMessages` as `undefined`, so `$append([], [...])` produces only the current turn. The conversation history is never accumulated — each Caal session always shows only the most recent exchange.
+
+**Fix guidance:** Either (a) reference `$.history` in the session-write expression instead of `$.sessionMessages`, or (b) preserve the original key by including it in the context-assembler output: `"sessionMessages": $.sessionMessages ?? []`.
+
+---
+
+### Convention and Minor Issues
+
+---
+
+#### ISS-043 · `low` · `resolved`
+
+**Title:** CLI `sessions migrate` without `--agent` calls a non-existent API endpoint
+
+**File:** `packages/cli/src/commands/sessions.ts:13-14`
+
+**Description:**  
+When `--agent` is omitted (global migration), the CLI calls:
+```
+POST {apiUrl}/v1/agents/sessions/migrate-all
+```
+No such route exists in the API. The `sessionRouter` is mounted at `/v1/agents/:id/sessions` (agent-scoped); there is no global `/v1/agents/sessions/migrate-all` handler. The command will always receive a 404 and report a failure.
+
+**Fix guidance:** Either implement `POST /internal/sessions/migrate-stale` (referenced in the admin handler) and update the CLI to call that internal endpoint (with the appropriate auth header), or scope the CLI command to always require `--agent`.
+
+---
+
+#### ISS-044 · `low` · `resolved`
+
+**Title:** Module-level `edgeCounter` in `graph.ts` — edge IDs are non-deterministic across multi-agent builds
+
+**File:** `packages/compiler/src/graph.ts:10`
+
+**Description:**  
+`let edgeCounter = 0;` is module-level state shared across all `AgentGraph` instances in a process. In a single `magicaal build` run that compiles multiple agents, each subsequent agent's edge IDs start where the previous agent left off (e.g., `e_1…e_12` for agent A, `e_13…e_24` for agent B). The IDs are therefore not stable across builds: adding a new agent or reordering compile order changes the IDs of all subsequent agents. This causes spurious content-hash differences, triggering unnecessary version inserts in `bootTimeSync` even when agent logic is unchanged.
+
+**Fix guidance:** Move `edgeCounter` to an instance variable inside `AgentGraph`:
+```typescript
+private _edgeCounter = 0;
+// Then use: id: `e_${++this._edgeCounter}`
+```
+
+---
+
+#### ISS-045 · `low` · `resolved`
+
+**Title:** Compiler does not require a `core:end` node — graphs without end node compile and run indefinitely
+
+**File:** `packages/compiler/src/compile.ts`
+
+**Description:**  
+`compile()` validates that every non-Start node has at least one inbound edge, but does not check that a `core:end` node exists. A graph without `core:end` compiles successfully. At runtime, execution reaches a terminal node with no outbound edges (which is treated as a dead end, not a proper graph completion), and the run may not write its final status or emit its output correctly, depending on engine implementation.
+
+**Fix guidance:** After snapshot validation, add:
+```typescript
+const hasEndNode = Object.values(nodes).some(n => n.type === 'core:end');
+if (!hasEndNode) {
+  details.push('Graph must contain at least one core:end node');
+}
+```
+
+---
+
+#### ISS-046 · `low` · `resolved`
+
+**Title:** `getCaalSession` uses redundant dynamic imports for already-statically-available modules
+
+**File:** `apps/api/src/controllers/caal.controller.ts:93-95`
+
+**Description:**  
+`getCaalSession` performs three dynamic `await import(...)` calls at the bottom of the function:
+```typescript
+const { sessionContext } = await import('../db/schema');
+const { sessions } = await import('../db/schema');
+const { eq: eqOp } = await import('drizzle-orm');
+```
+`sessions` and `sessionContext` could be added to the top-level static import from `'../db/schema'`. `eq` is already statically imported at the top of the file as `eq` but is redundantly re-imported as `eqOp`. The double `import('../db/schema')` call is evaluated twice per request, adding unnecessary module resolution overhead on every `getCaalSession` call.
+
+**Fix guidance:** Add `sessions`, `sessionContext` to the top-level `import { ... } from '../db/schema'` and use the existing `eq` directly. Remove all three dynamic import lines.
+
+---
+
 ## Issue Summary
 
 | ID | Severity | Status | Title |
@@ -474,6 +819,23 @@ The `'public'` strategy branch queries the `agents` table for `tenant_id` but pe
 | ISS-028 | low | **resolved** | MCP `initialized` notification not awaited before `listTools` |
 | ISS-029 | low | **resolved** | `_nodeToServer` map in MCP registry is populated but never read |
 | ISS-030 | low | **resolved** | `validateInvocationRequest` public strategy skips `enabled` check |
+| ISS-031 | critical | **resolved** | Dead ternary in `invokeCaal` — `clientSessionId` always ignored |
+| ISS-032 | critical | **resolved** | `agents_dist` volume not re-populated on redeployment — stale agents served |
+| ISS-033 | critical | **resolved** | Caal integration tools `execute()` params reversed — all tools throw `TypeError` |
+| ISS-034 | high | **resolved** | `assertionsJson` stored without JSON validation — 500 on test suite run |
+| ISS-035 | high | **resolved** | Canvas tool edges wired to `explainer` (`core:llm-call`) — silently ignored |
+| ISS-036 | medium | **resolved** | `internalExpireSessions` N+1 query — one UPDATE per session row |
+| ISS-037 | medium | **resolved** | `schema` assertion ignores provided JSON Schema — always passes for any object |
+| ISS-038 | medium | **resolved** | `evaluate_score` always returns `passed = true` — quality gates never enforced |
+| ISS-039 | medium | **resolved** | `TestCasesPanel.svelte` sends `assertions` field — controller expects `assertionsJson` |
+| ISS-040 | medium | **resolved** | Compiler does not validate `toolEdge` target node IDs — orphaned edges compile silently |
+| ISS-041 | medium | **resolved** | `build.ts` writes empty manifest on total compile failure — marks all agents stale |
+| ISS-042 | medium | **resolved** | `caal.agent.ts` session-write uses `$.sessionMessages` but assembler renames it to `history` |
+| ISS-043 | low | **resolved** | CLI `sessions migrate` (no `--agent`) calls non-existent `/v1/agents/sessions/migrate-all` |
+| ISS-044 | low | **resolved** | Module-level `edgeCounter` in `graph.ts` — non-deterministic edge IDs across multi-agent builds |
+| ISS-045 | low | **resolved** | Compiler does not require `core:end` node — graphs without end node compile successfully |
+| ISS-046 | low | **resolved** | `getCaalSession` uses redundant dynamic imports for already-imported modules |
 
-**Total:** 30 issues · 5 critical · 7 high · 12 medium · 6 low  
-**Resolved:** 30 (all issues resolved) · **Open:** 0
+**Total:** 46 issues · 8 critical · 9 high · 19 medium · 10 low  
+**Phase 3:** 30 issues (all resolved) · **Phase 4:** 16 issues (all resolved)  
+**Resolved:** 46 (all issues resolved) · **Open:** 0

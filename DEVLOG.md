@@ -25,6 +25,101 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-16 - Phase 4 Code Review Fixes (ISS-031–ISS-046)
+
+**Type:** Bugfix
+
+**Description:**
+Post-implementation review of Phase 4 identified 16 bugs. All fixed in 4 commits. No new features.
+
+**Changes:**
+- `packages/integrations/caal/src/tools/graph.ts` — corrected `execute()` parameter order on all 10 tools (ISS-033)
+- `packages/integrations/caal/src/tools/platform.ts` — corrected `execute()` parameter order on all 4 tools (ISS-033)
+- `packages/integrations/caal/src/tools/canvas.ts` — corrected `execute()` parameter order on both tools (ISS-033)
+- `packages/integrations/caal/src/tools/proposal.ts` — corrected `execute()` parameter order (ISS-033)
+- `apps/api/src/controllers/caal.controller.ts` — fixed dead ternary (ISS-031); removed redundant dynamic imports (ISS-046)
+- `apps/api/src/controllers/sessions.controller.ts` — replaced N+1 expiry loop with single bulk UPDATE (ISS-036)
+- `apps/api/src/controllers/test-cases.controller.ts` — JSON validation for assertionsJson at creation (ISS-034); ajv schema assertion (ISS-037); evaluate_score now fails instead of passing silently (ISS-038)
+- `agents/caal.agent.ts` — removed canvas tool edges from explainer node (ISS-035); fixed session-write to reference `$.history` not `$.sessionMessages` (ISS-042)
+- `packages/compiler/src/compile.ts` — added toolEdge target validation (ISS-040); added core:end node requirement (ISS-045)
+- `packages/compiler/src/graph.ts` — moved edgeCounter to instance variable (ISS-044)
+- `packages/cli/src/commands/build.ts` — skip manifest write on all-errors build (ISS-041)
+- `packages/cli/src/commands/sessions.ts` — require --agent flag; remove non-existent migrate-all endpoint call (ISS-043)
+- `apps/web/src/canvas/components/TestCasesPanel.svelte` — send assertionsJson string not assertions array (ISS-039)
+- `apps/api/Dockerfile` — agent-builder stage uses alpine + ENTRYPOINT for active volume copy (ISS-032)
+- `docker-compose.yml` — api depends_on agent-builder with service_completed_successfully (ISS-032)
+
+**Impact:**
+Caal AI assistant is now fully functional (all tools were throwing TypeError). Test suite assertions are now honest. Docker redeployments serve fresh agent definitions. Compiler rejects invalid graphs (missing end node, orphaned tool edges). Session history now accumulates correctly across Caal invocations.
+
+---
+
+### 2026-06-16 - Phase 4: Graph-as-Code & Session Management
+
+**Type:** Feature
+
+**Description:**
+Implemented Phase 4 in full — TypeScript-first agent authoring via a compiler/CLI, persistent cross-run session context, prompt versioning, test case management, SDK session utilities, and Caal Phase 1 (in-Studio AI assistant).
+
+**Changes:**
+- `apps/api/drizzle/migrations/0004_phase4.sql` — ALTER TABLE sessions/session_context, new caal_configuration table, test_cases/prompt_versions column additions
+- `apps/api/src/db/schema/sessions.ts` — added rootRunId, status, metadata, accumulationType, schemaVersion
+- `apps/api/src/db/schema/platform.ts` — added caalConfiguration Drizzle table
+- `apps/api/src/db/schema/prompt-test.ts` — added packNamespace, tenantId, lastResult
+- `packages/compiler/` — new @magicaal/compiler package: AgentGraph base class, @Agent decorator (reflect-metadata), compile(), node classes
+- `packages/cli/` — new @magicaal/cli package: magicaal build/validate/list/sessions commands
+- `agents/caal.agent.ts` — code-defined Caal assistant agent with session, 5 node paths, 22 tool edges
+- `apps/engine/src/session/session-manager.ts` — SessionManager HTTP client (load/save/expire/recordRunLink)
+- `apps/engine/src/execution/scheduler.ts` — session load before run, save in success+error paths
+- `apps/engine/src/execution/context.ts` — added sessionId to RunParams and ExecutionContextImpl
+- `packages/sdk/src/context.ts` — added sessionId? to ExecutionContext interface
+- `packages/nodes/src/nodes/core-session-read.ts` — new core:session-read node
+- `packages/nodes/src/nodes/core-session-write.ts` — new core:session-write node
+- `packages/nodes/src/nodes/core-session-clear.ts` — new core:session-clear node
+- `packages/nodes/src/nodes/core-llm-call.ts` — injectSessionHistory config field
+- `packages/nodes/src/nodes/core-tool-call.ts` — injectSessionHistory config field
+- `packages/nodes/src/nodes/core-react.ts` — injectSessionHistory config field
+- `packages/integrations/caal/src/tools/graph.ts` — implemented all 10 graph tools
+- `packages/integrations/caal/src/tools/proposal.ts` — implemented proposalCreate with complexity classification
+- `packages/integrations/caal/src/tools/platform.ts` — implemented 4 platform HTTP tools
+- `packages/integrations/caal/src/tools/canvas.ts` — implemented highlight/focus canvas tools
+- `apps/api/src/platform/bootstrap.ts` — ensurePlatformTenant() for _platform tenant + caal_configuration
+- `apps/api/src/sync/boot-sync.ts` — bootTimeSync(): manifest-driven non-destructive agent sync on startup
+- `apps/api/src/controllers/sessions.controller.ts` — full public + internal session CRUD + accumulateValue()
+- `apps/api/src/controllers/prompts.controller.ts` — prompt versioning + promotion + diff
+- `apps/api/src/controllers/test-cases.controller.ts` — test case CRUD + runTestSuite with assertion evaluation
+- `apps/api/src/controllers/caal.controller.ts` — invokeCaal, getCaalSession
+- `apps/api/src/controllers/caal-config.controller.ts` — getCaalConfig, upsertCaalConfig
+- `apps/api/src/routes/sessions.ts` — public sessionRouter + requireInternalAuth internalSessionRouter
+- `apps/api/src/routes/prompts.ts` — promptsRouter
+- `apps/api/src/routes/caal.ts` — caalRouter with invoke + sessions + config routes
+- `apps/api/src/routes/index.ts` — mounted all new routers
+- `apps/api/src/controllers/system.controller.ts` — getLastSyncEvent, listSyncEvents
+- `apps/api/src/routes/system.ts` — GET /system/sync and /system/sync/log
+- `apps/api/src/config.ts` — added agentsDir
+- `apps/api/src/index.ts` — ensurePlatformTenant() + bootTimeSync() before app.listen
+- `packages/sdk-client/src/session-client.ts` — SessionClient: context/reset/clear/destroy
+- `packages/sdk-client/src/workspace-context-builder.ts` — WorkspaceContextBuilder fluent API
+- `packages/sdk-client/src/agent-client.ts` — session() + sessions.list(), sessionId propagation in invoke/start
+- `packages/sdk-client/src/index.ts` — exported SessionClient, WorkspaceContextBuilder and types
+- `apps/web/src/canvas/components/CaalPanel.svelte` — in-Studio Caal chat panel with node chips + quick actions
+- `apps/web/src/canvas/components/ProposalReviewUI.svelte` — per-patch accept/reject proposal review UI
+- `apps/web/src/canvas/components/CodeSourceBanner.svelte` — amber banner for code-defined agents
+- `apps/web/src/canvas/components/SessionContextPanel.svelte` — live session context inspector
+- `apps/web/src/canvas/components/PromptVersionPanel.svelte` — prompt version list + promote + diff modal
+- `apps/web/src/canvas/components/TestCasesPanel.svelte` — test case CRUD + run suite with pass/fail badges
+- `apps/web/src/canvas/App.svelte` — read-only mode for code-defined agents, all new panels registered, Caal event wiring, proposal patch application
+- `apps/web/src/routes/admin.ts` — /admin/sessions, /admin/system/sync, /admin/system/caal routes + dashboard cards
+- `devbox.json` — added magicaal script alias
+- `apps/api/.env.example` — documented AGENTS_DIR
+- `apps/api/Dockerfile` — CLI build stage, magicaal build step, agent-builder export stage
+- `docker-compose.yml` — agent-builder service, agents_dist volume mount on api
+
+**Impact:**
+Developers can now author agents in TypeScript using `AgentGraph` + `@Agent`, compile them with `magicaal build`, and have them automatically synced on API boot. Sessions persist structured context across runs with append/replace/merge accumulation. Caal AI assistant is live in Studio: explain, suggest, and modify graphs via a chat panel with per-patch proposal review. Prompt versioning and test suite runner are available from the Studio sidebar. Admin panel has dedicated pages for sessions, sync log, and Caal configuration.
+
+---
+
 ### 2026-06-15 - Phase 3 Medium/Low Issue Resolution (ISS-011 to ISS-030)
 
 **Type:** Bugfix
