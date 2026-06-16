@@ -1,6 +1,6 @@
 # MagiCaal — Development Progress
 
-**Last updated:** 2026-06-15  
+**Last updated:** 2026-06-16  
 **Tracks against:** `MAGICAAL_DEV_ROADMAP.md` v0.2  
 **Current branch:** `DEV-main`
 
@@ -273,40 +273,68 @@ All high/medium priority gaps closed. Remaining deferred items are low priority 
 
 **Prerequisites:** Phase 2 stable agent CRUD ✅; Phase 3 execution context shape ✅
 
----
-
 **What needs to be built:**
-- Tool Executor — `runAgentLoop()`, sub-context forking for graph tool invocations, trajectory recording
-- MCP Client subsystem — JSON-RPC 2.0 client; stdio + Streamable HTTP transports
-- Model Router Phase 3 additions — `least-latency`, `cost-optimized` strategies; `latency_degraded`, `error_rate` proactive triggers; routing event log queryable in telemetry
-- Phase 3 nodes: `core:tool-call`, `core:react`, `core:planner`, `core:reflection`, `core:context-summarize`, `core:token-budget`, `core:tool`, `core:mcp-client`, `core:sub-graph`, `core:handoff`, `core:fan-out`, `core:reduce`, `core:input-map`, `core:output-map`, `core:evaluate`
-- API additions: MCP server CRUD, JWT invocation auth, input/output schema discovery, telemetry trajectory endpoint
-- Frontend: tool canvas panel, Expression Editor, ReAct trajectory display, provider health dashboard
-- Admin: MCP server management, JWT auth config, Evaluate score history, routing event log
 
----
+*Track A — `packages/compiler` + `packages/cli`* (independent, start immediately)
+- `packages/compiler` — `AgentGraph` base class, `@Agent` decorator (with `reflect-metadata`), typed node classes auto-generated from node config schemas, `compile()` function (pure transform; no FS or DB access), `CompileError` with node-level context
+- `packages/cli` — `magicaal build` (discover `**/*.agent.ts`, compile, write `{handle}.agent.json` + `agents.manifest.json` with SHA-256 hashes), `magicaal validate`, `magicaal list`, `magicaal sessions migrate --agent {handle}`
 
-## Phase 4 — Graph-as-Code & Session Management ❌ Not started
-
-**Prerequisites:** Phase 2 stable agent CRUD; Phase 3 execution context shape must be stable.
-
-**What needs to be built:**
-- `packages/compiler` — `AgentGraph` base class, `@Agent` decorator, typed node classes, `compile()` function
-- `packages/cli` — `magicaal build`, `magicaal validate`, `magicaal list`
-- Engine Session Manager — session load/save/expire, per-key accumulation, overflow strategies, schema migration chain
+*Track B — Engine Session Manager* (independent, start immediately)
+- `SessionManager` subsystem: `loadSession()` (assert ownership, apply migration chain), `saveSession()` (append/replace/merge accumulation; evict_oldest/summarize/truncate overflow; deduplicateBy), `expireSessions()` background process, `createSession()`, session conflict detection (409 on concurrent top-level runs)
+- Session propagation to child runs via `core:sub-graph` and `core:handoff`
+- `injectSessionHistory` config field added to `core:llm-call`, `core:tool-call`, `core:react` — auto-prepends stored history as prior conversation turns
 - Session nodes: `core:session-read`, `core:session-write`, `core:session-clear`
-- API boot-time sync (`bootTimeSync()`)
-- API additions: session management, `session_id` on run dispatch, Prompt Version CRUD, Test Case CRUD/suite runner
-- Frontend: code-defined agent read-only canvas, Session Context Inspector, Prompt Version panel, Test Case Library, AI Studio Assistant (Caal Phase 1 integration)
-- Admin: Session Management panel, Sync Event Log, Sessions telemetry view
-- SDK Phase 3: `SessionClient`, `WorkspaceContextBuilder`
-- Caal Phase 1: basic explain/modify/suggest tooling, `_platform` pseudo-tenant, Studio Caal panel
+
+*Track C — API Boot-Time Sync* (depends on Track A)
+- `bootTimeSync(agentsDir)` — manifest scan, hash comparison, non-destructive insert/update/stale-flag, `syncConfig()` with override map respect, `sync_events` table insert; runs before `app.listen()`
+- New routes: `GET /v1/system/sync` (last sync summary), `GET /v1/system/sync/log` (paginated history)
+- Docker Compose: `./agents:/agents:ro` volume mount
+
+*Track D — API Phase 4 Additions* (depends on Track B)
+- Session endpoints: `GET/DELETE/POST /v1/agents/:id/sessions`, `GET /v1/agents/:id/sessions/:sid`, `GET .../runs`, `POST .../reset`; add `session_id` + `session_metadata` to `POST /v1/agents/:id/runs`
+- Prompt Version CRUD: `POST/GET /v1/prompts`, version history, diff, promote endpoint (invalidates graph loader cache)
+- Test Case CRUD + suite runner: `POST/GET/PUT/DELETE /v1/agents/:id/test-cases`, `POST .../run` (dispatch → await → evaluate assertions → return pass/fail per case)
+
+*Track E — Frontend Studio* (depends on Tracks A + D)
+- Code-defined agent read-only canvas: amber "Code-defined" banner, palette hidden, edge creation disabled, locked fields with code-source indicator, admin-overridable fields remain editable
+- Session Context Inspector panel: live session key values, entry counts, token estimates during test runs with a `session_id`
+- Prompt Version panel: per-agent list, create/compare/promote, active version indicator
+- Test Case Library panel: input payload editor, assertion builder, run suite, pass/fail drill-down
+
+*Track F — Frontend Admin* (depends on Track D)
+- Session Management panel (`/admin/sessions`): session list + filters, context snapshot drawer, reset/delete/migrate actions
+- Sync Event Log panel (`/admin/system/sync`): most recent sync, paginated history, per-agent error detail
+- Sessions telemetry view: session list with cumulative token usage, session detail with run sequence, context growth chart per key, overflow events timeline
+
+*Track G — SDK Phase 3* (depends on Track D)
+- `SessionClient`: `client.session(id)`, `agent.sessions.create(opts?)`, `session` param on `invoke()`/`start()`/`stream()`, `context()`, `reset()`, `clear(keys)`, `destroy()`, `agent.sessions.list(opts?)`
+- `WorkspaceContextBuilder`: fluent builder (`addMessage`, `setCurrentFile`, `addDocument`, `set`), schema-aware validation, `.toInput()`
+
+*Track H — Caal Phase 1* (depends on Tracks B + D)
+- DB migration: `caal_configuration` table (enabled, model override, router policy, generation/confirmation mode, system prompt suffix, show reasoning, preferred connections, allowed operations)
+- Engine: `_platform` pseudo-tenant init at startup; `POST /v1/caal/invoke` (Studio-only, JWT auth only, SSE stream); session scoped to `{userId}:{agentId}`
+- `packages/integrations/caal` Phase 1 tool implementations (replacing Phase 0 stubs): graph inspection (`read`, `getNode`, `getSelectedNodes`, `summarize`), graph modification accumulating into `CaalProposal` (`addNode`, `updateNode`, `deleteNode`, `addEdge`, `deleteEdge`, `addToolEdge`), proposal creation (targeted tier only), platform context (`listNodeTypes`, `getNodeSchema`, `listConnections`, `listAgents`), canvas UI (`highlight`, `focus`)
+- `caal.agent.ts` Phase 1 graph: Context Assembler → intent routing via Condition/Router → Explain path (LLM Call, no tools) / Suggest path (Tool Call, read-only tools) / Modify path (Tool Call with graph modification tools, stages patches, calls `caal.proposal.create`); code-defined agent mode generates `TypeScriptSuggestion` (unified diff) instead of `GraphPatch`
+- Frontend Caal panel: collapsible side panel, conversation thread, node reference chips (amber, clickable → pan + highlight), context bar (node count, selected node name, last run status), quick actions row, targeted proposal review UI (inline diff, per-change accept/reject), undo stack integration ("Caal: [description]" entries), TypeScript suggestion display (copyable diff + read-only notice), Caal History panel, `GET /v1/caal/sessions/:sid` for history
+- Admin Caal Configuration panel: `Admin → System Settings → Caal` per-tenant settings form
+
+**Recommended build sequence:**
+
+| Week | Focus |
+|---|---|
+| 1 | `packages/compiler` + Session Manager core (loadSession/saveSession) |
+| 2 | `packages/cli` + Session overflow strategies + session nodes |
+| 3 | API boot-time sync + session endpoints + `session_id` on run dispatch + `injectSessionHistory` |
+| 4 | Prompt Version CRUD + Test Case suite runner + SDK Phase 3 |
+| 5 | Frontend Studio additions (read-only canvas, Session Inspector, Prompt/Test panels) |
+| 6 | Admin additions + Caal DB + engine endpoint + `integrations/caal` tool implementations |
+| 7 | `caal.agent.ts` + Caal Studio panel + Caal Admin config + milestone integration testing |
 
 ---
 
 ## Phase 5 — Integrations & Marketplace ❌ Not started
 
-**Prerequisites:** Phase 2 Integration Connections infrastructure (built); Phase 3 tool system (not yet built).
+**Prerequisites:** Phase 2 Integration Connections infrastructure ✅ (built); Phase 3 tool system ✅ (built).
 
 **What needs to be built:**
 - `packages/integrations/core` — shared OAuth refresh, pagination, rate-limit handling
@@ -332,31 +360,24 @@ All high/medium priority gaps closed. Remaining deferred items are low priority 
 
 ## What to Build Next
 
-Phase 2 is complete. Phase 3 is the next milestone.
+Phase 3 is complete. **Phase 4 is the next milestone.**
 
-**Phase 3 — Tool System & Advanced Agent Nodes** (5–6 weeks)
+**Phase 4 — Graph-as-Code & Session Management** (6–7 weeks)
 
-The Phase 2 node registry, execution worker, and Model Router are stable — the prerequisites for Phase 3 are met. Recommended sequencing within Phase 3:
+All prerequisites are met. Tracks A (compiler/CLI) and B (Session Manager) are fully independent and can begin in parallel immediately.
 
-1. **Tool Executor + `core:tool-call`** — the foundational agentic loop; everything else in Phase 3 builds on this
-   - `runAgentLoop()` in the engine; `assembleTools()`; `invokeTool()` routing; sub-context forking for graph tool invocations
-   - `core:tool` node (LLM-facing contract + input/output mapping)
+**Key risks to front-load:**
+- Typed node classes in `packages/compiler` cover all 50 current node types — use a codegen script reading the node registry's schema output rather than hand-authoring, or these will drift
+- Session `saveSession()` has an async path when `overflow: "summarize"` triggers an LLM call — design the Session Manager to handle LLM failures in this path without corrupting stored context
+- `caal.agent.ts` is itself compiled via `magicaal build` during the API Docker image build — plan the build pipeline order carefully so Caal's JSON is baked in before boot-time sync runs
+- Keep Caal Phase 1 strictly to explain/suggest/targeted-modify; full graph generation from natural language and structural proposals are Phase 5 (Caal Phase 2)
 
-2. **`core:react`** — ReAct agent with trajectory recording; depends on Tool Executor being stable
-
-3. **MCP Client subsystem** — JSON-RPC 2.0 client; stdio + Streamable HTTP transports; `core:mcp-client` node
-   - Can proceed in parallel with `core:react` once Tool Executor is done
-
-4. **Advanced Model Router additions** — `least-latency` and `cost-optimized` proactive strategies; `latency_degraded` and `error_rate` triggers; routing event log queryable in telemetry
-
-5. **Composition nodes** — `core:sub-graph`, `core:handoff`, `core:fan-out`, `core:reduce`, `core:input-map`, `core:output-map`
-
-6. **Remaining AI/LLM nodes** — `core:planner`, `core:reflection`, `core:context-summarize`, `core:token-budget`
-
-7. **Evaluation** — `core:evaluate` (rule-based, LLM-as-judge, expected output comparison); Evaluate scores in Telemetry Store
-
-8. **API additions** — MCP server CRUD, JWT invocation auth strategy, `GET /agents/:id/schema/input|output`, `GET /v1/telemetry/trajectory/:runId`
-
-9. **Frontend** — tool canvas panel region (floating tool nodes + dashed amber tool edges); Expression Editor (raw JSONata with syntax highlighting); ReAct trajectory inline display in test run panel; MCP Client node config; provider health dashboard
-
-10. **Admin** — MCP server management panel; JWT invocation auth config; Evaluate score history; routing event log in telemetry
+**Phase 4 Milestone criteria:**
+- A code-defined `*.agent.ts` compiled via `magicaal build` syncs to DB on API boot and is visible as read-only in the Studio with the code-source banner
+- A conversational agent maintains message history across 5 sequential invocations; `summarize` overflow triggers correctly at `maxItems`; schema migration v1→v2 applies correctly to existing sessions
+- `core:session-write` mid-graph persists a value visible on the next invocation
+- `SessionClient` in the SDK maintains session ID across calls; `WorkspaceContextBuilder.toInput()` produces a valid agent input payload
+- A developer opens the Caal panel, asks "explain this graph", receives an explanation with clickable node reference chips that pan and highlight nodes on the canvas
+- Caal makes a targeted modification ("add a guardrail after the LLM node"), developer reviews the inline diff, accepts it, and the change appears on the canvas and in the undo stack as "Caal: Added Guardrail node"
+- For a code-defined agent, Caal produces a TypeScript unified diff suggestion instead of staging graph patches; the read-only notice is displayed correctly
+- Caal History panel shows all prior conversations and proposal outcomes for the current agent's session

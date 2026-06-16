@@ -749,6 +749,34 @@ New apps can be added by creating `apps/<name>/` with its own `package.json` and
 
 ---
 
+### 2026-06-16 - Phase 4: Graph-as-Code, Session Management, and Caal AI Assistant
+
+**Type:** Feature
+
+**Description:**
+Delivered Phase 4 across all workspaces. Agents can now be authored as TypeScript classes using the Graph-as-Code compiler, persist cross-call conversation state via a session layer, and receive live canvas assistance from the Caal AI agent. The Studio gained a full right-panel Caal chat with proposal review, session inspector, and prompt version switcher. The Admin gained session management, sync log, and Caal configuration pages.
+
+**Changes:**
+- `packages/compiler/` — new `@Agent` decorator, `AgentGraph` base class with typed edge methods, node type classes for IntelliSense; `compile()` and `validateGraph()` with toolEdge and `core:end` validation
+- `packages/cli/` — `magicaal` CLI with `build`, `validate`, `list`, and `sessions migrate` commands; devbox `magicaal` alias
+- `packages/nodes/` — `core-session-read`, `core-session-write`, `core-session-clear` nodes; `injectSessionHistory` option on `core-llm-call`, `core-react`, `core-tool-call`
+- `packages/sdk/src/context.ts` — `sessionId` field on `ExecutionContext`
+- `packages/sdk-client/` — `SessionClient`, `WorkspaceContextBuilder`, session options on `AgentClient.invoke`/`start`
+- `apps/engine/src/session/` — `SessionManager` (load/save via internal API), three accumulation strategies (append/replace/merge), hourly expiry sweep; scheduler wires session load/save around graph execution
+- `apps/api/src/platform/` — `ensurePlatformTenant()` for `_platform` bootstrap on first boot
+- `apps/api/src/sync/` — `bootTimeSync()` reads `agents.manifest.json`, upserts code-defined agents, marks removed ones stale, writes sync events
+- `apps/api/` — internal auth middleware, new routes for sessions, prompts, caal, test-cases; caal-config and prompts controllers; runs controller adds session namespacing
+- `apps/api/drizzle/migrations/0004_phase4.sql` — session status enum, `caal_configuration` table, `packNamespace`/`lastResult`/`tenantId` columns
+- `apps/web/src/canvas/components/` — `CaalPanel`, `ProposalReviewUI`, `SessionContextPanel`, `PromptVersionPanel`, `CodeSourceBanner`; `App.svelte` readonly mode for code-defined agents
+- `apps/web/src/routes/admin.ts` — sessions table, sync log, Caal configuration form, dashboard cards
+- `apps/api/Dockerfile` — `agent-builder` stage switched from `FROM scratch` to `FROM alpine` with active-copy entrypoint for reliable volume refresh on redeploy
+- 16 Phase 4 issues (ISS-031–ISS-046) discovered in post-implementation review and resolved: execute() parameter order in Caal tools, dead session-id ternary, Docker volume staling, assertionsJson validation, session-write key mismatch, N+1 expire query, ajv schema assertion, evaluate_score placeholder, canvas toolEdge wiring, compiler toolEdge and core:end validation, manifest guard, module-level edgeCounter, CLI migrate endpoint
+
+**Impact:**
+Agents are now stateful by default when a sessionId is provided. Code-defined agents compile from TypeScript, sync to the DB at boot, and are read-only in the Studio canvas. The Caal AI assistant is a live MagiCaal agent capable of explaining, suggesting, and applying graph modifications with tenant-scoped context and session continuity.
+
+---
+
 ### 2026-05-04 - Initial scaffold
 
 **Type:** Infrastructure
