@@ -165,7 +165,7 @@ All four nodes call `ctx.llmCall(...)` without a try-catch. Network failures, pr
 
 ---
 
-#### ISS-011 · `medium` · `open`
+#### ISS-011 · `medium` · `resolved`
 
 **Title:** `dispatchSubRun` does not check `response.ok` before parsing JSON in polling loop
 
@@ -178,7 +178,7 @@ All four nodes call `ctx.llmCall(...)` without a try-catch. Network failures, pr
 
 ---
 
-#### ISS-012 · `medium` · `open`
+#### ISS-012 · `medium` · `resolved`
 
 **Title:** Database handle leak in `mcpRegistry.getServerConfig` when query throws
 
@@ -191,7 +191,7 @@ All four nodes call `ctx.llmCall(...)` without a try-catch. Network failures, pr
 
 ---
 
-#### ISS-013 · `medium` · `open`
+#### ISS-013 · `medium` · `resolved`
 
 **Title:** `testMcpServerInternal` has no timeout — hangs indefinitely on unresponsive MCP server
 
@@ -234,7 +234,7 @@ After over-fetching up to `limitNum * 5` steps, the code builds a `runsMap` by q
 
 ---
 
-#### ISS-016 · `medium` · `open`
+#### ISS-016 · `medium` · `resolved`
 
 **Title:** Proactive router triggers can skip all targets with no fallback attempt
 
@@ -247,7 +247,7 @@ When a proactive trigger fires (`latency_degraded` or `error_rate`), the target 
 
 ---
 
-#### ISS-017 · `low` · `open`
+#### ISS-017 · `low` · `resolved`
 
 **Title:** `cost-optimized` router strategy sorts by `promptTokensPerMillion` only — ignores completion cost
 
@@ -277,7 +277,7 @@ The `cost-optimized` case sorts targets by `promptTokensPerMillion` only. For re
 
 ---
 
-#### ISS-019 · `medium` · `open`
+#### ISS-019 · `medium` · `resolved`
 
 **Title:** `formatServer` in MCP controller omits the `env` field from responses
 
@@ -290,7 +290,7 @@ The `cost-optimized` case sorts targets by `promptTokensPerMillion` only. For re
 
 ---
 
-#### ISS-020 · `medium` · `open`
+#### ISS-020 · `medium` · `resolved`
 
 **Title:** Trajectory tool inputs (`toolInputs`) are silently dropped — not written to the telemetry DB
 
@@ -303,7 +303,7 @@ The `TrajectoryStep` interface has a `toolInputs?: Record<string, unknown>` fiel
 
 ---
 
-#### ISS-021 · `medium` · `open`
+#### ISS-021 · `medium` · `resolved`
 
 **Title:** `core:reduce` uses hardcoded `_fanout_results` key — breaks with multiple sequential fan-out/reduce pairs
 
@@ -317,7 +317,7 @@ The fan-out worker block writes results to `ctx.set('_fanout_results', branchRes
 
 ---
 
-#### ISS-022 · `low` · `open`
+#### ISS-022 · `low` · `resolved`
 
 **Title:** Dead code in `tool-executor.ts` — never-used variable assignment
 
@@ -334,7 +334,7 @@ The fan-out worker block writes results to `ctx.set('_fanout_results', branchRes
 
 ---
 
-#### ISS-023 · `medium` · `open`
+#### ISS-023 · `medium` · `resolved`
 
 **Title:** Expression editor field mode persists across node selection — causes state pollution
 
@@ -347,7 +347,7 @@ The fan-out worker block writes results to `ctx.set('_fanout_results', branchRes
 
 ---
 
-#### ISS-024 · `medium` · `open`
+#### ISS-024 · `medium` · `resolved`
 
 **Title:** Value picker generates syntactically invalid JSONata — nodeId used as output key instead of actual output key name
 
@@ -362,7 +362,7 @@ The fan-out worker block writes results to `ctx.set('_fanout_results', branchRes
 
 ---
 
-#### ISS-025 · `medium` · `open`
+#### ISS-025 · `medium` · `resolved`
 
 **Title:** `testMcpServer` route allows `developer` role — inconsistent with `create`/`delete` requiring `tenant_admin`
 
@@ -375,7 +375,7 @@ The fan-out worker block writes results to `ctx.set('_fanout_results', branchRes
 
 ---
 
-#### ISS-026 · `medium` · `open`
+#### ISS-026 · `medium` · `resolved`
 
 **Title:** `getSchemaInput`/`getSchemaOutput` return empty object `{}` for absent schema instead of a distinct response
 
@@ -388,7 +388,7 @@ When the Start node has no `inputSchema` configured (or no Start node exists), `
 
 ---
 
-#### ISS-027 · `low` · `open`
+#### ISS-027 · `low` · `resolved`
 
 **Title:** `_callMcpTool` dynamic import uses `.js` extension — fails in Jest/ts-jest test environment
 
@@ -401,7 +401,7 @@ When the Start node has no `inputSchema` configured (or no Start node exists), `
 
 ---
 
-#### ISS-028 · `low` · `open`
+#### ISS-028 · `low` · `resolved`
 
 **Title:** MCP `initialize()` returns before `initialized` notification is guaranteed delivered
 
@@ -414,7 +414,7 @@ The `initialized` notification is written to `stdin` via `this._process?.stdin?.
 
 ---
 
-#### ISS-029 · `low` · `open`
+#### ISS-029 · `low` · `resolved`
 
 **Title:** `_nodeToServer` map in MCP registry is populated but never read — dead state
 
@@ -427,7 +427,7 @@ The `initialized` notification is written to `stdin` via `this._process?.stdin?.
 
 ---
 
-#### ISS-030 · `low` · `open`
+#### ISS-030 · `low` · `resolved`
 
 **Title:** `validateInvocationRequest` public strategy does not check if the agent is enabled
 
