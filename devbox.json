@@ -16,7 +16,8 @@
       "lint":       "pnpm --filter @magicaal/api run lint",
       "type-check": "pnpm --filter @magicaal/api run type-check",
       "format":     "pnpm run format",
-      "setup":      "pnpm install"
+      "setup":      "pnpm install",
+      "magicaal":   "node packages/cli/dist/index.js"
     }
   }
 }

@@ -1,0 +1,25 @@
+{
+  "name": "@magicaal/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MagiCaal CLI — build, validate, and manage code-defined agents",
+  "bin": {
+    "magicaal": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@magicaal/compiler": "workspace:*",
+    "@magicaal/core": "workspace:*",
+    "commander": "^12.1.0",
+    "glob": "^11.0.0",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

@@ -5,6 +5,8 @@
     { "path": "packages/sdk" },
     { "path": "packages/nodes" },
     { "path": "packages/sdk-client" },
+    { "path": "packages/compiler" },
+    { "path": "packages/cli" },
     { "path": "packages/integrations/caal" },
     { "path": "apps/api" },
     { "path": "apps/engine" },
