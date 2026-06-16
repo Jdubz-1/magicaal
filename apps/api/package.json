@@ -25,10 +25,11 @@
   "dependencies": {
     "@magicaal/core": "workspace:*",
     "@magicaal/nodes": "workspace:*",
+    "ajv": "^8.20.0",
     "argon2": "^0.43.0",
     "axios": "^1.9.0",
-    "cookie-parser": "^1.4.7",
     "better-sqlite3": "^12.10.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.2",
