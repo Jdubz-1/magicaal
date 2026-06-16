@@ -1,4 +1,12 @@
 services:
+  agent-builder:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: agent-builder
+    volumes:
+      - agents_dist:/agents-out
+
   api:
     build:
       context: .
@@ -11,11 +19,15 @@ services:
       REDIS_URL: redis://redis:6379
       ENGINE_BASE_URL: http://engine:4000
       SEED_ON_BOOT: 'true'
+      AGENTS_DIR: /agents
     volumes:
       - db_data:/data
+      - agents_dist:/agents:ro
     depends_on:
       redis:
         condition: service_healthy
+      agent-builder:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 10s
@@ -69,3 +81,4 @@ services:
 
 volumes:
   db_data:
+  agents_dist:
