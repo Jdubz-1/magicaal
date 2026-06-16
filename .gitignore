@@ -47,6 +47,16 @@ jspm_packages/
 # Workspace dist output (covers apps/* and packages/*)
 **/dist/
 
+# tsc --build emits .js/.d.ts alongside .ts source when no outDir is set (packages/core, packages/sdk)
+packages/core/src/**/*.js
+packages/core/src/**/*.js.map
+packages/core/src/**/*.d.ts
+packages/core/src/**/*.d.ts.map
+packages/sdk/src/**/*.js
+packages/sdk/src/**/*.js.map
+packages/sdk/src/**/*.d.ts
+packages/sdk/src/**/*.d.ts.map
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
