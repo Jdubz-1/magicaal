@@ -12,6 +12,11 @@ export const sessions = sqliteTable('sessions', {
     .references(() => agents.id),
   externalId: text('external_id'),
   schemaVersion: integer('schema_version').notNull().default(1),
+  rootRunId: text('root_run_id'),
+  status: text('status', { enum: ['active', 'stale_schema', 'expired'] })
+    .notNull()
+    .default('active'),
+  metadata: text('metadata'),
   lastActiveAt: integer('last_active_at', { mode: 'timestamp' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -26,6 +31,10 @@ export const sessionContext = sqliteTable('session_context', {
   valueJson: text('value_json').notNull(),
   accumulatedCount: integer('accumulated_count').notNull().default(0),
   tokenEstimate: integer('token_estimate'),
+  accumulationType: text('accumulation_type', { enum: ['append', 'replace', 'merge'] })
+    .notNull()
+    .default('append'),
+  schemaVersion: integer('schema_version').notNull().default(1),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
 

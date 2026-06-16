@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { tenants } from './auth';
 
 export const syncEvents = sqliteTable('sync_events', {
@@ -35,3 +35,31 @@ export const providerPricing = sqliteTable('provider_pricing', {
   effectiveAt: integer('effective_at', { mode: 'timestamp' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
+
+export const caalConfiguration = sqliteTable(
+  'caal_configuration',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    modelOverride: text('model_override'),
+    routerPolicyId: text('router_policy_id'),
+    generationMode: text('generation_mode', { enum: ['complete', 'skeleton'] })
+      .notNull()
+      .default('complete'),
+    confirmationMode: text('confirmation_mode', {
+      enum: ['always_confirm', 'confirm_structural', 'apply_directly'],
+    })
+      .notNull()
+      .default('confirm_structural'),
+    showReasoning: integer('show_reasoning', { mode: 'boolean' }).notNull().default(false),
+    systemPromptSuffix: text('system_prompt_suffix'),
+    preferredConnections: text('preferred_connections'),
+    allowedOperations: text('allowed_operations'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (t) => [uniqueIndex('caal_configuration_tenant_id_unique').on(t.tenantId)],
+);

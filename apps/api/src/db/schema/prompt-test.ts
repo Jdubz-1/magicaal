@@ -14,6 +14,7 @@ export const promptVersions = sqliteTable('prompt_versions', {
     .notNull()
     .references(() => users.id),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  packNamespace: text('pack_namespace'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
 
@@ -22,9 +23,11 @@ export const testCases = sqliteTable('test_cases', {
   agentId: text('agent_id')
     .notNull()
     .references(() => agents.id),
+  tenantId: text('tenant_id').references(() => tenants.id),
   name: text('name').notNull(),
   inputJson: text('input_json').notNull(),
   assertionsJson: text('assertions_json').notNull(),
+  lastResult: text('last_result'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
