@@ -3,6 +3,8 @@ import { config } from './config';
 import { runMigrations } from './db/migrate';
 import { runSeedIfEmpty } from './db/seed';
 import { logger } from './lib/logger';
+import { ensurePlatformTenant } from './platform/bootstrap';
+import { bootTimeSync } from './sync/boot-sync';
 
 async function main(): Promise<void> {
   if (!config.masterKey) {
@@ -11,6 +13,8 @@ async function main(): Promise<void> {
 
   await runMigrations();
   await runSeedIfEmpty();
+  await ensurePlatformTenant();
+  await bootTimeSync(config.agentsDir);
 
   const app = createApp();
   app.listen(config.port, () => {

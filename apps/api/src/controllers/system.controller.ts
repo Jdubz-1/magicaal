@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db } from '../db/client';
-import { providerPricing } from '../db/schema';
+import { providerPricing, syncEvents } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 
 function newId(): string {
@@ -97,6 +97,25 @@ export const upsertProviderPricing: RequestHandler = async (req, res, next) => {
     }
 
     res.json(results);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getLastSyncEvent: RequestHandler = async (_req, res, next) => {
+  try {
+    const rows = await db.select().from(syncEvents).orderBy(desc(syncEvents.startedAt)).limit(1);
+    res.json(rows[0] ?? null);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const listSyncEvents: RequestHandler = async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(String(req.query.limit ?? '20'), 10), 100);
+    const rows = await db.select().from(syncEvents).orderBy(desc(syncEvents.startedAt)).limit(limit);
+    res.json(rows);
   } catch (err) {
     next(err);
   }

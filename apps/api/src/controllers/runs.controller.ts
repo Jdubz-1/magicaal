@@ -82,11 +82,18 @@ async function resolveInvocationKey(agentId: string, authHeader: string | undefi
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId } = req.params;
-    const { tenantId } = req.user!;
-    const { input = {}, mode = 'async' } = req.body as {
+    const { tenantId, userId } = req.user!;
+    const { input = {}, mode = 'async', session_id, session_metadata } = req.body as {
       input?: Record<string, unknown>;
       mode?: 'sync' | 'async';
+      session_id?: string;
+      session_metadata?: Record<string, unknown>;
     };
+
+    // Namespace session ID to prevent cross-tenant collisions
+    const sessionId = session_id
+      ? `${tenantId}:${agentId}:${session_id}`
+      : undefined;
 
     const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
     const agent = agentRows[0];
@@ -124,9 +131,11 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       input,
       authKey,
       authorizationHeader: req.headers.authorization,
+      sessionId,
     });
 
     const { runId } = response.data as { runId: string };
+    void userId; // Available if needed for audit logging
 
     if (mode === 'sync') {
       let run: { status: string; output: unknown; error: unknown } | null = null;
@@ -140,7 +149,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       return res.json(run);
     }
 
-    res.status(202).json({ runId });
+    res.status(202).json({ runId, ...(sessionId && { sessionId }) });
   } catch (err) {
     next(err);
   }

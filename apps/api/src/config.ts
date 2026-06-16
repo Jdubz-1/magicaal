@@ -14,4 +14,5 @@ export const config = Object.freeze({
   engineBaseUrl: process.env.ENGINE_BASE_URL ?? 'http://engine:4000',
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? `http://localhost:${parseInt(process.env.PORT ?? '3000', 10)}`,
   seedOnBoot: process.env.SEED_ON_BOOT === 'true',
+  agentsDir: process.env.AGENTS_DIR ?? '/agents',
 });

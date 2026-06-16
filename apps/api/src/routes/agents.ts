@@ -19,6 +19,8 @@ import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../contr
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
 import { handleWebhook } from '../controllers/webhook.controller';
+import { sessionRouter } from './sessions';
+import { testCasesRouter } from './test-cases';
 
 export const agentsRouter: RouterType = Router();
 
@@ -50,3 +52,7 @@ agentsRouter.patch('/:id/invocation-policy', updateInvocationPolicy);
 agentsRouter.post('/:id/invocation-keys', createInvocationKey);
 agentsRouter.get('/:id/invocation-keys', listInvocationKeys);
 agentsRouter.delete('/:id/invocation-keys/:keyId', revokeInvocationKey);
+
+// Phase 4 sub-routers
+agentsRouter.use('/:id/sessions', sessionRouter);
+agentsRouter.use('/:id/test-cases', testCasesRouter);

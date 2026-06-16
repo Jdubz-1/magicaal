@@ -11,6 +11,9 @@ import { telemetryRouter } from './telemetry';
 import { datasourcesRouter } from './datasources';
 import { mcpServersRouter } from './mcp-servers';
 import { utilsRouter } from './utils';
+import { promptsRouter } from './prompts';
+import { caalRouter } from './caal';
+import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 
 export const router: RouterType = Router();
@@ -26,6 +29,10 @@ router.use('/v1/telemetry', telemetryRouter);
 router.use('/v1/datasources', datasourcesRouter);
 router.use('/v1/mcp-servers', mcpServersRouter);
 router.use('/v1/utils', utilsRouter);
+router.use('/v1/prompts', promptsRouter);
+router.use('/v1/caal', caalRouter);
+// Internal engine→API session endpoints
+router.use('/internal/sessions', internalSessionRouter);
 // Public webhook endpoint — no auth middleware; secret is in URL
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 router.use('/v1', systemRouter);

@@ -4,6 +4,15 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { apiKeys, users } from '../db/schema';
 import { verifyJwt } from '../lib/jwt';
+import { config } from '../config';
+
+export const requireInternalAuth: RequestHandler = (req, _res, next) => {
+  const header = req.headers['x-internal-auth'];
+  if (!header || header !== config.masterKey || !config.masterKey) {
+    return next(Object.assign(new Error('Internal auth required'), { status: 401 }));
+  }
+  next();
+};
 
 function sha256hex(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
