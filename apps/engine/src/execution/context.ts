@@ -15,6 +15,7 @@ export interface RunParams {
   input: Record<string, unknown>;
   graphDefaultRouter?: ModelRouterConfig | null;
   tenantRouterPolicy?: ModelRouterConfig | null;
+  sessionId?: string;
 }
 
 export interface CollectedMetric {
@@ -27,6 +28,7 @@ export class ExecutionContextImpl implements ExecutionContext {
   readonly agentId: string;
   readonly tenantId: string;
   readonly triggerType: string;
+  readonly sessionId?: string;
   data: Record<string, unknown>;
 
   readonly credentials: Record<string, ResolvedCredentials> = {};
@@ -50,6 +52,7 @@ export class ExecutionContextImpl implements ExecutionContext {
     this.agentId = params.agentId;
     this.tenantId = params.tenantId;
     this.triggerType = params.triggerType;
+    this.sessionId = params.sessionId;
     this.data = { ...params.input };
     this.graphDefaultRouter = params.graphDefaultRouter;
     this.tenantRouterPolicy = params.tenantRouterPolicy;

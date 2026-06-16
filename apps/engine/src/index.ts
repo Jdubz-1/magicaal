@@ -5,6 +5,9 @@ import { runTelemetryMigrations } from './db/telemetry-migrate';
 import { registerNodes, registerAdapters } from './registry/startup';
 import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
+import { sessionManager } from './session/session-manager';
+
+const SESSION_EXPIRY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 async function main(): Promise<void> {
   if (!config.masterKey) {
@@ -16,6 +19,11 @@ async function main(): Promise<void> {
   registerAdapters();
   initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();
+
+  // Hourly session expiry sweep
+  setInterval(() => {
+    void sessionManager.expireSessions();
+  }, SESSION_EXPIRY_INTERVAL_MS);
 
   const app = createApp();
   app.listen(config.port, () => {

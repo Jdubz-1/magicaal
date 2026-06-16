@@ -14,13 +14,14 @@ function newRunId(): string {
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, authKey, authorizationHeader } = req.body as {
+    const { agentId, tenantId, triggerType = 'api', input = {}, authKey, authorizationHeader, sessionId } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
       input?: Record<string, unknown>;
       authKey?: string;
       authorizationHeader?: string;
+      sessionId?: string;
     };
 
     if (!agentId || !tenantId) {
@@ -48,9 +49,9 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       estimatedCostUsd: 0,
     });
 
-    await runTriggerQueue.add('run', { runId, agentId, tenantId, triggerType, input });
+    await runTriggerQueue.add('run', { runId, agentId, tenantId, triggerType, input, sessionId });
 
-    res.status(202).json({ runId });
+    res.status(202).json({ runId, ...(sessionId && { sessionId }) });
   } catch (err) {
     next(err);
   }
