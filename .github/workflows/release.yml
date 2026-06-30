@@ -9,6 +9,9 @@ jobs:
   docker:
     name: Build and push Docker images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         include:
@@ -24,20 +27,104 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Login to GitHub Container Registry (primary)
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Login to Docker Hub (mirror)
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Tag as :latest only for non-prerelease tags (no hyphen in tag name)
+      - name: Compute image tags
+        id: tags
+        run: |
+          VERSION="${{ github.ref_name }}"
+          GHCR="ghcr.io/magicaal/${{ matrix.app }}"
+          HUB="magicaal/${{ matrix.app }}"
+          TAGS="${GHCR}:${VERSION},${HUB}:${VERSION}"
+          if [[ "$VERSION" != *"-"* ]]; then
+            TAGS="${TAGS},${GHCR}:latest,${HUB}:latest"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: |
-            ${{ secrets.REGISTRY_USERNAME }}/magicaal-${{ matrix.app }}:latest
-            ${{ secrets.REGISTRY_USERNAME }}/magicaal-${{ matrix.app }}:${{ github.ref_name }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             GIT_SHA=${{ github.sha }}
+
+  npm-publish:
+    name: Publish npm packages
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Devbox
+        uses: jetify-com/devbox-install-action@v0.11.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: devbox run -- pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: devbox run -- pnpm --filter @magicaal/sdk run build && devbox run -- pnpm --filter @magicaal/compiler run build && devbox run -- pnpm --filter @magicaal/cli run build
+
+      - name: Publish @magicaal/sdk
+        run: devbox run -- pnpm --filter @magicaal/sdk publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @magicaal/compiler
+        run: devbox run -- pnpm --filter @magicaal/compiler publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @magicaal/cli
+        run: devbox run -- pnpm --filter @magicaal/cli publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: npm-publish
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Extract the CHANGELOG section for this tag to use as the release body
+      - name: Extract release notes
+        id: release-notes
+        run: |
+          VERSION="${{ github.ref_name }}"
+          # Strip leading 'v' if present for CHANGELOG lookup
+          VERSION_CLEAN="${VERSION#v}"
+          # Extract lines between this version's header and the next
+          NOTES=$(awk "/^## \[${VERSION_CLEAN}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+          # Write to a temp file to avoid quoting issues
+          echo "$NOTES" > /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: /tmp/release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: false
