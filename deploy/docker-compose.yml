@@ -1,0 +1,89 @@
+services:
+  # Builds compiled agent definitions from caal.agent.ts and any *.agent.ts files
+  # Only runs once at startup; api waits for it to complete before serving traffic
+  agent-builder:
+    image: ghcr.io/magicaal/api:latest
+    entrypoint: ["node", "dist/build-agents.js"]
+    volumes:
+      - agents_dist:/agents-out
+    env_file:
+      - .env
+    restart: "no"
+
+  api:
+    image: ghcr.io/magicaal/api:latest
+    ports:
+      - "${API_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      ENGINE_BASE_URL: http://engine:4000
+      AGENTS_DIR: /agents
+    volumes:
+      - magicaal_db:/data
+      - agents_dist:/agents:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      agent-builder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  engine:
+    image: ghcr.io/magicaal/engine:latest
+    ports:
+      - "${ENGINE_PORT:-4000}:4000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - magicaal_db:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    image: ghcr.io/magicaal/web:latest
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    env_file:
+      - .env
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - magicaal_redis:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  magicaal_db:
+    driver: local
+  magicaal_redis:
+    driver: local
+  agents_dist:
+    driver: local
