@@ -25,6 +25,46 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-06-30 - Stage 0 OSS Foundation
+
+**Type:** Infrastructure
+
+**Description:**
+Implemented the full Stage 0 OSS Foundation work, preparing the repository for public release under Apache 2.0. All 23 files (20 new, 3 updated) are complete and verified. Track A (external administrative tasks) is documented as a checklist in the plan file.
+
+**Changes:**
+- `LICENSE` — Apache 2.0 full text
+- `NOTICE` — attribution file (MagiCaal Labs, Inc., 2026)
+- `GOVERNANCE.md` — BDFL model (Justin Ward, @Jdubz-1), RFC process, Core Maintainer lifecycle
+- `MAINTAINERS.md` — initial roster (BDFL only); empty Core Maintainer + Emeritus sections
+- `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1; enforcement contact: security@magicaal.dev
+- `CONTRIBUTING.md` — full rewrite; replaced stale api-service/ paths, @workspace/* packages, wrong scopes; added CLA requirement, devbox guidance, RFC trigger table
+- `SECURITY.md` — vulnerability reporting channels, 24h SLA, disclosure timeline, scope, Hall of Fame
+- `CHANGELOG.md` — retroactive v0.5.0 entry covering Phases 0–4; curated highlights per phase
+- `ROADMAP.md` — public-facing phase status table with GitHub Milestone links
+- `.github/PULL_REQUEST_TEMPLATE.md` — checklist-based PR template
+- `.github/ISSUE_TEMPLATE/bug_report.yml` — structured bug form (subsystem, version, OS, reproduction)
+- `.github/ISSUE_TEMPLATE/feature_request.yml` — feature form with roadmap fit dropdown
+- `.github/ISSUE_TEMPLATE/rfc_proposal.yml` — lightweight interest-gauge form
+- `.github/CODEOWNERS` — all paths → @Jdubz-1 (initial state; updated as maintainers are added)
+- `.github/dependabot.yml` — weekly updates for npm, Docker (3 apps), and GitHub Actions; assignee @Jdubz-1
+- `.github/workflows/codeql.yml` — weekly SAST scan (push + PR + schedule) on javascript-typescript
+- `.github/workflows/release.yml` — updated: GHCR primary + Docker Hub mirror, latest tag gating (no hyphen), npm publish for @magicaal/sdk + @magicaal/compiler + @magicaal/cli, GitHub Release with CHANGELOG body extraction
+- `deploy/docker-compose.yml` — production compose using published ghcr.io/magicaal/* images; named volumes, health checks, restart policies
+- `deploy/.env.example` — consolidated env vars from all three services; MAGICAAL_MASTER_KEY warning, JWT_SECRET sync note, MARKETPLACE_ENABLED=false with air-gapped options
+- `deploy/README.md` — 5-step quickstart; upgrade/verify/troubleshoot sections
+- `rfcs/0000-template.md` — RFC template with all standard sections
+- `rfcs/0001-graph-schema-v1.md` — retroactive RFC ratifying AgentGraphDefinition schema v1; Status: Accepted
+- `README.md` — rewritten: badges, capability bullets, ASCII architecture diagram, deploy/ quickstart, links section
+
+**Impact:**
+Repository is now ready for public release (Stage 2). All governance, legal, and community infrastructure is in place. Contributors will be guided by CODEOWNERS (PR reviews), CLA bot (Track A: A4), CodeQL (security scanning), and Dependabot (dependency hygiene). The deploy/ directory gives first-time users a path that doesn't require building from source.
+
+**Notes:**
+Track A (external tasks) must be completed before Stage 2 (public release): legal entity registration (A1), domain + email (A2), package registry claims (A3), CLA infrastructure (A4), GitHub settings (A5), Discord (A6), good first issues (A7). These are documented in the plan file at `.claude/plans/glimmering-wibbling-boole.md`.
+
+---
+
 ### 2026-06-16 - Phase 4 Code Review Fixes (ISS-031–ISS-046)
 
 **Type:** Bugfix
