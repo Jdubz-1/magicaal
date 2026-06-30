@@ -1,6 +1,9 @@
 # idx
 .idx
 
+# Local AI docs
+.ai_docs
+
 # Logs
 logs
 *.log
