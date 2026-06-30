@@ -49,6 +49,6 @@ export const proposalCreate: NodeModule = {
     ctx.set('_caal_proposal', proposal);
     ctx.set('_caal_patches', []); // reset staging after proposal is created
 
-    return { proposal };
+    return { status: 'complete', outputs: { proposal } };
   },
 };

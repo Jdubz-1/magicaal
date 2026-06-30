@@ -347,7 +347,7 @@ export const internalExpireSessions: RequestHandler = async (_req, res, next) =>
   try {
     await db
       .update(sessions)
-      .set({ status: 'expired', updatedAt: new Date() })
+      .set({ status: 'expired' })
       .where(and(eq(sessions.status, 'active'), lte(sessions.expiresAt, new Date())));
 
     res.json({ expired: 'ok' });

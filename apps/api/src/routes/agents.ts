@@ -18,7 +18,6 @@ import {
 import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
-import { handleWebhook } from '../controllers/webhook.controller';
 import { sessionRouter } from './sessions';
 import { testCasesRouter } from './test-cases';
 

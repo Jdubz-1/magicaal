@@ -54,7 +54,7 @@ export const platformListNodeTypes: NodeModule = {
       'X-Internal-Auth': token,
       'X-Tenant-Id': tenantId,
     });
-    return { nodeTypes: data };
+    return { status: 'complete', outputs: { nodeTypes: data } };
   },
 };
 
@@ -87,7 +87,7 @@ export const platformGetNodeSchema: NodeModule = {
       'X-Internal-Auth': token,
       'X-Tenant-Id': tenantId,
     });
-    return { schema: data };
+    return { status: 'complete', outputs: { schema: data } };
   },
 };
 
@@ -112,7 +112,7 @@ export const platformListConnections: NodeModule = {
       'X-Internal-Auth': token,
       'X-Tenant-Id': tenantId,
     });
-    return { connections: data };
+    return { status: 'complete', outputs: { connections: data } };
   },
 };
 
@@ -137,6 +137,6 @@ export const platformListAgents: NodeModule = {
       'X-Internal-Auth': token,
       'X-Tenant-Id': tenantId,
     });
-    return { agents: data };
+    return { status: 'complete', outputs: { agents: data } };
   },
 };

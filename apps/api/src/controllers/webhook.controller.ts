@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
-import { agents, agentConfig } from '../db/schema';
+import { agents } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 import { config } from '../config';
 

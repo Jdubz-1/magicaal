@@ -83,7 +83,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId } = req.params;
     const { tenantId, userId } = req.user!;
-    const { input = {}, mode = 'async', session_id, session_metadata } = req.body as {
+    const { input = {}, mode = 'async', session_id } = req.body as {
       input?: Record<string, unknown>;
       mode?: 'sync' | 'async';
       session_id?: string;

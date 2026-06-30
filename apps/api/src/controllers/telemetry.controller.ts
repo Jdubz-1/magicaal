@@ -4,27 +4,6 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { agents } from '../db/schema';
 
-interface RunRow {
-  id: string;
-  agentId: string;
-  triggerType: string;
-  status: string;
-  startedAt: Date | null;
-  completedAt: Date | null;
-  totalPromptTokens: number;
-  totalCompletionTokens: number;
-  estimatedCostUsd: number;
-}
-
-interface StepRow {
-  id: string;
-  runId: string;
-  nodeType: string;
-  status: string;
-  promptTokens: number;
-  completionTokens: number;
-  estimatedCostUsd: number;
-}
 
 export const getTelemetry: RequestHandler = async (req, res, next) => {
   try {

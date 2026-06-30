@@ -15,7 +15,7 @@ export const graphRead: NodeModule = {
   },
   async execute(ctx, _config) {
     const graphState = ctx.get('graphState');
-    return { graphState: graphState ?? null };
+    return { status: 'complete', outputs: { graphState: graphState ?? null } };
   },
 };
 
@@ -42,7 +42,7 @@ export const graphGetNode: NodeModule = {
     const cfg = config as { nodeId: string };
     const graphState = ctx.get<{ nodes: Record<string, unknown> }>('graphState');
     const node = graphState?.nodes?.[cfg.nodeId] ?? null;
-    return { node };
+    return { status: 'complete', outputs: { node } };
   },
 };
 
@@ -63,7 +63,7 @@ export const graphGetSelectedNodes: NodeModule = {
     const selectedNodeIds = ctx.get<string[]>('selectedNodeIds') ?? [];
     const graphState = ctx.get<{ nodes: Record<string, unknown> }>('graphState');
     const nodes = selectedNodeIds.map((id) => graphState?.nodes?.[id]).filter(Boolean);
-    return { nodes };
+    return { status: 'complete', outputs: { nodes } };
   },
 };
 
@@ -90,7 +90,7 @@ export const graphSummarize: NodeModule = {
     }>('graphState');
 
     if (!graphState) {
-      return { summary: 'No graph state available.', nodeCount: 0, edgeCount: 0, nodesByType: {} };
+      return { status: 'complete', outputs: { summary: 'No graph state available.', nodeCount: 0, edgeCount: 0, nodesByType: {} } };
     }
 
     const nodesByType: Record<string, number> = {};
@@ -105,7 +105,7 @@ export const graphSummarize: NodeModule = {
       .join(', ');
     const summary = `Graph has ${nodeCount} node(s) [${typeSummary}] and ${edgeCount} edge(s).`;
 
-    return { summary, nodeCount, edgeCount, nodesByType };
+    return { status: 'complete', outputs: { summary, nodeCount, edgeCount, nodesByType } };
   },
 };
 
@@ -142,7 +142,7 @@ export const graphAddNode: NodeModule = {
       },
     });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };
 
@@ -169,7 +169,7 @@ export const graphUpdateNode: NodeModule = {
     const patches = ctx.get<unknown[]>('_caal_patches') ?? [];
     patches.push({ op: 'update_node', target: cfg.nodeId, data: cfg.updates });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };
 
@@ -195,7 +195,7 @@ export const graphDeleteNode: NodeModule = {
     const patches = ctx.get<unknown[]>('_caal_patches') ?? [];
     patches.push({ op: 'delete_node', target: cfg.nodeId });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };
 
@@ -230,7 +230,7 @@ export const graphAddEdge: NodeModule = {
       },
     });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };
 
@@ -257,7 +257,7 @@ export const graphDeleteEdge: NodeModule = {
     const patches = ctx.get<unknown[]>('_caal_patches') ?? [];
     patches.push({ op: 'delete_edge', data: { from: cfg.fromNodeId, to: cfg.toNodeId } });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };
 
@@ -284,6 +284,6 @@ export const graphAddToolEdge: NodeModule = {
     const patches = ctx.get<unknown[]>('_caal_patches') ?? [];
     patches.push({ op: 'add_tool_edge', data: { tool: cfg.toolNodeId, agent: cfg.agentNodeId } });
     ctx.set('_caal_patches', patches);
-    return { patchCount: patches.length };
+    return { status: 'complete', outputs: { patchCount: patches.length } };
   },
 };

@@ -28,7 +28,7 @@ export const canvasHighlight: NodeModule = {
       color: cfg.color ?? '#F59E0B',
       durationMs: cfg.durationMs ?? 2000,
     });
-    return { highlighted: cfg.nodeIds };
+    return { status: 'complete', outputs: { highlighted: cfg.nodeIds } };
   },
 };
 
@@ -58,6 +58,6 @@ export const canvasFocus: NodeModule = {
       nodeId: cfg.nodeId,
       zoom: cfg.zoom ?? 1.5,
     });
-    return { focused: cfg.nodeId };
+    return { status: 'complete', outputs: { focused: cfg.nodeId } };
   },
 };
