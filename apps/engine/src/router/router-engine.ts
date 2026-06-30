@@ -25,7 +25,7 @@ function rrKey(targets: ModelRouterTarget[]): string {
 
 function selectTarget(
   config: ModelRouterConfig,
-  ctx: ExecutionContextImpl,
+  _ctx: ExecutionContextImpl,
 ): ModelRouterTarget[] {
   const { strategy, targets, circuitBreaker: cbConfig } = config;
 
@@ -113,7 +113,7 @@ function isReactiveTriggerMet(
   trigger: RouterTrigger,
   error: unknown,
   durationMs: number,
-  targetId: string,
+  _targetId: string,
 ): boolean {
   const cond = trigger.condition;
   const e = error as { status?: number; _providerError?: boolean } | null;

@@ -95,12 +95,7 @@ export async function requeuesuspendedRunsOnStartup(): Promise<void> {
 
   for (const run of suspended) {
     try {
-      const checkpointData = run.checkpointJson
-        ? (JSON.parse(run.checkpointJson) as Record<string, unknown>)
-        : {};
-
-      // Don't auto-approve — just signal that the run is waiting for review
-      // The run will sit in 'pending' state until explicitly reviewed via the API
+      // Don't auto-approve — leave suspended runs for explicit human review via the API
       logger.debug({ runId: run.id }, 'Suspended run found on startup — leaving for human review');
     } catch (err) {
       logger.warn({ runId: run.id, err }, 'Error inspecting suspended run on startup');

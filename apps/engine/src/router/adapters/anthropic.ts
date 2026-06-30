@@ -3,7 +3,6 @@ import type { ResolvedCredentials } from '@magicaal/sdk-node';
 import type {
   CanonicalLLMRequest,
   CanonicalLLMResponse,
-  CanonicalMessage,
   CanonicalTool,
   CanonicalToolCall,
   ModelRouterTarget,
@@ -202,6 +201,7 @@ export const anthropicAdapter: ProviderAdapter = {
     };
   },
 
+  // eslint-disable-next-line require-yield
   async *stream(
     _request: CanonicalLLMRequest,
     _target: ModelRouterTarget,

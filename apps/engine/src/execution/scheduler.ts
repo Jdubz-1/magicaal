@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { redis, runTriggerQueue, runScheduledQueue } from '../queue/client';
+import { redis, runTriggerQueue } from '../queue/client';
 import { graphLoader } from '../graph/graph-loader';
 import { ExecutionContextImpl } from './context';
 import { lifecycle } from './lifecycle';

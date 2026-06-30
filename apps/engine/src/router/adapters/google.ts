@@ -193,6 +193,7 @@ export const googleAdapter: ProviderAdapter = {
     };
   },
 
+  // eslint-disable-next-line require-yield
   async *stream(
     _request: CanonicalLLMRequest,
     _target: ModelRouterTarget,

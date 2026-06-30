@@ -18,7 +18,7 @@ export const getTelemetry: RequestHandler = async (req, res, next) => {
 
     const limitNum = Math.min(parseInt(limit, 10) || 50, 500);
 
-    let query = telemetryDb
+    const query = telemetryDb
       .select()
       .from(telemetryRuns)
       .where(eq(telemetryRuns.tenantId, tenantId))
