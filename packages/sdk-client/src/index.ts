@@ -1,13 +1,13 @@
-export { MagiCaalClient } from './client';
-export { AgentClient } from './agent-client';
-export { RunHandleImpl } from './run-handle';
-export { streamRun } from './stream-client';
-export { HumanReviewClient } from './human-review-client';
-export type { ReviewDetails } from './human-review-client';
-export { SessionClient } from './session-client';
-export type { SessionSummary, SessionContext } from './session-client';
-export { WorkspaceContextBuilder } from './workspace-context-builder';
-export type { ContextSchemaDefinition, ContextMessage, ContextDocument } from './workspace-context-builder';
+export { MagiCaalClient } from './client.js';
+export { AgentClient } from './agent-client.js';
+export { RunHandleImpl } from './run-handle.js';
+export { streamRun } from './stream-client.js';
+export { HumanReviewClient } from './human-review-client.js';
+export type { ReviewDetails } from './human-review-client.js';
+export { SessionClient } from './session-client.js';
+export type { SessionSummary, SessionContext } from './session-client.js';
+export { WorkspaceContextBuilder } from './workspace-context-builder.js';
+export type { ContextSchemaDefinition, ContextMessage, ContextDocument } from './workspace-context-builder.js';
 
 export {
   MagiCaalError,
@@ -18,9 +18,9 @@ export {
   ValidationError,
   AgentNotFoundError,
   NetworkError,
-} from './errors';
+} from './errors.js';
 
-export type { ValidationIssue } from './errors';
+export type { ValidationIssue } from './errors.js';
 
 export type {
   MagiCaalClientConfig,
@@ -40,4 +40,4 @@ export type {
   RunCompletedEvent,
   RunFailedEvent,
   RunSuspendedEvent,
-} from './types';
+} from './types.js';

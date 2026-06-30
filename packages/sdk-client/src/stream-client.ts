@@ -1,4 +1,4 @@
-import type { RunStreamEvent } from './types';
+import type { RunStreamEvent } from './types.js';
 
 export async function* streamRun(
   url: string,

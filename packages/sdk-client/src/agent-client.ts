@@ -1,9 +1,9 @@
 import type { AxiosInstance } from 'axios';
-import type { InvokeOptions, StartOptions, RunStreamEvent } from './types';
-import { RunHandleImpl } from './run-handle';
-import { streamRun } from './stream-client';
-import { HumanReviewClient } from './human-review-client';
-import { SessionClient, type SessionSummary } from './session-client';
+import type { InvokeOptions, StartOptions, RunStreamEvent } from './types.js';
+import { RunHandleImpl } from './run-handle.js';
+import { streamRun } from './stream-client.js';
+import { HumanReviewClient } from './human-review-client.js';
+import { SessionClient, type SessionSummary } from './session-client.js';
 
 interface DispatchResponse {
   runId: string;

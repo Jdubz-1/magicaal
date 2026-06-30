@@ -1,6 +1,6 @@
 import type { AxiosInstance } from 'axios';
-import type { RunHandle, RunStatus, RunStep } from './types';
-import { RunFailedError, RunSuspendedError } from './errors';
+import type { RunHandle, RunStatus, RunStep } from './types.js';
+import { RunFailedError, RunSuspendedError } from './errors.js';
 
 const TERMINAL_STATUSES = new Set<RunStatus>(['completed', 'failed', 'suspended', 'cancelled']);
 

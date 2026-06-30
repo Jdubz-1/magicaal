@@ -1,6 +1,6 @@
-import type { MagiCaalClientConfig } from './types';
-import { AgentClient } from './agent-client';
-import { createHttpClient } from './http';
+import type { MagiCaalClientConfig } from './types.js';
+import { AgentClient } from './agent-client.js';
+import { createHttpClient } from './http.js';
 
 export class MagiCaalClient {
   private readonly http;

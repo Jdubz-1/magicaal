@@ -1,6 +1,6 @@
 import axios, { type AxiosInstance, type AxiosError } from 'axios';
-import type { MagiCaalClientConfig } from './types';
-import { AuthError, RateLimitError, AgentNotFoundError, NetworkError } from './errors';
+import type { MagiCaalClientConfig } from './types.js';
+import { AuthError, RateLimitError, AgentNotFoundError, NetworkError } from './errors.js';
 
 export function createHttpClient(config: MagiCaalClientConfig): AxiosInstance {
   const headers: Record<string, string> = {};
