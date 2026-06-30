@@ -1,0 +1,30 @@
+# CODEOWNERS — automatic review assignment by path
+# See GOVERNANCE.md for the Core Maintainer process.
+# Update this file as Core Maintainers are designated for specific subsystems.
+
+# Global fallback — all paths not matched below
+*                              @Jdubz-1
+
+# Engine (agent execution runtime)
+/apps/engine/                  @Jdubz-1
+/packages/nodes/               @Jdubz-1
+
+# API (backend-for-frontend)
+/apps/api/                     @Jdubz-1
+
+# Web (Studio + Admin UI)
+/apps/web/                     @Jdubz-1
+
+# Shared packages
+/packages/core/                @Jdubz-1
+/packages/sdk/                 @Jdubz-1
+/packages/sdk-client/          @Jdubz-1
+/packages/compiler/            @Jdubz-1
+/packages/cli/                 @Jdubz-1
+
+# Integrations
+/packages/integrations/        @Jdubz-1
+
+# Docs and governance
+/docs/                         @Jdubz-1
+/rfcs/                         @Jdubz-1

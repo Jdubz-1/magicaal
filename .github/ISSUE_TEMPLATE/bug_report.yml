@@ -1,0 +1,86 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in MagiCaal
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to file a bug report. Please fill in as much detail as possible — it helps us reproduce and fix the issue faster.
+
+        **Do not report security vulnerabilities here.** See [SECURITY.md](../SECURITY.md) for the responsible disclosure process.
+
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Subsystem
+      description: Which part of MagiCaal is affected?
+      options:
+        - engine (agent execution runtime)
+        - api (BFF / REST API)
+        - web (Studio or Admin UI)
+        - nodes (built-in node types)
+        - sdk (@magicaal/sdk)
+        - compiler (@magicaal/compiler)
+        - cli (magicaal CLI)
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MagiCaal Version
+      description: Run `docker inspect ghcr.io/magicaal/api:latest | grep -i version` or check your Docker Compose image tag.
+      placeholder: "e.g. 0.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows (Docker Desktop)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: A minimal set of steps that reliably triggers the bug.
+      placeholder: |
+        1. Create an agent with...
+        2. Invoke it with...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste any relevant log output. Use `docker compose logs api` / `docker compose logs engine` to capture logs.
+      render: shell
+    validations:
+      required: false

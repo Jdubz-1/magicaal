@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # pnpm workspace (npm ecosystem)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "Jdubz-1"
+    groups:
+      patch-updates:
+        update-types:
+          - "patch"
+
+  # Dockerfile base images — api
+  - package-ecosystem: "docker"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "Jdubz-1"
+
+  # Dockerfile base images — engine
+  - package-ecosystem: "docker"
+    directory: "/apps/engine"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "Jdubz-1"
+
+  # Dockerfile base images — web
+  - package-ecosystem: "docker"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "Jdubz-1"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    assignees:
+      - "Jdubz-1"
