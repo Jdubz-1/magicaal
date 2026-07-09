@@ -6,9 +6,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "references": [
-    { "path": "../../packages/core" }
-  ],
   "ts-node": {
     "files": true
   },

@@ -1,6 +1,6 @@
 import type { NodeModule, NodeOutput } from '@magicaal/sdk-node';
 import type { ExecutionContext } from '@magicaal/sdk-node';
-import type { AgenticRouterConfig } from '@magicaal/core';
+import type { AgenticRouterCase, AgenticRouterConfig } from '@magicaal/core';
 import type { ModelRouterConfig } from '@magicaal/core';
 
 interface AgenticRouterNodeConfig extends Omit<AgenticRouterConfig, 'model'> {
@@ -35,7 +35,7 @@ const OUTPUT_SCHEMA = {
 
 function buildClassificationPrompt(config: AgenticRouterNodeConfig, inputText: string): string {
   const caseDescriptions = config.cases
-    .map((c) => `- "${c.key}" (${c.label}): ${c.description}`)
+    .map((c: AgenticRouterCase) => `- "${c.key}" (${c.label}): ${c.description}`)
     .join('\n');
 
   return `You are a routing classifier. Given the following input, select the most appropriate route from the options below.
@@ -47,7 +47,7 @@ Available routes:
 ${caseDescriptions}
 
 Respond with a JSON object containing:
-- route: the key of the selected route (must be one of: ${config.cases.map((c) => `"${c.key}"`).join(', ')})
+- route: the key of the selected route (must be one of: ${config.cases.map((c: AgenticRouterCase) => `"${c.key}"`).join(', ')})
 - confidence: a number between 0.0 and 1.0 indicating your confidence
 - reasoning: a brief explanation of why you selected this route`;
 }
@@ -185,7 +185,7 @@ export const coreAgenticRouter: NodeModule<AgenticRouterNodeConfig> = {
     }
 
     // Validate that the returned route is one of the declared case keys
-    const validKeys = new Set(config.cases.map((c) => c.key));
+    const validKeys = new Set(config.cases.map((c: AgenticRouterCase) => c.key));
     let selectedRoute = validKeys.has(result.route) ? result.route : config.cases[0].key;
     const confidence = Math.max(0, Math.min(1, result.confidence ?? 0));
 
