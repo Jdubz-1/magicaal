@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
+    "isolatedModules": true,
     "paths": {
       "@/*": ["./src/*"]
     }

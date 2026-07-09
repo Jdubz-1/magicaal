@@ -7,6 +7,7 @@ const config: Config = {
   testMatch: ['**/*.test.ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@magicaal/nodes$': '<rootDir>/../../packages/nodes/src/index.ts',
   },
   collectCoverageFrom: [
     'src/**/*.ts',
