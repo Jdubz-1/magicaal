@@ -14,6 +14,8 @@ export function createApp(): Express {
   app.use(cors({ credentials: true, origin: process.env.CORS_ORIGIN ?? 'http://localhost:8080' }));
   app.use(
     express.json({
+      // Air-gapped .mpack bundle uploads arrive base64-encoded in JSON bodies
+      limit: '25mb',
       // Integration webhook signatures (Slack, GitHub, ...) are HMACs over the
       // exact raw body bytes — capture them before JSON parsing discards them.
       verify: (req, _res, buf) => {

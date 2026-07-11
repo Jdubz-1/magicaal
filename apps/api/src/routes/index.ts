@@ -13,6 +13,8 @@ import { mcpServersRouter } from './mcp-servers';
 import { utilsRouter } from './utils';
 import { promptsRouter } from './prompts';
 import { caalRouter } from './caal';
+import { marketplaceRouter } from './marketplace';
+import { buildOpenApiSpec } from '../openapi/spec';
 import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
@@ -32,6 +34,11 @@ router.use('/v1/mcp-servers', mcpServersRouter);
 router.use('/v1/utils', utilsRouter);
 router.use('/v1/prompts', promptsRouter);
 router.use('/v1/caal', caalRouter);
+router.use('/v1/marketplace', marketplaceRouter);
+// OpenAPI document — public, the source for the published API reference
+router.get('/v1/openapi.json', (_req, res) => {
+  res.json(buildOpenApiSpec());
+});
 // Internal engine→API session endpoints
 router.use('/internal/sessions', internalSessionRouter);
 // Public webhook endpoint — no auth middleware; secret is in URL
