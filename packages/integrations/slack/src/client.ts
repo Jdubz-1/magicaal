@@ -1,5 +1,12 @@
 import type { ExecutionContext, ResolvedCredentials } from '@magicaal/sdk-node';
-import { IntegrationError, errorFromResponse, parseRateLimitHeaders } from '@magicaal/integration-core';
+import {
+  IntegrationError,
+  errorFromResponse,
+  parseRateLimitHeaders,
+  resolveField,
+} from '@magicaal/integration-core';
+
+export { resolveField };
 
 export const SLACK_API_BASE = 'https://slack.com/api';
 
@@ -75,17 +82,4 @@ export async function slackCall(
     });
   }
   return body;
-}
-
-/** Resolve a config string through JSONata when it references context (starts with `$`). */
-export async function resolveField(ctx: ExecutionContext, value: string): Promise<string> {
-  if (value.includes('$')) {
-    try {
-      const resolved = await ctx.evaluate(value);
-      if (resolved !== undefined && resolved !== null) return String(resolved);
-    } catch {
-      // fall through to the literal value
-    }
-  }
-  return value;
 }

@@ -1,6 +1,8 @@
 import { ALL_NODES } from '@magicaal/nodes';
 import type { IntegrationPackage } from '@magicaal/sdk-node';
 import { SLACK_INTEGRATION } from '@magicaal/integration-slack';
+import { GITHUB_INTEGRATION } from '@magicaal/integration-github';
+import { JIRA_INTEGRATION } from '@magicaal/integration-jira';
 import { registry } from './node-registry';
 import { integrationRegistry } from './integration-registry';
 import { logger } from '../lib/logger';
@@ -10,7 +12,11 @@ import { anthropicAdapter } from '../router/adapters/anthropic';
 import { googleAdapter } from '../router/adapters/google';
 
 /** Built-in first-party integration packages, registered at startup. */
-const BUILT_IN_INTEGRATIONS: IntegrationPackage[] = [SLACK_INTEGRATION];
+const BUILT_IN_INTEGRATIONS: IntegrationPackage[] = [
+  SLACK_INTEGRATION,
+  GITHUB_INTEGRATION,
+  JIRA_INTEGRATION,
+];
 
 export function registerNodes(): void {
   for (const node of ALL_NODES) {

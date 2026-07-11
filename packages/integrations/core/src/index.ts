@@ -14,3 +14,4 @@ export {
   type RefreshedToken,
 } from './oauth';
 export { deriveIdempotencyKey, newIdempotencyKey, stableStringify } from './idempotency';
+export { resolveField } from './config-fields';

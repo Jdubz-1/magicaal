@@ -9,6 +9,8 @@
     { "path": "packages/integrations/caal" },
     { "path": "packages/integrations/core" },
     { "path": "packages/integrations/slack" },
+    { "path": "packages/integrations/github" },
+    { "path": "packages/integrations/jira" },
     { "path": "apps/api" },
     { "path": "apps/engine" },
     { "path": "apps/web" }

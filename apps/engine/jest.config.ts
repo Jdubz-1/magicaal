@@ -12,6 +12,8 @@ const config: Config = {
     '^@magicaal/sdk-node$': '<rootDir>/../../packages/sdk/src/index.ts',
     '^@magicaal/integration-core$': '<rootDir>/../../packages/integrations/core/src/index.ts',
     '^@magicaal/integration-slack$': '<rootDir>/../../packages/integrations/slack/src/index.ts',
+    '^@magicaal/integration-github$': '<rootDir>/../../packages/integrations/github/src/index.ts',
+    '^@magicaal/integration-jira$': '<rootDir>/../../packages/integrations/jira/src/index.ts',
   },
   transform: {
     '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],

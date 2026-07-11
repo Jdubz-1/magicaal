@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@magicaal/core": "workspace:*",
+    "@magicaal/integration-github": "workspace:*",
+    "@magicaal/integration-jira": "workspace:*",
     "@magicaal/integration-slack": "workspace:*",
     "@magicaal/nodes": "workspace:^",
     "@magicaal/sdk-node": "workspace:*",

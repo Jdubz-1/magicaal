@@ -17,6 +17,8 @@ COPY packages/sdk/package.json ./packages/sdk/package.json
 COPY packages/nodes/package.json ./packages/nodes/package.json
 COPY packages/integrations/core/package.json ./packages/integrations/core/package.json
 COPY packages/integrations/slack/package.json ./packages/integrations/slack/package.json
+COPY packages/integrations/github/package.json ./packages/integrations/github/package.json
+COPY packages/integrations/jira/package.json ./packages/integrations/jira/package.json
 COPY apps/engine/package.json ./apps/engine/package.json
 
 RUN pnpm install --frozen-lockfile
@@ -35,6 +37,12 @@ COPY packages/integrations/core/tsconfig.build.json ./packages/integrations/core
 COPY packages/integrations/slack/src ./packages/integrations/slack/src
 COPY packages/integrations/slack/tsconfig.json ./packages/integrations/slack/tsconfig.json
 COPY packages/integrations/slack/tsconfig.build.json ./packages/integrations/slack/tsconfig.build.json
+COPY packages/integrations/github/src ./packages/integrations/github/src
+COPY packages/integrations/github/tsconfig.json ./packages/integrations/github/tsconfig.json
+COPY packages/integrations/github/tsconfig.build.json ./packages/integrations/github/tsconfig.build.json
+COPY packages/integrations/jira/src ./packages/integrations/jira/src
+COPY packages/integrations/jira/tsconfig.json ./packages/integrations/jira/tsconfig.json
+COPY packages/integrations/jira/tsconfig.build.json ./packages/integrations/jira/tsconfig.build.json
 COPY apps/engine/src ./apps/engine/src
 COPY apps/engine/tsconfig.json ./apps/engine/tsconfig.json
 COPY apps/engine/tsconfig.build.json ./apps/engine/tsconfig.build.json
@@ -43,6 +51,10 @@ RUN pnpm run build
 WORKDIR /monorepo/packages/integrations/core
 RUN pnpm run build
 WORKDIR /monorepo/packages/integrations/slack
+RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/github
+RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/jira
 RUN pnpm run build
 WORKDIR /monorepo/apps/engine
 RUN pnpm run build
@@ -64,9 +76,13 @@ COPY --from=builder /monorepo/packages/integrations/core/package.json ./packages
 COPY --from=builder /monorepo/packages/integrations/core/dist ./packages/integrations/core/dist
 COPY --from=builder /monorepo/packages/integrations/slack/package.json ./packages/integrations/slack/
 COPY --from=builder /monorepo/packages/integrations/slack/dist ./packages/integrations/slack/dist
+COPY --from=builder /monorepo/packages/integrations/github/package.json ./packages/integrations/github/
+COPY --from=builder /monorepo/packages/integrations/github/dist ./packages/integrations/github/dist
+COPY --from=builder /monorepo/packages/integrations/jira/package.json ./packages/integrations/jira/
+COPY --from=builder /monorepo/packages/integrations/jira/dist ./packages/integrations/jira/dist
 COPY --from=builder /monorepo/apps/engine/package.json ./apps/engine/
 
-RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes --filter @magicaal/integration-core --filter @magicaal/integration-slack
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes --filter @magicaal/integration-core --filter @magicaal/integration-slack --filter @magicaal/integration-github --filter @magicaal/integration-jira
 
 WORKDIR /monorepo/apps/engine
 COPY --from=builder /monorepo/apps/engine/dist ./dist
