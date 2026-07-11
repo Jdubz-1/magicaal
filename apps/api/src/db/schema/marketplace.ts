@@ -15,6 +15,14 @@ export const packageRegistry = sqliteTable('package_registry', {
   manifestJson: text('manifest_json').notNull(),
   installedAt: integer('installed_at', { mode: 'timestamp' }).notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  publisherSig: text('publisher_sig'),
+  contentHash: text('content_hash'),
+  magicaalCountersig: text('magicaal_countersig'),
+  signatureStatus: text('signature_status', {
+    enum: ['verified', 'unverified', 'invalid'],
+  })
+    .notNull()
+    .default('unverified'),
 });
 
 export const marketplaceCatalogCache = sqliteTable('marketplace_catalog_cache', {

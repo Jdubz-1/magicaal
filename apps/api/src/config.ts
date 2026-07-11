@@ -15,4 +15,11 @@ export const config = Object.freeze({
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? `http://localhost:${parseInt(process.env.PORT ?? '3000', 10)}`,
   seedOnBoot: process.env.SEED_ON_BOOT === 'true',
   agentsDir: process.env.AGENTS_DIR ?? '/agents',
+  marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
+  marketplaceCatalogSource: (process.env.MARKETPLACE_CATALOG_SOURCE ?? 'remote') as
+    | 'remote'
+    | 'local',
+  marketplaceLocalCatalogPath:
+    process.env.MARKETPLACE_LOCAL_CATALOG_PATH ?? '/marketplace/catalog.json',
+  marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
 });

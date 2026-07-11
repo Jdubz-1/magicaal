@@ -14,4 +14,6 @@ export const config = Object.freeze({
   masterKey: process.env.MAGICAAL_MASTER_KEY ?? '',
   apiBaseUrl: process.env.API_BASE_URL ?? 'http://api:3000',
   engineInternalUrl: process.env.ENGINE_INTERNAL_URL ?? 'http://localhost:4000',
+  marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
+  marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
 });

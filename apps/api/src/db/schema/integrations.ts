@@ -19,6 +19,20 @@ export const integrationConnections = sqliteTable('integration_connections', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });
 
+export const integrationTriggers = sqliteTable('integration_triggers', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  service: text('service').notNull(),
+  tenantSlug: text('tenant_slug').notNull(),
+  agentId: text('agent_id').notNull(),
+  eventFilter: text('event_filter'),
+  secret: text('secret').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+});
+
 export const integrationOauthStates = sqliteTable('integration_oauth_states', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id')
