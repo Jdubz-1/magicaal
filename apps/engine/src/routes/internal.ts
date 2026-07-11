@@ -13,6 +13,10 @@ import { scheduleCronAgent, unscheduleCronAgent } from '../controllers/schedule.
 import { getTelemetry, getTokenUsage, getRunDetail, getTrajectory, getRoutingEvents } from '../controllers/telemetry.controller';
 import { listNodes } from '../controllers/nodes.controller';
 import { testMcpServerInternal } from '../controllers/mcp-servers.controller';
+import {
+  listIntegrations,
+  integrationTriggerDispatch,
+} from '../controllers/integrations.controller';
 
 export const internalRouter: RouterType = Router();
 
@@ -38,3 +42,6 @@ internalRouter.get('/telemetry/routing-events', getRoutingEvents);
 internalRouter.post('/mcp-servers/test', testMcpServerInternal);
 
 internalRouter.get('/nodes', listNodes);
+
+internalRouter.get('/integrations', listIntegrations);
+internalRouter.post('/triggers/integrations/:service', integrationTriggerDispatch);

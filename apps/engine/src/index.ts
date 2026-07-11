@@ -2,7 +2,7 @@ import { createApp } from './app';
 import { config } from './config';
 import { logger } from './lib/logger';
 import { runTelemetryMigrations } from './db/telemetry-migrate';
-import { registerNodes, registerAdapters } from './registry/startup';
+import { registerNodes, registerAdapters, registerIntegrations } from './registry/startup';
 import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
 import { sessionManager } from './session/session-manager';
@@ -16,6 +16,7 @@ async function main(): Promise<void> {
 
   await runTelemetryMigrations();
   registerNodes();
+  registerIntegrations();
   registerAdapters();
   initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();

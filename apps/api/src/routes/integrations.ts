@@ -9,10 +9,24 @@ import {
   initiateOAuth,
   oauthCallback,
 } from '../controllers/integrations.controller';
+import {
+  listIntegrationTypes,
+  listTriggers,
+  createTrigger,
+  deleteTrigger,
+} from '../controllers/integration-triggers.controller';
 
 export const integrationsRouter: RouterType = Router();
 
 integrationsRouter.use(requireAuth);
+
+// Available integration types (from the engine's integration registry)
+integrationsRouter.get('/', listIntegrationTypes);
+
+// Integration trigger registrations
+integrationsRouter.get('/triggers', listTriggers);
+integrationsRouter.post('/triggers', requireMinRole('tenant_admin'), createTrigger);
+integrationsRouter.delete('/triggers/:id', requireMinRole('tenant_admin'), deleteTrigger);
 
 // Integration Connections CRUD
 integrationsRouter.get('/connections', listConnections);

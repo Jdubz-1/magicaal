@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@magicaal/core": "workspace:*",
+    "@magicaal/integration-slack": "workspace:*",
     "@magicaal/nodes": "workspace:^",
     "@magicaal/sdk-node": "workspace:*",
     "better-sqlite3": "^12.10.0",

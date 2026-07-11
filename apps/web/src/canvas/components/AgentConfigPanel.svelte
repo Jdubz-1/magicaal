@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { agent, graph, agentConfig } from '../stores/graph';
 
   export let agentId: string;
@@ -11,6 +12,84 @@
   let draftMsg = '';
   let reverting = false;
   let revertMsg = '';
+
+  interface IntegrationType {
+    service: string;
+    displayName: string;
+    hasTrigger: boolean;
+  }
+  interface TriggerRegistration {
+    id: string;
+    service: string;
+    agentId: string;
+    eventFilter: string | null;
+    url: string;
+  }
+
+  let integrationTypes: IntegrationType[] = [];
+  let agentTriggers: TriggerRegistration[] = [];
+  let integService = '';
+  let integEventFilter = '';
+  let integSecret = '';
+  let integMsg = '';
+  let registering = false;
+
+  onMount(async () => {
+    try {
+      const [typesRes, triggersRes] = await Promise.all([
+        fetch('/api/integrations'),
+        fetch('/api/integrations/triggers'),
+      ]);
+      if (typesRes.ok) {
+        const all = (await typesRes.json()) as IntegrationType[];
+        integrationTypes = all.filter((t) => t.hasTrigger);
+      }
+      if (triggersRes.ok) {
+        const all = (await triggersRes.json()) as TriggerRegistration[];
+        agentTriggers = all.filter((t) => t.agentId === agentId);
+      }
+    } catch {
+      // integration trigger UI degrades silently; REST/cron/webhook still work
+    }
+  });
+
+  async function registerIntegrationTrigger() {
+    registering = true;
+    integMsg = '';
+    try {
+      const res = await fetch('/api/integrations/triggers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service: integService,
+          agentId,
+          eventFilter: integEventFilter || undefined,
+          secret: integSecret,
+        }),
+      });
+      if (!res.ok) throw new Error('Registration failed');
+      const created = (await res.json()) as TriggerRegistration;
+      agentTriggers = [...agentTriggers, created];
+      integSecret = '';
+      integEventFilter = '';
+      integMsg = '✓ Trigger registered';
+    } catch (err) {
+      integMsg = '✗ ' + (err instanceof Error ? err.message : 'Error');
+    } finally {
+      registering = false;
+    }
+  }
+
+  async function removeIntegrationTrigger(id: string) {
+    try {
+      const res = await fetch(`/api/integrations/triggers/${id}`, { method: 'DELETE' });
+      if (res.ok || res.status === 204) {
+        agentTriggers = agentTriggers.filter((t) => t.id !== id);
+      }
+    } catch {
+      // leave the row in place on failure
+    }
+  }
 
   async function publish() {
     publishing = true;
@@ -133,8 +212,51 @@
       <option value="rest">REST API</option>
       <option value="cron">Scheduled (Cron)</option>
       <option value="webhook">Webhook</option>
+      <option value="integration">Integration Event</option>
     </select>
   </div>
+
+  {#if $agentConfig.triggerType === 'integration'}
+    {#if agentTriggers.length > 0}
+      <div class="form-group">
+        <label>Registered Triggers</label>
+        {#each agentTriggers as trig}
+          <div class="trigger-row">
+            <div class="trigger-info">
+              <span class="trigger-service">{trig.service}</span>
+              {#if trig.eventFilter}<span class="trigger-filter">{trig.eventFilter}</span>{/if}
+              <code class="trigger-url">{trig.url}</code>
+            </div>
+            <button class="trigger-remove" title="Remove trigger"
+              on:click={() => removeIntegrationTrigger(trig.id)}>✕</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    <div class="form-group">
+      <label>Service</label>
+      <select bind:value={integService}>
+        <option value="">— select a service —</option>
+        {#each integrationTypes as t}
+          <option value={t.service}>{t.displayName}</option>
+        {/each}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Event Filter (optional)</label>
+      <input type="text" bind:value={integEventFilter} placeholder="e.g. app_mention — blank for all events" />
+    </div>
+    <div class="form-group">
+      <label>Signing Secret</label>
+      <input type="password" bind:value={integSecret} placeholder="the service's webhook signing secret" />
+      <div class="field-hint">Used to verify inbound event signatures. Never displayed after registration.</div>
+    </div>
+    <button class="btn-save" disabled={registering || !integService || !integSecret}
+      on:click={registerIntegrationTrigger}>
+      {registering ? 'Registering…' : 'Register Trigger'}
+    </button>
+    {#if integMsg}<div class="status-msg">{integMsg}</div>{/if}
+  {/if}
 
   {#if $agentConfig.triggerType === 'cron'}
     <div class="form-group">
@@ -205,4 +327,10 @@
   .field-hint { font-size: 0.6875rem; color: #475569; margin-top: 0.25rem; }
   .webhook-url { background: #0a0c14; border: 1px solid #2d3148; border-radius: 4px; padding: 0.5rem; }
   .webhook-url code { font-size: 0.6875rem; color: #93c5fd; word-break: break-all; }
+  .trigger-row { display: flex; align-items: flex-start; gap: 0.375rem; background: #0a0c14; border: 1px solid #2d3148; border-radius: 4px; padding: 0.5rem; margin-bottom: 0.375rem; }
+  .trigger-info { flex: 1; min-width: 0; }
+  .trigger-service { font-size: 0.75rem; color: #e2e8f0; font-weight: 600; margin-right: 0.375rem; }
+  .trigger-filter { font-size: 0.6875rem; color: #f59e0b; font-family: monospace; }
+  .trigger-url { display: block; font-size: 0.625rem; color: #93c5fd; word-break: break-all; margin-top: 0.25rem; }
+  .trigger-remove { background: none; border: none; color: #fca5a5; cursor: pointer; font-size: 0.75rem; flex-shrink: 0; }
 </style>

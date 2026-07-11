@@ -15,6 +15,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/sdk/package.json ./packages/sdk/package.json
 COPY packages/nodes/package.json ./packages/nodes/package.json
+COPY packages/integrations/core/package.json ./packages/integrations/core/package.json
+COPY packages/integrations/slack/package.json ./packages/integrations/slack/package.json
 COPY apps/engine/package.json ./apps/engine/package.json
 
 RUN pnpm install --frozen-lockfile
@@ -27,10 +29,20 @@ COPY packages/sdk/tsconfig.json ./packages/sdk/tsconfig.json
 COPY packages/nodes/src ./packages/nodes/src
 COPY packages/nodes/tsconfig.json ./packages/nodes/tsconfig.json
 COPY packages/nodes/tsconfig.build.json ./packages/nodes/tsconfig.build.json
+COPY packages/integrations/core/src ./packages/integrations/core/src
+COPY packages/integrations/core/tsconfig.json ./packages/integrations/core/tsconfig.json
+COPY packages/integrations/core/tsconfig.build.json ./packages/integrations/core/tsconfig.build.json
+COPY packages/integrations/slack/src ./packages/integrations/slack/src
+COPY packages/integrations/slack/tsconfig.json ./packages/integrations/slack/tsconfig.json
+COPY packages/integrations/slack/tsconfig.build.json ./packages/integrations/slack/tsconfig.build.json
 COPY apps/engine/src ./apps/engine/src
 COPY apps/engine/tsconfig.json ./apps/engine/tsconfig.json
 COPY apps/engine/tsconfig.build.json ./apps/engine/tsconfig.build.json
 WORKDIR /monorepo/packages/nodes
+RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/core
+RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/slack
 RUN pnpm run build
 WORKDIR /monorepo/apps/engine
 RUN pnpm run build
@@ -48,9 +60,13 @@ COPY --from=builder /monorepo/packages/core/package.json ./packages/core/
 COPY --from=builder /monorepo/packages/sdk/package.json ./packages/sdk/
 COPY --from=builder /monorepo/packages/nodes/package.json ./packages/nodes/
 COPY --from=builder /monorepo/packages/nodes/dist ./packages/nodes/dist
+COPY --from=builder /monorepo/packages/integrations/core/package.json ./packages/integrations/core/
+COPY --from=builder /monorepo/packages/integrations/core/dist ./packages/integrations/core/dist
+COPY --from=builder /monorepo/packages/integrations/slack/package.json ./packages/integrations/slack/
+COPY --from=builder /monorepo/packages/integrations/slack/dist ./packages/integrations/slack/dist
 COPY --from=builder /monorepo/apps/engine/package.json ./apps/engine/
 
-RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes --filter @magicaal/integration-core --filter @magicaal/integration-slack
 
 WORKDIR /monorepo/apps/engine
 COPY --from=builder /monorepo/apps/engine/dist ./dist

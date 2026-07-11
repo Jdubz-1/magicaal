@@ -15,6 +15,7 @@ import { promptsRouter } from './prompts';
 import { caalRouter } from './caal';
 import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
+import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
 
 export const router: RouterType = Router();
 
@@ -35,4 +36,7 @@ router.use('/v1/caal', caalRouter);
 router.use('/internal/sessions', internalSessionRouter);
 // Public webhook endpoint — no auth middleware; secret is in URL
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
+// Public integration trigger receiver — no auth middleware; authenticity is
+// established by the service's webhook signature, verified in the engine
+router.post('/v1/triggers/integrations/:service/:tenantSlug', receiveIntegrationEvent);
 router.use('/v1', systemRouter);

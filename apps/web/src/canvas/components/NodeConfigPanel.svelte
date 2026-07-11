@@ -2,6 +2,7 @@
   import { graph, selectedNode, type NodeDef } from '../stores/graph';
   import { nodeTypes } from '../stores/nodeTypes';
   import ExpressionEditor from './ExpressionEditor.svelte';
+  import ConnectionSelect from './ConnectionSelect.svelte';
 
   export let node: NodeDef;
 
@@ -100,7 +101,13 @@
   {#each Object.entries(schemaProps) as [key, prop]}
     <div class="form-group">
       <label>{prop.description ?? key}</label>
-      {#if prop.type === 'object'}
+      {#if prop.format === 'connection'}
+        <ConnectionSelect
+          value={String(configValue(key) ?? '')}
+          service={prop.service}
+          onChange={(id) => updateConfig(key, id)}
+        />
+      {:else if prop.type === 'object'}
         <textarea rows="4"
           value={JSON.stringify(configValue(key) ?? {}, null, 2)}
           on:blur={(e) => { try { updateConfig(key, JSON.parse((e.target as HTMLTextAreaElement).value)); } catch { /* invalid JSON */ } }}

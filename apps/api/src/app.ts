@@ -12,7 +12,15 @@ export function createApp(): Express {
 
   app.use(helmet());
   app.use(cors({ credentials: true, origin: process.env.CORS_ORIGIN ?? 'http://localhost:8080' }));
-  app.use(express.json());
+  app.use(
+    express.json({
+      // Integration webhook signatures (Slack, GitHub, ...) are HMACs over the
+      // exact raw body bytes — capture them before JSON parsing discards them.
+      verify: (req, _res, buf) => {
+        (req as express.Request).rawBody = buf.toString('utf8');
+      },
+    }),
+  );
   app.use(cookieParser());
   app.use(requestLogger);
 
