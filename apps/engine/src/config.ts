@@ -16,4 +16,5 @@ export const config = Object.freeze({
   engineInternalUrl: process.env.ENGINE_INTERNAL_URL ?? 'http://localhost:4000',
   marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
   marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
+  packagesDir: process.env.PACKAGES_DIR ?? '/data/packages',
 });

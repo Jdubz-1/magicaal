@@ -50,7 +50,12 @@ async function executeNodeOnce(
   nodeDef: NodeDefinition,
   ctx: ExecutionContextImpl,
 ): Promise<ReturnType<Awaited<ReturnType<typeof registry.get>>['execute']>> {
-  const module = registry.get(nodeDef.type);
+  // Runs resolve node types against the registry snapshot captured at run
+  // start, so a package hot-loaded mid-run cannot change their view.
+  const snapshot = (ctx as unknown as Record<string, unknown>)._registrySnapshot as
+    | ReturnType<typeof registry.snapshot>
+    | undefined;
+  const module = (snapshot ?? registry).get(nodeDef.type);
   const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);
   const ts = new Date().toISOString();
 
@@ -131,6 +136,11 @@ export async function executeGraph(
     );
     _registered = true;
   }
+  // Pin the node registry view for the lifetime of this run (hot-load isolation)
+  if (!(ctx as unknown as Record<string, unknown>)._registrySnapshot) {
+    (ctx as unknown as Record<string, unknown>)._registrySnapshot = registry.snapshot();
+  }
+
   const queue: string[] = [graph.entry];
   const visited = new Set<string>();
   const loopIterations = new Map<string, number>(); // nodeId → iteration count

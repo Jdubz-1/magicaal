@@ -17,6 +17,7 @@ import {
   listIntegrations,
   integrationTriggerDispatch,
 } from '../controllers/integrations.controller';
+import { installPackage } from '../controllers/packages.controller';
 
 export const internalRouter: RouterType = Router();
 
@@ -45,3 +46,5 @@ internalRouter.get('/nodes', listNodes);
 
 internalRouter.get('/integrations', listIntegrations);
 internalRouter.post('/triggers/integrations/:service', integrationTriggerDispatch);
+
+internalRouter.post('/packages/install', installPackage);
