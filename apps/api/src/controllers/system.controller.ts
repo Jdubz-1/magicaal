@@ -3,10 +3,19 @@ import { eq, desc } from 'drizzle-orm';
 import { db } from '../db/client';
 import { providerPricing, syncEvents } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+import { config } from '../config';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
+
+/** Non-sensitive platform feature flags for the frontend. */
+export const getSystemConfig: RequestHandler = (_req, res) => {
+  res.json({
+    marketplaceEnabled: config.marketplaceEnabled,
+    marketplaceCatalogSource: config.marketplaceCatalogSource,
+  });
+};
 
 export const getSystemHealth: RequestHandler = async (_req, res, next) => {
   try {

@@ -10,4 +10,5 @@ export const config = Object.freeze({
   apiBaseUrl: process.env.API_BASE_URL ?? 'http://api:3000',
   jwtSecret: requireEnv('JWT_SECRET'),
   cookieSecret: process.env.COOKIE_SECRET ?? 'dev-cookie-secret',
+  marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
 });

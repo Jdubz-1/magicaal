@@ -2,6 +2,7 @@ import { Router, type Router as RouterType } from 'express';
 import { requireAdminSession } from '../middleware/session';
 import { createApiClient } from '../lib/api-client';
 import { layout, escHtml } from '../views/layout';
+import { config } from '../config';
 
 export const adminRouter: RouterType = Router();
 
@@ -77,6 +78,14 @@ adminRouter.get('/', (req, res) => {
           <a class="card" href="/admin/system/caal" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">Caal AI</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">AI assistant configuration</div>
+          </a>
+          ${config.marketplaceEnabled ? `<a class="card" href="/admin/marketplace" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Marketplace</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Browse &amp; install packages</div>
+          </a>` : ''}
+          <a class="card" href="/admin/system/air-gapped" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Air-Gapped Packages</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Install .mpack bundles offline</div>
           </a>
         </div>
       </div>`,
@@ -1958,6 +1967,262 @@ adminRouter.post('/system/caal', async (req, res, next) => {
       systemPromptSuffix: systemPromptSuffix || null,
     });
     res.redirect('/admin/system/caal');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Marketplace (rendered only when MARKETPLACE_ENABLED=true) ───────────────
+
+interface InstalledPackage {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  packageType: string;
+  enabled: boolean;
+  signatureStatus: string;
+}
+
+interface CatalogAssetView {
+  assetId: string;
+  type: string;
+  publisher: string;
+  name: string;
+  version: string;
+  description?: string;
+  pricing?: { model: string };
+  countersigned?: boolean;
+}
+
+if (config.marketplaceEnabled) {
+  adminRouter.get('/marketplace', async (req, res, next) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      const user = req.session!;
+
+      const [account, packages, catalog, licenses] = await Promise.all([
+        api.get<{ linked: boolean; linkedAt?: string }>('/v1/marketplace/account').then((r) => r.data).catch(() => ({ linked: false })),
+        api.get<InstalledPackage[]>('/v1/marketplace/packages').then((r) => r.data).catch(() => [] as InstalledPackage[]),
+        api.get<{ assets: CatalogAssetView[] }>('/v1/marketplace/catalog').then((r) => r.data).catch(() => ({ assets: [] as CatalogAssetView[] })),
+        api.get<Array<{ packageName: string; licenseType: string; status: string }>>('/v1/marketplace/licenses').then((r) => r.data).catch(() => []),
+      ]);
+
+      const flash = req.query.msg ? `<div style="background:#14532d;border:1px solid #166534;color:#86efac;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1rem">${escHtml(String(req.query.msg))}</div>` : '';
+      const error = req.query.err ? `<div style="background:#3b1f1f;border:1px solid #7f2121;color:#fca5a5;padding:0.75rem 1rem;border-radius:6px;margin-bottom:1rem">${escHtml(String(req.query.err))}</div>` : '';
+
+      const accountSection = account.linked
+        ? `<div style="color:#86efac;font-size:0.875rem">✓ MagiCaal Account linked</div>`
+        : `<form method="POST" action="/admin/marketplace/account" style="display:flex;gap:0.5rem;align-items:flex-end">
+            <div class="form-group" style="flex:1;margin:0"><label>Account API Key</label><input name="apiKey" type="password" required placeholder="mka_..."/></div>
+            <button type="submit" class="btn btn-primary">Link Account</button>
+          </form>`;
+
+      const installedRows = packages.filter((p) => p.enabled).map((p) => `
+        <tr>
+          <td>${escHtml(p.publisher)}/${escHtml(p.name)}</td>
+          <td><code>${escHtml(p.version)}</code></td>
+          <td>${escHtml(p.packageType)}</td>
+          <td>${p.signatureStatus === 'verified' ? '<span style="color:#4ade80">verified</span>' : `<span style="color:#fbbf24">${escHtml(p.signatureStatus)}</span>`}</td>
+          <td>
+            <form method="POST" action="/admin/marketplace/packages/${escHtml(p.id)}/update" style="display:inline">
+              <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.75rem">Update</button>
+            </form>
+            <form method="POST" action="/admin/marketplace/packages/${escHtml(p.id)}/remove" style="display:inline">
+              <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.5rem;font-size:0.75rem;color:#f87171">Remove</button>
+            </form>
+          </td>
+        </tr>`).join('');
+
+      const installedNames = new Set(packages.filter((p) => p.enabled).map((p) => `${p.publisher}/${p.name}`));
+      const catalogRows = catalog.assets.map((a) => `
+        <tr>
+          <td>${escHtml(a.publisher)}/${escHtml(a.name)}</td>
+          <td><code>${escHtml(a.version)}</code></td>
+          <td style="font-size:0.75rem;color:#94a3b8;max-width:280px">${escHtml(a.description ?? '')}</td>
+          <td>${escHtml(a.pricing?.model ?? 'free')}</td>
+          <td>${a.countersigned ? '<span style="color:#4ade80">✓</span>' : '—'}</td>
+          <td>${installedNames.has(`${a.publisher}/${a.name}`)
+            ? '<span style="color:#475569;font-size:0.75rem">installed</span>'
+            : `<form method="POST" action="/admin/marketplace/install" style="display:inline">
+                <input type="hidden" name="assetId" value="${escHtml(a.assetId)}"/>
+                <button type="submit" class="btn btn-primary" style="padding:0.2rem 0.6rem;font-size:0.75rem">Install</button>
+              </form>`}</td>
+        </tr>`).join('');
+
+      const licenseRows = licenses.map((l) => `
+        <tr><td>${escHtml(l.packageName)}</td><td>${escHtml(l.licenseType)}</td>
+        <td>${l.status === 'active' ? '<span style="color:#4ade80">active</span>' : `<span style="color:#fbbf24">${escHtml(l.status)}</span>`}</td></tr>`).join('');
+
+      res.send(layout(`
+        <div class="container" style="margin-top:1.5rem;max-width:1000px">
+          <h1 style="margin:0 0 1.5rem;font-size:1.25rem">Marketplace</h1>
+          ${flash}${error}
+          <div class="card" style="margin-bottom:1.5rem">
+            <h2 style="margin:0 0 0.75rem;font-size:0.9375rem">MagiCaal Account</h2>
+            ${accountSection}
+          </div>
+          <div class="card" style="margin-bottom:1.5rem">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+              <h2 style="margin:0;font-size:0.9375rem">Installed Packages</h2>
+            </div>
+            <table>
+              <thead><tr><th>Package</th><th>Version</th><th>Type</th><th>Signature</th><th></th></tr></thead>
+              <tbody>${installedRows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No packages installed</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div class="card" style="margin-bottom:1.5rem">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+              <h2 style="margin:0;font-size:0.9375rem">Catalog</h2>
+              <form method="POST" action="/admin/marketplace/refresh-catalog" style="margin:0">
+                <button type="submit" class="btn btn-ghost" style="padding:0.2rem 0.6rem;font-size:0.75rem">Refresh</button>
+              </form>
+            </div>
+            <table>
+              <thead><tr><th>Package</th><th>Version</th><th>Description</th><th>Pricing</th><th>Signed</th><th></th></tr></thead>
+              <tbody>${catalogRows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:1.5rem">Catalog is empty — link an account and refresh</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h2 style="margin:0 0 0.75rem;font-size:0.9375rem">Licenses</h2>
+            <table>
+              <thead><tr><th>Package</th><th>Type</th><th>Status</th></tr></thead>
+              <tbody>${licenseRows || '<tr><td colspan="3" style="color:#475569;text-align:center;padding:1.5rem">No licenses</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>`, { title: 'Marketplace', user: { name: user.userId, role: user.role } }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  adminRouter.post('/marketplace/account', async (req, res) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      await api.post('/v1/marketplace/account', { apiKey: (req.body as { apiKey?: string }).apiKey });
+      res.redirect('/admin/marketplace?msg=Account+linked');
+    } catch (err) {
+      res.redirect(`/admin/marketplace?err=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  adminRouter.post('/marketplace/refresh-catalog', async (req, res) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      await api.get('/v1/marketplace/catalog', { params: { refresh: 'true' } });
+      res.redirect('/admin/marketplace?msg=Catalog+refreshed');
+    } catch (err) {
+      res.redirect(`/admin/marketplace?err=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  adminRouter.post('/marketplace/install', async (req, res) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      const assetId = (req.body as { assetId?: string }).assetId ?? '';
+      await api.post(`/v1/marketplace/packages/${encodeURIComponent(assetId)}/install`);
+      res.redirect('/admin/marketplace?msg=Package+installed+and+hot-loaded');
+    } catch (err) {
+      res.redirect(`/admin/marketplace?err=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  adminRouter.post('/marketplace/packages/:id/update', async (req, res) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      await api.post(`/v1/marketplace/packages/${encodeURIComponent(req.params.id)}/update`);
+      res.redirect('/admin/marketplace?msg=Package+updated');
+    } catch (err) {
+      res.redirect(`/admin/marketplace?err=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  adminRouter.post('/marketplace/packages/:id/remove', async (req, res) => {
+    try {
+      const api = createApiClient(req.accessToken);
+      await api.delete(`/v1/marketplace/packages/${encodeURIComponent(req.params.id)}`);
+      res.redirect('/admin/marketplace?msg=Package+removed');
+    } catch (err) {
+      res.redirect(`/admin/marketplace?err=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+}
+
+// ─── Air-Gapped Packages (ALWAYS active, independent of MARKETPLACE_ENABLED) ─
+
+adminRouter.get('/system/air-gapped', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data: packages } = await api
+      .get<InstalledPackage[]>('/v1/marketplace/packages')
+      .catch(() => ({ data: [] as InstalledPackage[] }));
+
+    const rows = packages.filter((p) => p.enabled).map((p) => `
+      <tr>
+        <td>${escHtml(p.publisher)}/${escHtml(p.name)}</td>
+        <td><code>${escHtml(p.version)}</code></td>
+        <td>${p.signatureStatus === 'verified' ? '<span style="color:#4ade80">verified</span>' : `<span style="color:#fbbf24">${escHtml(p.signatureStatus)}</span>`}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:800px">
+        <h1 style="margin:0 0 0.5rem;font-size:1.25rem">Air-Gapped Packages</h1>
+        <p style="color:#94a3b8;font-size:0.875rem;margin:0 0 1.5rem">
+          Install signed .mpack bundles without Marketplace connectivity. The bundle is
+          signature-verified and hot-loaded — new nodes appear in the Studio palette without a restart.
+        </p>
+        <div class="card" style="margin-bottom:1.5rem">
+          <h2 style="margin:0 0 0.75rem;font-size:0.9375rem">Upload Bundle</h2>
+          <input type="file" id="bundle-file" accept=".mpack" style="margin-bottom:0.75rem;color:#94a3b8;font-size:0.8125rem"/>
+          <div><button id="upload-btn" class="btn btn-primary">Verify &amp; Install</button></div>
+          <div id="upload-status" style="margin-top:0.75rem;font-size:0.8125rem"></div>
+        </div>
+        <div class="card">
+          <h2 style="margin:0 0 0.75rem;font-size:0.9375rem">Installed Packages</h2>
+          <table>
+            <thead><tr><th>Package</th><th>Version</th><th>Signature</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="3" style="color:#475569;text-align:center;padding:1.5rem">No packages installed</td></tr>'}</tbody>
+          </table>
+        </div>
+        <script>
+          document.getElementById('upload-btn').addEventListener('click', async function () {
+            var input = document.getElementById('bundle-file');
+            var status = document.getElementById('upload-status');
+            if (!input.files || input.files.length === 0) {
+              status.textContent = 'Choose an .mpack file first.';
+              status.style.color = '#fbbf24';
+              return;
+            }
+            status.textContent = 'Uploading and verifying…';
+            status.style.color = '#94a3b8';
+            var reader = new FileReader();
+            reader.onload = async function () {
+              try {
+                var base64 = String(reader.result).split(',')[1];
+                var resp = await fetch('/api/marketplace/licenses/bundle', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bundleBase64: base64 }),
+                });
+                var data = await resp.json();
+                if (resp.ok) {
+                  status.textContent = '✓ Installed ' + data.packageId + ' (' + data.signatureStatus + ') — nodes: ' + (data.nodeTypes || []).join(', ');
+                  status.style.color = '#4ade80';
+                  setTimeout(function () { window.location.reload(); }, 1500);
+                } else {
+                  status.textContent = '✗ ' + (data.error || data.message || ('Install failed (' + resp.status + ')'));
+                  status.style.color = '#fca5a5';
+                }
+              } catch (e) {
+                status.textContent = '✗ Upload failed';
+                status.style.color = '#fca5a5';
+              }
+            };
+            reader.readAsDataURL(input.files[0]);
+          });
+        </script>
+      </div>`, { title: 'Air-Gapped Packages', user: { name: user.userId, role: user.role } }));
   } catch (err) {
     next(err);
   }
