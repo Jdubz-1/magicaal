@@ -25,6 +25,26 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-11 - Phase 5 Completion: Full First-Wave Integration Set + OAuth Refresh at Expiry
+
+**Type:** Feature
+
+**Description:**
+Completed the remaining Phase 5 engineering: the 11 outstanding first-wave integration packages (bringing the total to 14 services) and the mid-run OAuth token refresh path the roadmap flagged as a launch risk.
+
+**Changes:**
+- `packages/integrations/{gmail,sendgrid,stripe,google-workspace,salesforce,hubspot,zendesk,twilio,quickbooks,bamboohr,shopify}` — new packages on the Slack template: nodes, auth schemas, and service-specific signed triggers (Stripe t=/v1= with replay tolerance, Shopify base64 HMAC + topic headers, Zendesk timestamped HMAC, HubSpot v1, BambooHR body+timestamp, Google watch-channel tokens, Salesforce signed callouts); 45 new unit tests
+- `apps/engine/src/resolver/credential-resolver.ts` — `maybeRefreshOAuth`: expired oauth credentials refresh through the integration package's token endpoint (refresh_token + client credentials from the connection); rotated refresh tokens captured; expires_at normalized seconds→ms
+- `apps/api` — internal `POST /internal/integrations/connections/:id/credentials` persists refreshed tokens (engine's DB connection is read-only); best-effort from the engine so persist failures never fail a run
+
+**Impact:**
+Every first-wave integration from the dev roadmap table now ships at platform launch. Long-running and infrequently-run agents no longer fail on expired OAuth tokens — the resolver refreshes transparently at run start and persists for subsequent runs.
+
+**Notes:**
+Still requiring a live environment (not automatable in this workspace — Docker unavailable): docker-compose e2e of the GitHub-push → Slack+GitHub+Jira milestone scenario, internal-staging Marketplace install with MARKETPLACE_ENABLED=true, and the dedicated signature-verifier security review before Stage 2.
+
+---
+
 ### 2026-07-11 - Phase 5 Core: Integrations, Marketplace Plumbing, SDK Phase 4
 
 **Type:** Feature
