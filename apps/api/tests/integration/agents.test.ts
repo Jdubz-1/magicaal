@@ -91,7 +91,7 @@ describe('Agents CRUD', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Publishable', handle: 'publishable' });
 
-    const graphJson = JSON.stringify({ entry: 'start', nodes: {}, edges: [] });
+    const graphJson = JSON.stringify({ entry: 'start', nodes: { start: { id: 'start', type: 'core:start', config: {} } }, edges: [] });
     const res = await request(app)
       .post(`/v1/agents/${create.body.id}/publish`)
       .set('Authorization', `Bearer ${token}`)
@@ -115,13 +115,85 @@ describe('Agents CRUD', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('graph validation at publish (ISS-054)', () => {
+    async function publish(handle: string, graph: unknown): Promise<request.Response> {
+      const create = await request(app)
+        .post('/v1/agents')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: handle, handle });
+
+      return request(app)
+        .post(`/v1/agents/${create.body.id}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ graphJson: JSON.stringify(graph) });
+    }
+
+    it('refuses a graph whose entry node does not exist', async () => {
+      const res = await publish(`bad-entry-${Date.now()}`, {
+        entry: 'nope',
+        nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+        edges: [],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_GRAPH_ENTRY');
+    });
+
+    it('refuses a graph with no core:start node', async () => {
+      const res = await publish(`no-start-${Date.now()}`, {
+        entry: 'x',
+        nodes: { x: { id: 'x', type: 'core:end', config: {} } },
+        edges: [],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_GRAPH_NO_START');
+    });
+
+    it('refuses an edge pointing at a node that does not exist', async () => {
+      const res = await publish(`bad-edge-${Date.now()}`, {
+        entry: 'start',
+        nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+        edges: [{ id: 'e1', from: 'start', to: 'ghost', type: 'unconditional' }],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_GRAPH_EDGE');
+    });
+
+    it('refuses a node unreachable from the entry', async () => {
+      const res = await publish(`orphan-${Date.now()}`, {
+        entry: 'start',
+        nodes: {
+          start: { id: 'start', type: 'core:start', config: {} },
+          orphan: { id: 'orphan', type: 'core:end', config: {} },
+        },
+        edges: [],
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_GRAPH_DISCONNECTED');
+    });
+
+    it('refuses malformed JSON', async () => {
+      const create = await request(app)
+        .post('/v1/agents')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'bad-json', handle: `bad-json-${Date.now()}` });
+
+      const res = await request(app)
+        .post(`/v1/agents/${create.body.id}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ graphJson: '{"entry": "start", oops' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_GRAPH_JSON');
+    });
+  });
+
   it('reverts agent to draft', async () => {
     const create = await request(app)
       .post('/v1/agents')
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Draft Me', handle: 'draft-me' });
 
-    const graphJson = JSON.stringify({ entry: 'start', nodes: {}, edges: [] });
+    const graphJson = JSON.stringify({ entry: 'start', nodes: { start: { id: 'start', type: 'core:start', config: {} } }, edges: [] });
     await request(app)
       .post(`/v1/agents/${create.body.id}/publish`)
       .set('Authorization', `Bearer ${token}`)
@@ -141,7 +213,11 @@ describe('Agents CRUD', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Versioned', handle: 'versioned' });
 
-    const graphJson = JSON.stringify({ entry: 's', nodes: {}, edges: [] });
+    const graphJson = JSON.stringify({
+      entry: 's',
+      nodes: { s: { id: 's', type: 'core:start', config: {} } },
+      edges: [],
+    });
     await request(app)
       .post(`/v1/agents/${create.body.id}/publish`)
       .set('Authorization', `Bearer ${token}`)

@@ -4,7 +4,8 @@ import { createApp } from '../../src/app';
 import { runMigrations } from '../../src/db/migrate';
 import { createUserAndLogin } from '../helpers/auth-helpers';
 import { db } from '@/db/client';
-import { tenants } from '@/db/schema';
+import { tenants, integrationTriggers } from '@/db/schema';
+import { decryptCredentials } from '@/lib/credentials';
 
 jest.mock('../../src/lib/engine-client', () => ({
   engineClient: {
@@ -26,6 +27,13 @@ beforeAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // createTrigger validates the service against the engine's integration registry
+  engineClient.get.mockResolvedValue({
+    data: [
+      { service: 'slack', displayName: 'Slack', hasTrigger: true },
+      { service: 'sendgrid', displayName: 'SendGrid', hasTrigger: false },
+    ],
+  });
 });
 
 async function tenantSlugOf(tenantId: string): Promise<string> {
@@ -42,6 +50,21 @@ async function createAgent(token: string, handle: string): Promise<string> {
     .set('Authorization', `Bearer ${token}`)
     .send({ name: 'Trigger Agent', handle });
   return create.body.id as string;
+}
+
+/** A trigger only dispatches to a live agent, so most cases need a published one. */
+async function createPublishedAgent(token: string, handle: string): Promise<string> {
+  const agentId = await createAgent(token, handle);
+  const graphJson = JSON.stringify({
+    entry: 'start',
+    nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+    edges: [],
+  });
+  await request(app)
+    .post(`/v1/agents/${agentId}/publish`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ graphJson });
+  return agentId;
 }
 
 describe('GET /v1/integrations', () => {
@@ -123,10 +146,79 @@ describe('integration trigger CRUD', () => {
   });
 });
 
+describe('trigger registration validation (ISS-062)', () => {
+  it('rejects a service the engine has no integration for', async () => {
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    const agentId = await createAgent(token, `trig-unknown-${Date.now()}`);
+
+    const res = await request(app)
+      .post('/v1/integrations/triggers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service: 'not-a-real-service', agentId, secret: 's' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INTEGRATION_NOT_FOUND');
+  });
+
+  it('rejects a service whose integration has no trigger handler', async () => {
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    const agentId = await createAgent(token, `trig-notrig-${Date.now()}`);
+
+    const res = await request(app)
+      .post('/v1/integrations/triggers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service: 'sendgrid', agentId, secret: 's' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('TRIGGER_NOT_SUPPORTED');
+  });
+});
+
+describe('trigger secrets at rest (ISS-053)', () => {
+  it('stores the signing secret encrypted, not in plaintext', async () => {
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    const agentId = await createPublishedAgent(token, `trig-enc-${Date.now()}`);
+
+    const created = await request(app)
+      .post('/v1/integrations/triggers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service: 'slack', agentId, secret: 'super-secret-signing-key' });
+
+    const rows = await db
+      .select({ secret: integrationTriggers.secret })
+      .from(integrationTriggers)
+      .where(eq(integrationTriggers.id, created.body.id as string));
+
+    expect(rows[0].secret).not.toBe('super-secret-signing-key');
+    expect(rows[0].secret).not.toContain('super-secret');
+    // ...but round-trips under the master key
+    expect(decryptCredentials(rows[0].secret)).toBe('super-secret-signing-key');
+  });
+});
+
 describe('POST /v1/triggers/integrations/:service/:tenantSlug (public receiver)', () => {
+  it('does not dispatch to a draft agent (ISS-062)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
+    // Registered but never published — must not produce a run
+    const agentId = await createAgent(token, `trig-draft-${Date.now()}`);
+    const slug = await tenantSlugOf(tenantId);
+
+    await request(app)
+      .post('/v1/integrations/triggers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ service: 'slack', agentId, secret: 'shhh' });
+
+    const res = await request(app)
+      .post(`/v1/triggers/integrations/slack/${slug}`)
+      .send({ type: 'event_callback' });
+
+    expect(res.status).toBe(404);
+    expect(engineClient.post).not.toHaveBeenCalled();
+  });
+
   it('forwards raw body, headers, and trigger rows to the engine', async () => {
     const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
-    const agentId = await createAgent(token, `trig-recv-${Date.now()}`);
+    const agentId = await createPublishedAgent(token, `trig-recv-${Date.now()}`);
     const slug = await tenantSlugOf(tenantId);
 
     await request(app)
@@ -146,8 +238,12 @@ describe('POST /v1/triggers/integrations/:service/:tenantSlug (public receiver)'
     expect(res.status).toBe(202);
     expect(res.body.runIds).toEqual(['run-1']);
 
-    const [url, body] = engineClient.post.mock.calls[0];
-    expect(url).toBe('/internal/triggers/integrations/slack');
+    // Publishing the agent also posts a deploy — pick out the dispatch call
+    const dispatch = engineClient.post.mock.calls.find(
+      ([u]) => u === '/internal/triggers/integrations/slack',
+    );
+    expect(dispatch).toBeDefined();
+    const [, body] = dispatch!;
     expect(body.tenantId).toBe(tenantId);
     expect(JSON.parse(body.rawBody)).toEqual(payload);
     expect(body.headers['x-slack-signature']).toBe('v0=abc');

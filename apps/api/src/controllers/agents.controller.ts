@@ -4,6 +4,7 @@ import * as crypto from 'node:crypto';
 import { db } from '../db/client';
 import { agents, agentVersions, agentConfig } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+import { parseAndValidateGraph } from '../lib/graph-validator';
 import { config } from '../config';
 import { getWebhookUrl } from './webhook.controller';
 
@@ -141,6 +142,10 @@ export const publishAgent: RequestHandler = async (req, res, next) => {
     if (!graphJson) {
       throw Object.assign(new Error('graphJson is required'), { status: 400 });
     }
+
+    // Publishing is the gate: a malformed graph must be refused here rather
+    // than accepted and left to fail (or half-run) at execution.
+    parseAndValidateGraph(graphJson);
 
     const agentRows = await db.select().from(agents).where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)));
     if (!agentRows[0]) throw Object.assign(new Error('Agent not found'), { status: 404 });

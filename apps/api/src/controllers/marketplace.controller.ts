@@ -12,13 +12,14 @@ import {
   promptVersions,
 } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+import { parseAndValidateGraph } from '../lib/graph-validator';
 import { config } from '../config';
 import { encryptCredentials } from '../lib/credentials';
 
 const CATALOG_TTL_MS = 6 * 60 * 60 * 1000; // 6-hour refresh per MARKETPLACE_SPEC
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 interface CatalogAsset {
@@ -385,6 +386,33 @@ export const uploadLicenseBundle: RequestHandler = async (req, res, next) => {
   }
 };
 
+/**
+ * Replace `{{param}}` tokens inside every string value of a parsed graph.
+ *
+ * Operating on the object (rather than its serialized text) means a parameter
+ * value containing `"`, `\`, or a newline is carried through JSON.stringify
+ * safely instead of breaking out of its string.
+ */
+function substituteParameters(value: unknown, parameters: Record<string, string>): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, key: string) =>
+      Object.prototype.hasOwnProperty.call(parameters, key) ? parameters[key] : match,
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => substituteParameters(item, parameters));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        substituteParameters(v, parameters),
+      ]),
+    );
+  }
+  return value;
+}
+
 /** POST /v1/marketplace/templates/import — import an agent template as a DRAFT agent. */
 export const importTemplate: RequestHandler = async (req, res, next) => {
   try {
@@ -402,17 +430,22 @@ export const importTemplate: RequestHandler = async (req, res, next) => {
       });
     }
 
-    // Replace {{param}} tokens in the serialized graph
-    let graphJson = JSON.stringify(template.graph);
-    for (const [key, value] of Object.entries(parameters ?? {})) {
-      graphJson = graphJson.split(`{{${key}}}`).join(value);
-    }
+    // Substitute {{param}} tokens inside the graph's string values, not in its
+    // serialized form: splicing raw values into JSON text lets a value
+    // containing a quote or backslash corrupt (or inject into) the graph.
+    const substituted = substituteParameters(template.graph, parameters ?? {});
+
+    const graphJson = JSON.stringify(substituted);
     const unresolved = graphJson.match(/\{\{([a-zA-Z0-9_]+)\}\}/);
     if (unresolved) {
       throw Object.assign(new Error(`Unresolved template parameter: ${unresolved[1]}`), {
         status: 422,
       });
     }
+
+    // An imported graph is untrusted input — refuse a structurally broken one
+    // rather than storing a draft that cannot run.
+    parseAndValidateGraph(graphJson);
 
     const now = new Date();
     const [created] = await db

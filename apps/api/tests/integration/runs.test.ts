@@ -34,7 +34,7 @@ async function createAndPublishAgent(token: string, handle: string) {
     .set('Authorization', `Bearer ${token}`)
     .send({ name: 'Run Agent', handle });
 
-  const graphJson = JSON.stringify({ entry: 'start', nodes: {}, edges: [] });
+  const graphJson = JSON.stringify({ entry: 'start', nodes: { start: { id: 'start', type: 'core:start', config: {} } }, edges: [] });
   await request(app)
     .post(`/v1/agents/${create.body.id}/publish`)
     .set('Authorization', `Bearer ${token}`)

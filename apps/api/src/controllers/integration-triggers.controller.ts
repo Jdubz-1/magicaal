@@ -1,12 +1,52 @@
 import type { RequestHandler } from 'express';
+import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
 import { integrationTriggers, tenants, agents } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+import { encryptCredentials, decryptCredentials } from '../lib/credentials';
 import { config } from '../config';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
+}
+
+/**
+ * Decrypt a stored trigger secret.
+ *
+ * Secrets were stored in plaintext before they were treated as credentials;
+ * backfillTriggerSecrets() re-encrypts them at boot. A row that fails to
+ * decrypt is assumed to be a legacy plaintext value and used as-is, so a
+ * deployment mid-upgrade keeps verifying webhooks rather than failing closed
+ * on every delivery.
+ */
+function decryptTriggerSecret(stored: string): string {
+  try {
+    return decryptCredentials(stored);
+  } catch {
+    return stored;
+  }
+}
+
+/** Reject services the engine has no trigger-capable integration package for. */
+async function assertServiceSupportsTriggers(service: string): Promise<void> {
+  const { data } = await engineClient.get('/internal/integrations');
+  const pkg = (data as Array<{ service: string; hasTrigger?: boolean }>).find(
+    (p) => p.service === service,
+  );
+
+  if (!pkg) {
+    throw Object.assign(new Error(`Unknown integration service: ${service}`), {
+      status: 400,
+      code: 'INTEGRATION_NOT_FOUND',
+    });
+  }
+  if (!pkg.hasTrigger) {
+    throw Object.assign(new Error(`Integration "${service}" does not support triggers`), {
+      status: 400,
+      code: 'TRIGGER_NOT_SUPPORTED',
+    });
+  }
 }
 
 /** GET /v1/integrations — available integration types from the engine registry. */
@@ -68,6 +108,10 @@ export const createTrigger: RequestHandler = async (req, res, next) => {
       });
     }
 
+    // A service the engine has no integration package for would produce a
+    // trigger URL that can only ever fail at dispatch — reject it up front.
+    await assertServiceSupportsTriggers(service);
+
     const agentRows = await db
       .select({ id: agents.id })
       .from(agents)
@@ -94,7 +138,9 @@ export const createTrigger: RequestHandler = async (req, res, next) => {
         tenantSlug,
         agentId,
         eventFilter: eventFilter ?? null,
-        secret,
+        // Webhook signing secrets are credentials — encrypted at rest like
+        // integration connection credentials, and decrypted only at dispatch.
+        secret: encryptCredentials(secret),
         enabled: true,
         createdAt: new Date(),
       })
@@ -170,6 +216,9 @@ export const receiveIntegrationEvent: RequestHandler = async (req, res, next) =>
       throw Object.assign(new Error('Unknown trigger endpoint'), { status: 404 });
     }
 
+    // Only registrations whose agent can actually run: a draft or disabled
+    // agent would otherwise get a run row and a queue job on every delivery,
+    // failing at graph load and filling telemetry with noise.
     const triggerRows = await db
       .select({
         id: integrationTriggers.id,
@@ -178,11 +227,14 @@ export const receiveIntegrationEvent: RequestHandler = async (req, res, next) =>
         secret: integrationTriggers.secret,
       })
       .from(integrationTriggers)
+      .innerJoin(agents, eq(agents.id, integrationTriggers.agentId))
       .where(
         and(
           eq(integrationTriggers.tenantId, tenant.id),
           eq(integrationTriggers.service, service),
           eq(integrationTriggers.enabled, true),
+          eq(agents.status, 'active'),
+          eq(agents.enabled, true),
         ),
       );
 
@@ -190,11 +242,18 @@ export const receiveIntegrationEvent: RequestHandler = async (req, res, next) =>
       throw Object.assign(new Error('Unknown trigger endpoint'), { status: 404 });
     }
 
+    // The engine verifies the service's HMAC against the plaintext secret; it
+    // is decrypted here and never stored or logged in the clear.
+    const triggers = triggerRows.map((row) => ({
+      ...row,
+      secret: decryptTriggerSecret(row.secret),
+    }));
+
     const response = await engineClient.post(`/internal/triggers/integrations/${service}`, {
       tenantId: tenant.id,
       rawBody: req.rawBody ?? JSON.stringify(req.body ?? {}),
       headers: forwardableHeaders(req.headers),
-      triggers: triggerRows,
+      triggers,
     });
 
     res.status(response.status).json(response.data);
