@@ -3,6 +3,8 @@ import Database from 'better-sqlite3';
 import type { AgentGraphDefinition } from '@magicaal/core';
 import type { ExecutionContextImpl } from '../execution/context';
 import type { ResolvedCredentials } from '@magicaal/sdk-node';
+import { isExpired, refreshOAuthToken } from '@magicaal/integration-core';
+import { integrationRegistry } from '../registry/integration-registry';
 import { config } from '../config';
 import { logger } from '../lib/logger';
 
@@ -23,6 +25,80 @@ interface StoredConnection {
   auth_type: 'oauth2' | 'api_key';
   status: string;
   expires_at: number | null;
+  service: string;
+}
+
+/** Connection rows store epoch seconds; ResolvedCredentials carries epoch ms. */
+function toEpochMs(value: number | null): number | undefined {
+  if (value === null) return undefined;
+  return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+/**
+ * Refresh an expired OAuth credential mid-run using the integration
+ * package's token endpoint and the connection's stored refresh_token +
+ * client credentials. The refreshed token is used for this run immediately;
+ * persistence back to the primary DB goes through the API (the engine's
+ * connection is read-only) and is best-effort.
+ */
+export async function maybeRefreshOAuth(
+  connectionId: string,
+  service: string,
+  rawCreds: Record<string, unknown>,
+  resolved: ResolvedCredentials,
+): Promise<ResolvedCredentials> {
+  if (resolved.type !== 'oauth' || !isExpired(resolved)) return resolved;
+
+  const refreshToken = rawCreds.refresh_token;
+  const clientId = rawCreds.client_id;
+  if (typeof refreshToken !== 'string' || typeof clientId !== 'string') {
+    logger.warn(
+      { connectionId, service },
+      'OAuth token expired but connection has no refresh_token/client_id — using stale token',
+    );
+    return resolved;
+  }
+
+  const oauth = integrationRegistry.has(service)
+    ? integrationRegistry.get(service).authSchema.oauth
+    : undefined;
+  if (!oauth) {
+    logger.warn({ connectionId, service }, 'OAuth token expired but service declares no token endpoint');
+    return resolved;
+  }
+
+  const refreshed = await refreshOAuthToken(
+    {
+      service,
+      tokenUrl: oauth.tokenUrl,
+      clientId,
+      clientSecret: typeof rawCreds.client_secret === 'string' ? rawCreds.client_secret : undefined,
+    },
+    refreshToken,
+  );
+
+  const updatedRaw: Record<string, unknown> = {
+    ...rawCreds,
+    access_token: refreshed.accessToken,
+    refresh_token: refreshed.refreshToken ?? refreshToken,
+  };
+
+  // Best-effort persist via the API layer so the next run starts fresh
+  void fetch(`${config.apiBaseUrl}/internal/integrations/connections/${connectionId}/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credentials: updatedRaw, expiresAt: refreshed.expiresAt ?? null }),
+  }).catch((err) => {
+    logger.warn({ connectionId, err }, 'Failed to persist refreshed OAuth credentials');
+  });
+
+  logger.info({ connectionId, service }, 'OAuth token refreshed at expiry');
+  return {
+    ...resolved,
+    accessToken: refreshed.accessToken,
+    expiresAt: refreshed.expiresAt,
+    extra: updatedRaw,
+  };
 }
 
 function deriveKey(masterKey: string): Buffer {
@@ -79,7 +155,7 @@ export async function resolveCredentials(
     try {
       const row = db
         .prepare(
-          `SELECT credentials_enc, auth_type, status, expires_at
+          `SELECT credentials_enc, auth_type, status, expires_at, service
            FROM integration_connections
            WHERE id = ? AND tenant_id = ?`,
         )
@@ -105,13 +181,19 @@ export async function resolveCredentials(
 
       const rawCreds = JSON.parse(rawJson) as Record<string, unknown>;
 
-      const resolved: ResolvedCredentials = {
+      let resolved: ResolvedCredentials = {
         type: row.auth_type === 'oauth2' ? 'oauth' : 'apikey',
         apiKey: rawCreds.api_key as string | undefined,
         accessToken: rawCreds.access_token as string | undefined,
-        expiresAt: row.expires_at ?? undefined,
+        expiresAt: toEpochMs(row.expires_at),
         extra: rawCreds,
       };
+
+      try {
+        resolved = await maybeRefreshOAuth(connectionId, row.service, rawCreds, resolved);
+      } catch (err) {
+        logger.error({ connectionId, err }, 'OAuth refresh failed — using stale token');
+      }
 
       // Mutable assignment to credentials map (ctx.credentials is declared readonly but the Map itself is mutable)
       (ctx.credentials as Record<string, ResolvedCredentials>)[connectionId] = resolved;

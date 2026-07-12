@@ -25,6 +25,46 @@ export function encryptCredentials(plaintext: string): string {
   return Buffer.concat([iv, authTag, encrypted]).toString('base64');
 }
 
+/**
+ * POST /internal/integrations/connections/:id/credentials — engine-internal
+ * persistence of mid-run OAuth token refreshes. No platform auth (internal
+ * network only, same trust model as /internal/sessions).
+ */
+export const internalUpdateCredentials: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { credentials, expiresAt } = req.body as {
+      credentials?: Record<string, unknown>;
+      expiresAt?: number | null;
+    };
+    if (!credentials) {
+      throw Object.assign(new Error('credentials are required'), { status: 400 });
+    }
+
+    const existing = await db
+      .select({ id: integrationConnections.id })
+      .from(integrationConnections)
+      .where(eq(integrationConnections.id, id));
+    if (!existing[0]) {
+      throw Object.assign(new Error('Connection not found'), { status: 404 });
+    }
+
+    await db
+      .update(integrationConnections)
+      .set({
+        credentialsEnc: encryptCredentials(JSON.stringify(credentials)),
+        expiresAt: typeof expiresAt === 'number' ? new Date(expiresAt) : null,
+        status: 'active',
+        updatedAt: new Date(),
+      })
+      .where(eq(integrationConnections.id, id));
+
+    res.json({ id, updated: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const listConnections: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;

@@ -19,6 +19,7 @@ import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
 import { getRunDirect } from '../controllers/runs.controller';
+import { internalUpdateCredentials } from '../controllers/integrations.controller';
 import { requireAuth } from '../middleware/auth';
 
 export const router: RouterType = Router();
@@ -45,6 +46,8 @@ router.get('/v1/openapi.json', (_req, res) => {
 });
 // Internal engine→API session endpoints
 router.use('/internal/sessions', internalSessionRouter);
+// Internal engine→API credential refresh persistence
+router.post('/internal/integrations/connections/:id/credentials', internalUpdateCredentials);
 // Public webhook endpoint — no auth middleware; secret is in URL
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 // Public integration trigger receiver — no auth middleware; authenticity is
