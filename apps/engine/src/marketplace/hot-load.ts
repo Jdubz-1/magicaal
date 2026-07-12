@@ -1,10 +1,60 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Redis } from 'ioredis';
 import { logger } from '../lib/logger';
+import { config } from '../config';
 import { registry } from '../registry/node-registry';
 import { integrationRegistry } from '../registry/integration-registry';
-import { loadPackageDir } from './package-loader';
+import { loadPackageDir, verifyInstalledDir } from './package-loader';
 
 export const PACKAGE_EVENTS_CHANNEL = 'magicaal:package-events';
+
+/**
+ * Re-load packages installed in previous runs. Installs persist to
+ * PACKAGES_DIR (inside the /data volume) but the registries are rebuilt from
+ * the built-ins on every boot — without this, marketplace and air-gapped
+ * installs silently disappear on restart while package_registry still
+ * advertises their node types to the Studio palette.
+ *
+ * Runs after built-in registration (built-ins are the base layer) and before
+ * the scheduler starts (no run may execute against a half-built registry).
+ * A single bad package logs and is skipped; it must not block boot.
+ */
+export function reloadInstalledPackages(): void {
+  const root = config.packagesDir;
+  if (!fs.existsSync(root)) return;
+
+  let loadedCount = 0;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const dir = path.join(root, entry.name);
+    if (!fs.existsSync(path.join(dir, 'manifest.json'))) continue;
+
+    try {
+      verifyInstalledDir(dir, config.marketplaceAllowUnverified);
+      const loaded = loadPackageDir(dir);
+      registry.hotLoad(loaded.nodes);
+      if (loaded.integration) {
+        integrationRegistry.register(loaded.integration);
+      }
+      loadedCount++;
+      logger.info(
+        {
+          packageId: `${loaded.manifest.publisher}/${loaded.manifest.name}@${loaded.manifest.version}`,
+          nodeTypes: loaded.nodes.map((n) => n.type),
+        },
+        'Installed package re-loaded at startup',
+      );
+    } catch (err) {
+      logger.error({ dir, err }, 'Failed to re-load installed package — skipping');
+    }
+  }
+
+  if (loadedCount > 0) {
+    logger.info({ count: loadedCount }, 'Installed packages re-loaded');
+  }
+}
 
 export interface PackageEvent {
   event: 'installed' | 'updated' | 'removed';

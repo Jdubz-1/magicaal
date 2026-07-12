@@ -6,7 +6,7 @@ import { registerNodes, registerAdapters, registerIntegrations } from './registr
 import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
 import { sessionManager } from './session/session-manager';
-import { startHotLoadSubscriber } from './marketplace/hot-load';
+import { startHotLoadSubscriber, reloadInstalledPackages } from './marketplace/hot-load';
 import { startLicenseValidator } from './marketplace/license-validator';
 import { startUsageReporter } from './marketplace/usage-reporter';
 import { redis } from './queue/client';
@@ -22,6 +22,9 @@ async function main(): Promise<void> {
   registerNodes();
   registerIntegrations();
   registerAdapters();
+  // Marketplace/air-gapped installs from previous boots layer on top of the
+  // built-ins — must complete before any run can be dispatched.
+  reloadInstalledPackages();
   initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();
   startHotLoadSubscriber(redis);

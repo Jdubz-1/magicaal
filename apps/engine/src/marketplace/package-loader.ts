@@ -2,7 +2,7 @@ import * as zlib from 'node:zlib';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NodeModule, IntegrationPackage } from '@magicaal/sdk-node';
-import type { PackageManifest } from './package-verifier';
+import { verifyPackage, isInstallAllowed, type PackageManifest } from './package-verifier';
 
 /**
  * Extract a .mpack bundle (gzipped POSIX tar) into a path → content map.
@@ -108,6 +108,37 @@ export function installAndLoad(
   }
 
   return loadPackageDir(dir);
+}
+
+/** Recursively read every file under `dir` into a path → content map, relative to `dir`. */
+function readDirFiles(dir: string, base: string = dir): Map<string, Buffer> {
+  const files = new Map<string, Buffer>();
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      for (const [rel, content] of readDirFiles(full, base)) files.set(rel, content);
+    } else if (entry.isFile()) {
+      files.set(path.relative(base, full).split(path.sep).join('/'), fs.readFileSync(full));
+    }
+  }
+  return files;
+}
+
+/**
+ * Re-verify an installed package against its manifest signatures. Installed
+ * code is `require()`d with full engine privileges, so the on-disk bytes are
+ * re-checked at every load rather than trusting that whatever is in the
+ * install directory was verified when it was written.
+ */
+export function verifyInstalledDir(dir: string, allowUnverified: boolean): PackageManifest {
+  const files = readDirFiles(dir);
+  const result = verifyPackage(files);
+  if (!isInstallAllowed(result.status, allowUnverified)) {
+    throw new Error(
+      `installed package failed re-verification (${result.status}): ${result.errors.join('; ') || 'not countersigned by MagiCaal'}`,
+    );
+  }
+  return JSON.parse(files.get('manifest.json')!.toString('utf8')) as PackageManifest;
 }
 
 /** Load an already-installed package directory (startup re-load of installed packages). */
