@@ -165,6 +165,22 @@ export const getRun: RequestHandler = async (req, res, next) => {
   }
 };
 
+/** GET /v1/runs/:runId — direct run lookup without the owning agent ID. */
+export const getRunDirect: RequestHandler = async (req, res, next) => {
+  try {
+    const { runId } = req.params;
+    const { tenantId } = req.user!;
+    const response = await engineClient.get(`/internal/runs/${runId}`);
+    const run = response.data as { tenantId?: string };
+    if (run.tenantId && run.tenantId !== tenantId) {
+      throw Object.assign(new Error(`Run ${runId} not found`), { status: 404, code: 'RUN_NOT_FOUND' });
+    }
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const reviewRun: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId, runId } = req.params;

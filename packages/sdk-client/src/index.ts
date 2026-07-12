@@ -1,5 +1,7 @@
 export { MagiCaalClient } from './client.js';
-export { AgentClient } from './agent-client.js';
+export { AgentClient, type AgentClientOptions } from './agent-client.js';
+export { WebhookVerifier, WebhookVerificationError } from './webhook-verifier.js';
+export type { WebhookVerifyOptions } from './webhook-verifier.js';
 export { RunHandleImpl } from './run-handle.js';
 export { streamRun } from './stream-client.js';
 export { HumanReviewClient } from './human-review-client.js';
@@ -40,4 +42,5 @@ export type {
   RunCompletedEvent,
   RunFailedEvent,
   RunSuspendedEvent,
+  AgentDescriptor,
 } from './types.js';

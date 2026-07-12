@@ -1,20 +1,53 @@
 import type { AxiosInstance } from 'axios';
 import type { InvokeOptions, StartOptions, RunStreamEvent } from './types.js';
+import type { ValidationIssue } from './errors.js';
 import { RunHandleImpl } from './run-handle.js';
 import { streamRun } from './stream-client.js';
 import { HumanReviewClient } from './human-review-client.js';
 import { SessionClient, type SessionSummary } from './session-client.js';
+import { validateAgainstSchema } from './schema-validate.js';
 
 interface DispatchResponse {
   runId: string;
   sessionId?: string;
 }
 
+export interface AgentClientOptions {
+  /** Input schema from a generated descriptor — lets validate() work offline. */
+  inputSchema?: object | null;
+}
+
 export class AgentClient<TIn = Record<string, unknown>, TOut = Record<string, unknown>> {
+  private inputSchema: object | null | undefined;
+
   constructor(
     private readonly agentId: string,
     private readonly http: AxiosInstance,
-  ) {}
+    options?: AgentClientOptions,
+  ) {
+    this.inputSchema = options?.inputSchema;
+  }
+
+  /**
+   * Pre-flight input validation against the agent's input schema. Uses the
+   * descriptor schema when the client was built from one; otherwise fetches
+   * it once from the API. Returns an empty array when the input is valid or
+   * the agent declares no input schema.
+   */
+  async validate(input: TIn): Promise<ValidationIssue[]> {
+    if (this.inputSchema === undefined) {
+      try {
+        const res = await this.http.get<{ inputSchema: object }>(
+          `/v1/agents/${this.agentId}/schema/input`,
+        );
+        this.inputSchema = res.data.inputSchema;
+      } catch {
+        this.inputSchema = null; // no schema declared — nothing to validate against
+      }
+    }
+    if (!this.inputSchema) return [];
+    return validateAgainstSchema(input, this.inputSchema);
+  }
 
   /** Return a SessionClient for reading/clearing a specific session. */
   session(sessionId: string): SessionClient {

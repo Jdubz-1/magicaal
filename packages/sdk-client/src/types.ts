@@ -124,3 +124,20 @@ export interface RunSuspendedEvent {
   reviewId: string;
   timestamp: string;
 }
+
+/**
+ * Generated agent descriptor (written by `magicaal generate`). Carries the
+ * agent identity and schemas plus phantom type parameters so
+ * `client.agent(descriptor)` is fully typed with no manual generics.
+ */
+export interface AgentDescriptor<TIn = Record<string, unknown>, TOut = Record<string, unknown>> {
+  agentId: string;
+  handle: string;
+  /** SHA-256 of the schemas at generation time — used for drift detection. */
+  schemaHash: string;
+  inputSchema: object | null;
+  outputSchema: object | null;
+  /** Phantom fields carrying the generated types; never populated at runtime. */
+  __in?: TIn;
+  __out?: TOut;
+}

@@ -10,6 +10,7 @@ import { buildCommand } from './commands/build.js';
 import { validateCommand } from './commands/validate.js';
 import { listCommand } from './commands/list.js';
 import { sessionsCommand } from './commands/sessions.js';
+import { generateCommand } from './commands/generate.js';
 
 const program = new Command();
 
@@ -41,6 +42,19 @@ program
   .option('-d, --agents-dir <dir>', 'Directory containing *.agent.ts files', './agents')
   .action(async (opts: { agentsDir: string }) => {
     await listCommand(opts.agentsDir);
+  });
+
+program
+  .command('generate')
+  .description('Generate typed descriptors (*.types.ts + *.descriptor.ts) from agent schemas')
+  .option('-a, --agent <handleOrId>', 'Generate for a single agent')
+  .option('--all', 'Generate for all accessible agents')
+  .option('--check', 'Verify generated files are up to date (exit 1 on drift)')
+  .option('-o, --out-dir <dir>', 'Output directory', './src/magicaal')
+  .option('--api-url <url>', 'MagiCaal API base URL', 'http://localhost:3000')
+  .option('--token <token>', 'API token (defaults to MAGICAAL_API_TOKEN)')
+  .action(async (opts: { agent?: string; all?: boolean; check?: boolean; outDir: string; apiUrl: string; token?: string }) => {
+    await generateCommand(opts);
   });
 
 const sessionsCmd = program.command('sessions').description('Manage persistent agent sessions');

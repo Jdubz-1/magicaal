@@ -18,6 +18,8 @@ import { buildOpenApiSpec } from '../openapi/spec';
 import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
+import { getRunDirect } from '../controllers/runs.controller';
+import { requireAuth } from '../middleware/auth';
 
 export const router: RouterType = Router();
 
@@ -35,6 +37,8 @@ router.use('/v1/utils', utilsRouter);
 router.use('/v1/prompts', promptsRouter);
 router.use('/v1/caal', caalRouter);
 router.use('/v1/marketplace', marketplaceRouter);
+// Direct run lookup (SDK client.runs.get)
+router.get('/v1/runs/:runId', requireAuth, getRunDirect);
 // OpenAPI document — public, the source for the published API reference
 router.get('/v1/openapi.json', (_req, res) => {
   res.json(buildOpenApiSpec());
