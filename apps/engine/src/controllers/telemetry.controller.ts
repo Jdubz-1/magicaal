@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import { eq, and, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray, gte } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps, telemetryTrajectories } from '../db/telemetry-schema';
 
@@ -216,6 +216,36 @@ export const getRunDetail: RequestHandler = async (req, res, next) => {
         routingMeta: s.routingMetaJson ? JSON.parse(s.routingMetaJson) : null,
       })),
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /internal/telemetry/usage?since=<iso> — deployment-wide run count.
+ *
+ * Backs the API's Marketplace usage reporter. Aggregate only: no tenant IDs,
+ * inputs, or outputs — the telemetry DB stays engine-owned, and only the count
+ * leaves the deployment.
+ */
+export const getUsageAggregate: RequestHandler = async (req, res, next) => {
+  try {
+    const { since } = req.query as { since?: string };
+    if (!since) {
+      throw Object.assign(new Error('since is required'), { status: 400 });
+    }
+
+    const sinceDate = new Date(since);
+    if (Number.isNaN(sinceDate.getTime())) {
+      throw Object.assign(new Error('since must be an ISO timestamp'), { status: 400 });
+    }
+
+    const rows = await telemetryDb
+      .select({ id: telemetryRuns.id })
+      .from(telemetryRuns)
+      .where(gte(telemetryRuns.startedAt, sinceDate));
+
+    res.json({ since: sinceDate.toISOString(), totalRuns: rows.length });
   } catch (err) {
     next(err);
   }

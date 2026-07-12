@@ -10,7 +10,14 @@ import {
   webhookDispatch,
 } from '../controllers/runs.controller';
 import { scheduleCronAgent, unscheduleCronAgent } from '../controllers/schedule.controller';
-import { getTelemetry, getTokenUsage, getRunDetail, getTrajectory, getRoutingEvents } from '../controllers/telemetry.controller';
+import {
+  getTelemetry,
+  getTokenUsage,
+  getRunDetail,
+  getTrajectory,
+  getRoutingEvents,
+  getUsageAggregate,
+} from '../controllers/telemetry.controller';
 import { listNodes } from '../controllers/nodes.controller';
 import { testMcpServerInternal } from '../controllers/mcp-servers.controller';
 import {
@@ -39,6 +46,7 @@ internalRouter.get('/telemetry/tokens', getTokenUsage);
 internalRouter.get('/telemetry/runs/:runId', getRunDetail);
 internalRouter.get('/telemetry/trajectory/:runId', getTrajectory);
 internalRouter.get('/telemetry/routing-events', getRoutingEvents);
+internalRouter.get('/telemetry/usage', getUsageAggregate);
 
 internalRouter.post('/mcp-servers/test', testMcpServerInternal);
 

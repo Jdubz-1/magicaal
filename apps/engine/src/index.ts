@@ -7,8 +7,6 @@ import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
 import { sessionManager } from './session/session-manager';
 import { startHotLoadSubscriber, reloadInstalledPackages } from './marketplace/hot-load';
-import { startLicenseValidator } from './marketplace/license-validator';
-import { startUsageReporter } from './marketplace/usage-reporter';
 import { redis } from './queue/client';
 
 const SESSION_EXPIRY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -28,9 +26,6 @@ async function main(): Promise<void> {
   initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();
   startHotLoadSubscriber(redis);
-  // Marketplace background processes — no-ops unless MARKETPLACE_ENABLED=true
-  startLicenseValidator();
-  startUsageReporter();
 
   // Hourly session expiry sweep
   setInterval(() => {
