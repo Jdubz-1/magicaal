@@ -25,6 +25,23 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Fix type-check failures from stale tsconfig project references
+
+**Type:** Bugfix
+
+**Description:**
+A full `packages/` verification pass (all type-checks, tests, and builds) found three packages whose `tsc --noEmit` type-check failed with TS6306/TS6310 before checking any source: `packages/compiler`, `packages/cli`, and `packages/integrations/caal`. All three still carried tsconfig project references to `packages/core`, which commit `eb9bb3a` made non-composite/`noEmit` — that commit removed the references from `apps/api`, `packages/sdk`, and the root tsconfig but missed these three. All 16 Phase 5 integration packages were already clean.
+
+**Changes:**
+- `packages/compiler/tsconfig.json` — removed `references` (`../core`, `../nodes`); the `../nodes` reference also demanded a pre-built nodes dist (TS6305)
+- `packages/cli/tsconfig.json` — removed `references` (`../core`, `../compiler`)
+- `packages/integrations/caal/tsconfig.json` — removed `references` (`../../core`, `../../sdk`); added `skipLibCheck` to match the other integration packages
+
+**Impact:**
+All 20 packages with a `type-check` script now pass, and all 277 package tests pass (135 nodes, 119 integrations, 15 sdk-client, 8 cli). Cross-package types resolve via workspace symlinks and each package's `"types": "src/index.ts"`, so the references were unnecessary; builds are unaffected because `references` are not inherited through `extends` into `tsconfig.build.json`.
+
+---
+
 ### 2026-07-12 - Sync deploy env example and docker-compose with Phase 5 configuration
 
 **Type:** Infrastructure
