@@ -27,7 +27,7 @@ cp .env.example .env
 ```bash
 # Generate secure random values:
 openssl rand -hex 32   # run twice — use the first value for MAGICAAL_MASTER_KEY
-                       # and the second for both JWT_SECRET occurrences
+                       # and the second for JWT_SECRET
 
 # Then edit .env:
 nano .env   # or vim, code, etc.
@@ -35,7 +35,7 @@ nano .env   # or vim, code, etc.
 
 Set `MAGICAAL_MASTER_KEY` to a random 32-byte hex string. This encrypts stored integration credentials — **do not lose it**.
 
-Set both `JWT_SECRET` values (in the API section and the WEB section) to the **same** random string.
+Set `JWT_SECRET` (in the SHARED section) to a random string — it signs Studio session tokens.
 
 **4. Start all services:**
 

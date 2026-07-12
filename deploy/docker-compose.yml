@@ -23,6 +23,9 @@ services:
     volumes:
       - magicaal_db:/data
       - agents_dist:/agents:ro
+      # Air-gapped Marketplace catalog (MARKETPLACE_CATALOG_SOURCE=local):
+      # place catalog.json in ./marketplace next to this file, then uncomment.
+      # - ./marketplace:/marketplace:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -44,6 +47,10 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379
+      # Engine persists refreshed OAuth tokens through an API-internal endpoint
+      API_BASE_URL: http://api:3000
+      # Installed marketplace packages — kept inside the shared /data volume
+      PACKAGES_DIR: /data/packages
     volumes:
       - magicaal_db:/data
     depends_on:
