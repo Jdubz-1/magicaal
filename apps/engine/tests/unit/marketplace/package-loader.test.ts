@@ -112,4 +112,24 @@ describe('installAndLoad', () => {
 
     expect(() => installAndLoad(files, installRoot)).toThrow(/exports no nodes/);
   });
+
+  it('rejects manifest identifiers containing path separators or traversal', () => {
+    const validNode =
+      "module.exports.NODES = [{ type: 't', meta: { name: 'n', description: 'd', category: 'integration', version: '1.0.0' }, schema: { config: {}, input: {}, output: {} }, execute: async () => ({ status: 'complete', outputs: {} }) }];";
+    for (const bad of [
+      { publisher: '../../../tmp/evil', name: 'x', version: '1.0.0' },
+      { publisher: 'acme/evil', name: 'x', version: '1.0.0' },
+      { publisher: 'acme', name: 'a/b', version: '1.0.0' },
+      { publisher: 'acme', name: 'x', version: '1.0.0/../..' },
+    ]) {
+      const files = new Map<string, Buffer>([
+        ['manifest.json', Buffer.from(JSON.stringify(bad))],
+        ['index.js', Buffer.from(validNode)],
+      ]);
+      expect(() => installAndLoad(files, installRoot)).toThrow(/unsafe package|escapes/);
+    }
+
+    // Nothing was written outside the install root
+    expect(fs.existsSync(path.join(installRoot, '..', 'tmp', 'evil-x-1.0.0'))).toBe(false);
+  });
 });

@@ -17,4 +17,9 @@ export const config = Object.freeze({
   marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
   marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
   packagesDir: process.env.PACKAGES_DIR ?? '/data/packages',
+  // Installing a package runs its code (require) in the engine process. Only
+  // MagiCaal-countersigned ('verified') packages install by default. Unverified
+  // (self-signed community) packages must be sandboxed before they can run —
+  // that sandbox is not built yet, so allowing them is an explicit, unsafe opt-in.
+  marketplaceAllowUnverified: process.env.MARKETPLACE_ALLOW_UNVERIFIED === 'true',
 });

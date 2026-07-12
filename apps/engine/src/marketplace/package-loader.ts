@@ -51,6 +51,34 @@ export interface LoadedPackage {
   manifest: PackageManifest;
   nodes: NodeModule[];
   integration?: IntegrationPackage;
+  /** Absolute directory the package was installed to (safe, within installRoot). */
+  dir: string;
+}
+
+/**
+ * Manifest identifier segments become a filesystem directory name, so they
+ * must not contain path separators or traversal sequences. Restrict to a
+ * conservative charset shared by publisher handles, package names, and semver.
+ */
+function safeSegment(kind: string, value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._-]+$/.test(value)) {
+    throw new Error(`unsafe package ${kind}: ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+/** Safe, validated install directory for a manifest under installRoot. */
+export function packageInstallDir(
+  installRoot: string,
+  manifest: Pick<PackageManifest, 'publisher' | 'name' | 'version'>,
+): string {
+  const dirName = `${safeSegment('publisher', manifest.publisher)}-${safeSegment('name', manifest.name)}-${safeSegment('version', manifest.version)}`;
+  const dir = path.resolve(installRoot, dirName);
+  const root = path.resolve(installRoot);
+  if (dir !== path.join(root, dirName) || !dir.startsWith(root + path.sep)) {
+    throw new Error('resolved package directory escapes the install root');
+  }
+  return dir;
 }
 
 /**
@@ -67,10 +95,14 @@ export function installAndLoad(
     files.get('manifest.json')!.toString('utf8'),
   ) as PackageManifest;
 
-  const dir = path.join(installRoot, `${manifest.publisher}-${manifest.name}-${manifest.version}`);
+  const dir = packageInstallDir(installRoot, manifest);
   fs.mkdirSync(dir, { recursive: true });
   for (const [rel, content] of files) {
-    const target = path.join(dir, rel);
+    // rel is guarded against traversal in extractMpack; re-assert containment
+    const target = path.resolve(dir, rel);
+    if (target !== path.join(dir, rel) || !target.startsWith(dir + path.sep)) {
+      throw new Error(`bundle entry escapes the package directory: ${rel}`);
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, content);
   }
@@ -100,5 +132,5 @@ export function loadPackageDir(dir: string): LoadedPackage {
     );
   }
 
-  return { manifest, nodes, integration };
+  return { manifest, nodes, integration, dir };
 }

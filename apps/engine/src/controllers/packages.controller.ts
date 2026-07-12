@@ -3,7 +3,7 @@ import { redis } from '../queue/client';
 import { config } from '../config';
 import { logger } from '../lib/logger';
 import { extractMpack, installAndLoad } from '../marketplace/package-loader';
-import { verifyPackage } from '../marketplace/package-verifier';
+import { verifyPackage, isInstallAllowed } from '../marketplace/package-verifier';
 import { PACKAGE_EVENTS_CHANNEL, type PackageEvent } from '../marketplace/hot-load';
 import { registry } from '../registry/node-registry';
 import { integrationRegistry } from '../registry/integration-registry';
@@ -46,6 +46,18 @@ export const installPackage: RequestHandler = async (req, res, next) => {
       );
     }
 
+    // Installing runs the package's code in the engine. Refuse anything short of
+    // a MagiCaal countersignature unless unverified installs are explicitly
+    // enabled — there is no sandbox for untrusted community code yet.
+    if (!isInstallAllowed(verification.status, config.marketplaceAllowUnverified)) {
+      throw Object.assign(
+        new Error(
+          'package is not countersigned by MagiCaal; unverified packages are refused (set MARKETPLACE_ALLOW_UNVERIFIED=true to override at your own risk)',
+        ),
+        { status: 422, code: 'SIGNATURE_UNVERIFIED' },
+      );
+    }
+
     const loaded = installAndLoad(files, config.packagesDir);
     const generation = registry.hotLoad(loaded.nodes);
     if (loaded.integration) {
@@ -56,7 +68,7 @@ export const installPackage: RequestHandler = async (req, res, next) => {
     const event: PackageEvent = {
       event: 'installed',
       packageId,
-      packageDir: `${config.packagesDir}/${loaded.manifest.publisher}-${loaded.manifest.name}-${loaded.manifest.version}`,
+      packageDir: loaded.dir,
     };
     await redis.publish(PACKAGE_EVENTS_CHANNEL, JSON.stringify(event));
 

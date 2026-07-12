@@ -94,6 +94,19 @@ export interface VerifyOptions {
 }
 
 /**
+ * Whether a verified/unverified result may be installed (i.e. its code run).
+ * 'invalid' is never installable. 'unverified' (self-signed community package,
+ * no MagiCaal countersignature) is installable only under an explicit opt-in,
+ * because installation executes the package's code with full engine privileges
+ * and no sandbox exists yet (MARKETPLACE_SPEC §5.3).
+ */
+export function isInstallAllowed(status: SignatureStatus, allowUnverified: boolean): boolean {
+  if (status === 'verified') return true;
+  if (status === 'unverified') return allowUnverified;
+  return false;
+}
+
+/**
  * Three-step platform-side verification per MARKETPLACE_SPEC §5.3:
  * publisher signature → content hash → MagiCaal countersignature.
  */

@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import {
   computeContentHash,
   verifyPackage,
+  isInstallAllowed,
 } from '@/marketplace/package-verifier';
 
 function rawPublicKeyBase64(publicKey: crypto.KeyObject): string {
@@ -141,5 +142,22 @@ describe('verifyPackage', () => {
   it('rejects a bundle with no manifest', () => {
     const files = new Map<string, Buffer>([['index.js', Buffer.from('x')]]);
     expect(verifyPackage(files).status).toBe('invalid');
+  });
+});
+
+describe('isInstallAllowed', () => {
+  it('always allows verified (countersigned) packages', () => {
+    expect(isInstallAllowed('verified', false)).toBe(true);
+    expect(isInstallAllowed('verified', true)).toBe(true);
+  });
+
+  it('refuses unverified packages unless explicitly opted in', () => {
+    expect(isInstallAllowed('unverified', false)).toBe(false);
+    expect(isInstallAllowed('unverified', true)).toBe(true);
+  });
+
+  it('never allows invalid packages', () => {
+    expect(isInstallAllowed('invalid', false)).toBe(false);
+    expect(isInstallAllowed('invalid', true)).toBe(false);
   });
 });
