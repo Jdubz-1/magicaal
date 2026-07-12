@@ -113,15 +113,16 @@ describe('POST /v1/agents/:id/runs (sync mode)', () => {
 
 describe('GET /v1/agents/:id/runs/:runId', () => {
   let token: string;
+  let tenantId: string;
 
   beforeAll(async () => {
-    ({ token } = await createUserAndLogin(app, 'developer'));
+    ({ token, tenantId } = await createUserAndLogin(app, 'developer'));
   });
 
   it('proxies run status from engine', async () => {
     const agentId = await createAndPublishAgent(token, `status-agent-${Date.now()}`);
     mockEngineGet.mockResolvedValue({
-      data: { id: 'run-xyz', status: 'running', output: null, error: null },
+      data: { id: 'run-xyz', tenantId, agentId, status: 'running', output: null, error: null },
     });
 
     const res = await request(app)
@@ -130,5 +131,80 @@ describe('GET /v1/agents/:id/runs/:runId', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('running');
+  });
+});
+
+describe('run access is scoped to the caller (ISS-049)', () => {
+  it('404s when the run belongs to another tenant', async () => {
+    const victim = await createUserAndLogin(app, 'developer');
+    const attacker = await createUserAndLogin(app, 'developer');
+
+    const attackerAgentId = await createAndPublishAgent(attacker.token, `atk-${Date.now()}`);
+
+    // Engine holds the victim's run; the attacker pairs it with their own agent
+    mockEngineGet.mockResolvedValue({
+      data: {
+        id: 'victim-run',
+        tenantId: victim.tenantId,
+        agentId: 'victim-agent',
+        status: 'suspended',
+        output: { secret: 'confidential' },
+        error: null,
+      },
+    });
+
+    const get = await request(app)
+      .get(`/v1/agents/${attackerAgentId}/runs/victim-run`)
+      .set('Authorization', `Bearer ${attacker.token}`);
+    expect(get.status).toBe(404);
+    expect(get.body.error ?? '').not.toContain('confidential');
+
+    const steps = await request(app)
+      .get(`/v1/agents/${attackerAgentId}/runs/victim-run/steps`)
+      .set('Authorization', `Bearer ${attacker.token}`);
+    expect(steps.status).toBe(404);
+
+    // Resolving another tenant's human-review gate must be refused
+    const review = await request(app)
+      .post(`/v1/agents/${attackerAgentId}/runs/victim-run/review`)
+      .set('Authorization', `Bearer ${attacker.token}`)
+      .send({ decision: 'approve' });
+    expect(review.status).toBe(404);
+    expect(mockEnginePost).not.toHaveBeenCalledWith(
+      expect.stringContaining('/review'),
+      expect.anything(),
+    );
+
+    const direct = await request(app)
+      .get('/v1/runs/victim-run')
+      .set('Authorization', `Bearer ${attacker.token}`);
+    expect(direct.status).toBe(404);
+  });
+
+  it("404s when the runId belongs to a different agent in the caller's own tenant", async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAndPublishAgent(token, `own-${Date.now()}`);
+
+    mockEngineGet.mockResolvedValue({
+      data: { id: 'other-run', tenantId, agentId: 'a-different-agent', status: 'completed' },
+    });
+
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/runs/other-run`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('allows the owning tenant through GET /v1/runs/:runId', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    mockEngineGet.mockResolvedValue({
+      data: { id: 'mine', tenantId, agentId: 'agent-1', status: 'completed' },
+    });
+
+    const res = await request(app)
+      .get('/v1/runs/mine')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe('mine');
   });
 });

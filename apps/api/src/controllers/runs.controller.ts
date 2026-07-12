@@ -9,6 +9,38 @@ function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+interface EngineRun {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Fetch a run from the engine, asserting it belongs to the caller's tenant
+ * (and, on agent-scoped routes, to the agent in the path). Run IDs are not
+ * secrets — they appear in logs and telemetry — so every run-scoped route must
+ * verify ownership rather than trusting the ID alone.
+ *
+ * Answers 404 (not 403) so run IDs stay non-enumerable.
+ */
+async function fetchRunScoped(
+  runId: string,
+  tenantId: string,
+  agentId?: string,
+): Promise<EngineRun> {
+  const response = await engineClient.get(`/internal/runs/${runId}`);
+  const run = response.data as EngineRun;
+
+  if (run.tenantId !== tenantId || (agentId !== undefined && run.agentId !== agentId)) {
+    throw Object.assign(new Error(`Run ${runId} not found`), {
+      status: 404,
+      code: 'RUN_NOT_FOUND',
+    });
+  }
+  return run;
+}
+
 // Simple in-memory rate limit counter (production would use Redis)
 const rateLimitCounters = new Map<string, { count: number; windowStart: number }>();
 
@@ -157,9 +189,10 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
 
 export const getRun: RequestHandler = async (req, res, next) => {
   try {
-    const { runId } = req.params;
-    const response = await engineClient.get(`/internal/runs/${runId}`);
-    res.json(response.data);
+    const { id: agentId, runId } = req.params;
+    const { tenantId } = req.user!;
+    const run = await fetchRunScoped(runId, tenantId, agentId);
+    res.json(run);
   } catch (err) {
     next(err);
   }
@@ -170,12 +203,8 @@ export const getRunDirect: RequestHandler = async (req, res, next) => {
   try {
     const { runId } = req.params;
     const { tenantId } = req.user!;
-    const response = await engineClient.get(`/internal/runs/${runId}`);
-    const run = response.data as { tenantId?: string };
-    if (run.tenantId && run.tenantId !== tenantId) {
-      throw Object.assign(new Error(`Run ${runId} not found`), { status: 404, code: 'RUN_NOT_FOUND' });
-    }
-    res.json(response.data);
+    const run = await fetchRunScoped(runId, tenantId);
+    res.json(run);
   } catch (err) {
     next(err);
   }
@@ -186,11 +215,10 @@ export const reviewRun: RequestHandler = async (req, res, next) => {
     const { id: agentId, runId } = req.params;
     const { tenantId } = req.user!;
 
-    const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
-    const agent = agentRows[0];
-    if (!agent || agent.tenantId !== tenantId) {
-      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
-    }
+    // Ownership must be checked on the run, not just the agent: otherwise a
+    // caller pairs their own agent ID with another tenant's runId and resolves
+    // that tenant's human-review gate.
+    await fetchRunScoped(runId, tenantId, agentId);
 
     const response = await engineClient.post(`/internal/runs/${runId}/review`, req.body);
     res.json(response.data);
@@ -204,11 +232,7 @@ export const streamRun: RequestHandler = async (req, res, next) => {
     const { id: agentId, runId } = req.params;
     const { tenantId } = req.user!;
 
-    const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
-    const agent = agentRows[0];
-    if (!agent || agent.tenantId !== tenantId) {
-      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
-    }
+    await fetchRunScoped(runId, tenantId, agentId);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -236,7 +260,11 @@ export const streamRun: RequestHandler = async (req, res, next) => {
 
 export const getRunSteps: RequestHandler = async (req, res, next) => {
   try {
-    const { runId } = req.params;
+    const { id: agentId, runId } = req.params;
+    const { tenantId } = req.user!;
+
+    await fetchRunScoped(runId, tenantId, agentId);
+
     const response = await engineClient.get(`/internal/runs/${runId}/steps`);
     res.json(response.data);
   } catch (err) {
