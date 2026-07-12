@@ -1,4 +1,5 @@
 import { Worker } from 'bullmq';
+import * as crypto from 'node:crypto';
 import { redis, runTriggerQueue } from '../queue/client';
 import { graphLoader } from '../graph/graph-loader';
 import { ExecutionContextImpl } from './context';
@@ -104,7 +105,7 @@ export function startScheduler(): void {
       // Re-enqueue to the trigger queue so the same processor handles execution
       const { agentId, tenantId, input } = job.data;
       await runTriggerQueue.add('run', {
-        runId: `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`,
+        runId: `run_${crypto.randomUUID()}`,
         agentId,
         tenantId,
         triggerType: 'cron',

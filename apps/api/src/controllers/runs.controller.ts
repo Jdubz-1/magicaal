@@ -6,7 +6,7 @@ import { agents, invocationKeys, invocationPolicies, invocationLog } from '../db
 import { engineClient } from '../lib/engine-client';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 interface EngineRun {

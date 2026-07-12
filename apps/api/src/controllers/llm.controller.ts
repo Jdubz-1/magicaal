@@ -1,11 +1,12 @@
 import type { RequestHandler } from 'express';
+import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
 import { namedRouterPolicies } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 export const getProviderHealth: RequestHandler = async (_req, res, next) => {

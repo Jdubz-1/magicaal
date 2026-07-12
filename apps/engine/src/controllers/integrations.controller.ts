@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import * as crypto from 'node:crypto';
 import { integrationRegistry } from '../registry/integration-registry';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns } from '../db/telemetry-schema';
@@ -6,7 +7,7 @@ import { runTriggerQueue } from '../queue/client';
 import { logger } from '../lib/logger';
 
 function newRunId(): string {
-  return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  return `run_${crypto.randomUUID()}`;
 }
 
 /** GET /internal/integrations — integration package metadata for the API layer. */

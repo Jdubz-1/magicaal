@@ -80,7 +80,16 @@ export {
   // Phase 4
   coreSessionRead, coreSessionWrite, coreSessionClear,
 };
-export { evaluate, evaluateBoolean, evaluateString } from './utils/jsonata';
+export {
+  evaluate,
+  evaluateBoolean,
+  evaluateString,
+  ExpressionTimeoutError,
+  ExpressionDepthError,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_DEPTH,
+  type EvaluateOptions,
+} from './utils/jsonata';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ALL_NODES: NodeModule<any>[] = [

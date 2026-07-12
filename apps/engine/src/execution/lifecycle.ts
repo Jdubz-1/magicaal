@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import * as crypto from 'node:crypto';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps, telemetryTrajectories, telemetryEvaluateScores } from '../db/telemetry-schema';
 import type { TrajectoryStep, NodeOutput } from '@magicaal/sdk-node';
@@ -8,7 +9,7 @@ import { sseManager } from '../sse/sse-manager';
 import { mcpRegistry } from '../mcp/mcp-registry';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 export const lifecycle = {

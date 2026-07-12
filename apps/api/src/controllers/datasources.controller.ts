@@ -1,10 +1,11 @@
 import type { RequestHandler } from 'express';
+import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
 import { dataSources } from '../db/schema';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 export const listDataSources: RequestHandler = async (req, res, next) => {

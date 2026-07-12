@@ -11,7 +11,7 @@ import { loadOAuthApp } from './oauth-apps.controller';
 import { config } from '../config';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 /**

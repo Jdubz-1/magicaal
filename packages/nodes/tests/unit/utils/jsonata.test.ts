@@ -53,3 +53,30 @@ describe('evaluateString', () => {
     expect(await evaluateString('$.missing', {})).toBe('');
   });
 });
+
+describe('timeboxing (ISS-060)', () => {
+  it('aborts a CPU-bound expression instead of pinning the event loop', async () => {
+    const started = Date.now();
+
+    // Unbounded without a guard: this would run for minutes on the event loop
+    await expect(
+      evaluate('$sum([1..10000000].($ * $))', {}, { timeoutMs: 200 }),
+    ).rejects.toThrow(/time budget/);
+
+    // Aborted mid-flight rather than running to completion
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('aborts infinite recursion', async () => {
+    // jsonata applies tail-call optimization, so this does not grow the stack —
+    // it spins forever. The time budget, not the depth bound, is what stops it.
+    await expect(
+      evaluate('($f := function($n) { $f($n + 1) }; $f(0))', {}, { timeoutMs: 200 }),
+    ).rejects.toThrow(/time budget/);
+  });
+
+  it('leaves ordinary expressions untouched', async () => {
+    expect(await evaluate('$sum([1..1000])', {})).toBe(500500);
+    expect(await evaluate('$.a + $.b', { a: 1, b: 2 })).toBe(3);
+  });
+});

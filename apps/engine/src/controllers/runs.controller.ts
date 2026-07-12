@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import * as crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
@@ -9,7 +10,7 @@ import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
 
 function newRunId(): string {
-  return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  return `run_${crypto.randomUUID()}`;
 }
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
