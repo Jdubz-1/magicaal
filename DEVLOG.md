@@ -25,6 +25,31 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Close the remaining 9 issues from the Phases 0–5 review
+
+**Type:** Bugfix
+
+**Description:**
+Resolved the 9 issues left open after the critical/high batch — ISS-053, 054, 055, 056, 057, 058, 060, 061, 062 — clearing the review backlog. Two turned out to be worse than recorded and were re-scoped during the work.
+
+**Changes:**
+- `apps/engine/src/registry/node-registry.ts` + `entitlements.ts` (new) + `execution/worker.ts` — node types now carry provenance (`{publisher}/{name}`) through `hotLoad()` and snapshots; the engine resolves the tenant's entitled packages once per run and refuses an unentitled package node with `PACKAGE_NOT_ENTITLED`. `apps/api/src/controllers/system.controller.ts` filters `GET /v1/nodes` to built-ins plus the caller's entitled packages (ISS-055)
+- `apps/engine/src/marketplace/hot-load.ts` + `package-loader.ts` — both load paths share `verifyAndRegister()` (containment + signature re-verification); self-published Redis events ignored (ISS-057); `gunzipSync` capped at 256 MB and per-entry sizes bounded (ISS-056)
+- `apps/api/src/marketplace/{account,license-validator,usage-reporter}.ts` (new) — Marketplace jobs moved from the engine to the API, authenticated with the encrypted account key; new engine `/internal/telemetry/usage` keeps the telemetry DB engine-owned; heartbeat fail-open fixed (ISS-061)
+- `apps/api/src/controllers/integration-triggers.controller.ts` + `db/backfill.ts` (new) — trigger signing secrets encrypted at rest, legacy rows re-encrypted at boot; service validated against the engine registry; dispatch filtered to active, enabled agents (ISS-053, ISS-062)
+- `apps/api/src/lib/graph-validator.ts` (new, moved from the engine) — wired into `publishAgent` and template import; `marketplace.controller.ts` substitutes template parameters into the parsed graph rather than its serialized text (ISS-054)
+- `packages/nodes/src/utils/jsonata.ts` — evaluation timeboxed via jsonata's `__evaluate_entry`/`__evaluate_exit` hooks (ISS-060); all ID helpers switched to `crypto.randomUUID()` (ISS-058)
+- `apps/api/src/middleware/errorHandler.ts` — surface the typed `code` field, which was being dropped
+- Tests: 462 pass (was 431) — API 84 (was 65), engine 98, nodes 138. New coverage for entitlement (allow/deny/expired-license/built-in), hot-load event rejection (out-of-root, tampered, self-echo), gzip bomb, marketplace job auth + fail-open, trigger secret encryption, graph validation at publish, and JSONata abort.
+
+**Impact:**
+The review backlog is clear: 62 of 62 issues resolved. A tenant can no longer execute or even see another tenant's installed package nodes; the engine no longer writes the primary DB or talks to the Marketplace unauthenticated; malformed graphs are refused at the boundary instead of failing mid-run; and a runaway expression can no longer pin the event loop for every tenant.
+
+**Notes:**
+Two issues were materially under-rated in the original review. **ISS-057 (low → high)**: `applyPackageEvent()` `require()`d an arbitrary directory from an untrusted Redis message with *no signature check* — an RCE, not a missing-containment nit. **ISS-054**: the fix uncovered that `publishAgent` performed no graph validation at all, and that the engine's `validateGraph()` had zero callers — it was dead code. Two pre-existing problems remain out of scope: `apps/web` and `packages/nodes` have ESLint configs that match no files, and the API's 80% coverage threshold is still unmet.
+
+---
+
 ### 2026-07-12 - Fix all critical and high issues from the Phases 0–5 review
 
 **Type:** Bugfix
