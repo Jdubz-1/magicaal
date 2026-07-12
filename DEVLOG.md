@@ -25,6 +25,31 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-11 - Phase 5 Core: Integrations, Marketplace Plumbing, SDK Phase 4
+
+**Type:** Feature
+
+**Description:**
+Implemented the core of Phase 5 (Launch Roadmap Stage 1) as a walking skeleton: shared integration utilities, the milestone-critical integration packages (Slack, GitHub, Jira) with end-to-end trigger dispatch, package signature verification with Redis hot-load, gated Marketplace API routes with always-on air-gapped install, Studio/Admin frontend surfaces, and SDK Phase 4 codegen. The platform ships with `MARKETPLACE_ENABLED=false`; all Marketplace routes exist but return 503, no Marketplace UI renders, and the License Validator/Usage Reporter never start. Air-gapped `.mpack` install is active regardless of the flag.
+
+**Changes:**
+- `packages/integrations/core` — new `@magicaal/integration-core`: OAuth refresh, cursor pagination + Link-header parsing, `IntegrationError`, rate-limit header normalization, idempotency keys, shared JSONata config resolution
+- `packages/integrations/{slack,github,jira}` — integration packages with nodes, auth schemas, and signature-validated webhook triggers (Slack v0 HMAC + url_verification handshake; GitHub X-Hub-Signature-256 + ping; Jira X-Hub-Signature)
+- `packages/sdk/src/integration.ts` — `IntegrationPackage`/`IntegrationTriggerHandler` contract for integration packages
+- `apps/engine` — Integration Registry + startup registration; `/internal/integrations`; `/internal/triggers/integrations/:service` dispatch (per-registration signature verification, event filtering, multi-agent enqueue); `.mpack` extractor/verifier/loader (`src/marketplace/`); copy-on-write node registry with per-run snapshots (in-flight hot-load isolation); Redis pub/sub hot-load subscriber; `/internal/packages/install`; gated License Validator (hourly heartbeat, 72h grace) and Usage Reporter (daily aggregate)
+- `apps/api` — `integration_triggers` table + migration 0005 (also package signature columns); trigger CRUD + public receiver `/v1/triggers/integrations/:service/:tenantSlug` with raw-body capture; gated `/v1/marketplace/*` routes; always-on `POST /v1/marketplace/licenses/bundle`; `GET /v1/openapi.json`; `GET /v1/system/config`; `GET /v1/runs/:runId`
+- `apps/web` — ConnectionSelect dropdown for `format:'connection'` fields; integration trigger registration in Agent Config Panel; category-grouped palette with 30s refresh (hot-loaded nodes appear without reload) and gated Browse Marketplace links; Admin Marketplace panel (only when enabled) and always-on `/admin/system/air-gapped` upload panel
+- `packages/sdk-client` — `AgentDescriptor` + `client.agent(descriptor)` typed overload, `WebhookVerifier`, `agent.validate(input)`, `client.runs.get(runId)`
+- `packages/cli` — `magicaal generate` (`--all`, `--check` drift detection)
+
+**Impact:**
+The platform-launch portion of the Phase 5 milestone is implemented and tested (350 tests across 9 workspaces). The supply-chain boundary (Ed25519 publisher signature + content hash + MagiCaal countersignature) is enforced on every package install, including air-gapped. In-flight runs are provably isolated from mid-run package installs.
+
+**Notes:**
+Remaining Phase 5 work: tier-2 integration packages (Gmail+SendGrid, Stripe, Google Workspace, Salesforce, HubSpot, Zendesk; then Twilio, QuickBooks, BambooHR, Shopify — templated on the Slack package); full docker-compose e2e of the Slack+GitHub+Jira milestone scenario; internal-staging Marketplace install validation; OAuth refresh under synthetic token expiry; dedicated security review of the signature verifier before Stage 2. Pre-existing (untouched): `@magicaal/cli` and `@magicaal/integration-caal` `type-check` scripts fail on project-reference config (TS6306) — predates Phase 5 work.
+
+---
+
 ### 2026-06-30 - Stage 0 OSS Foundation
 
 **Type:** Infrastructure
