@@ -25,6 +25,33 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Fix all critical and high issues from the Phases 0–5 review
+
+**Type:** Bugfix
+
+**Description:**
+Resolved the five issues gating Stage 2 (repo goes public) — ISS-047 (critical), ISS-048, ISS-049, ISS-050, ISS-051 (high) — plus ISS-052 and ISS-059, which sat inside the same code being rewritten. Three were trust-boundary holes, one was a silent data-loss bug on restart, one was an unfinished Phase 2 feature.
+
+**Changes:**
+- `apps/engine/src/middleware/internalAuth.ts` (new) + `apps/engine/src/routes/index.ts` — `requireInternalAuth` on the engine's `/internal/*` router, which had no auth at all; `/health` stays open for the container healthcheck. Fails closed when `MAGICAAL_MASTER_KEY` is unset.
+- `apps/api/src/lib/engine-client.ts` — `X-Internal-Auth` on the shared axios instance (covers all API→engine traffic); `apps/api/src/middleware/auth.ts` — constant-time key comparison (ISS-059)
+- `docker-compose.yml`, `deploy/docker-compose.yml` — engine bound to `127.0.0.1` instead of `0.0.0.0`
+- `apps/api/src/routes/index.ts` + `apps/api/src/controllers/integrations.controller.ts` — the credential-refresh route now requires `X-Internal-Auth` and verifies the connection belongs to the run's tenant; `apps/engine/src/resolver/credential-resolver.ts` sends both (the persist is fire-and-forget, so gating the route without this would have silently broken OAuth refresh)
+- `apps/api/src/controllers/runs.controller.ts` — new `fetchRunScoped()`; `getRun`, `getRunSteps`, `streamRun`, `reviewRun`, `getRunDirect` all verify run→tenant (and run→agent) ownership, answering 404 to keep run IDs non-enumerable
+- `apps/engine/src/marketplace/hot-load.ts` + `package-loader.ts` + `index.ts` — `reloadInstalledPackages()` scans `PACKAGES_DIR` at boot and re-verifies each package's signatures against the on-disk bytes before loading
+- `packages/integrations/core/src/oauth.ts` — `exchangeAuthorizationCode()`, sharing the token-endpoint call with `refreshOAuthToken()`; `packages/sdk/src/integration.ts` — `clientAuth`/`extraParams` on `IntegrationOAuthConfig`
+- `apps/api/drizzle/migrations/0006_oauth_apps.sql` + `db/schema/integrations.ts` — per-tenant `integration_oauth_apps` table and a `nonce_hash` column on `integration_oauth_states`; `controllers/oauth-apps.controller.ts` (new) + Admin panel in `apps/web/src/routes/admin.ts`
+- `apps/api/src/lib/credentials.ts` (new) — `encryptCredentials`/`decryptCredentials` extracted from the integrations controller to avoid a circular import
+- Tests: 431 pass (was 406) — API 65 (was 48), engine 89 (was 81). New coverage for internal-auth rejection, cross-tenant run access, package re-load incl. tamper detection, and the full OAuth flow incl. PKCE, open-redirect rejection, and nonce binding.
+
+**Impact:**
+Closes the remaining pre-launch security gaps. The engine is no longer reachable unauthenticated from the host, cross-tenant run reads and human-review approvals are refused, marketplace packages survive an engine restart, and OAuth connections actually work — previously every OAuth connection was created `active` with no token, so integration nodes failed with `CONNECTION_MISSING_TOKEN`. Threading `clientAuth` through also fixed a latent bug where Basic-auth token endpoints (Zendesk) could never refresh.
+
+**Notes:**
+Nine issues remain open (5 medium, 4 low) — see `MAGICAAL_ISSUES.md`. Two pre-existing problems surfaced during verification and were left alone as out of scope: `apps/web`'s ESLint config matches no files ("all files ignored"), and the API's 80% Jest coverage threshold is not met on `main` (46.1% before this work, 50.2% after).
+
+---
+
 ### 2026-07-12 - Comprehensive code review of Phases 0–5
 
 **Type:** Documentation
