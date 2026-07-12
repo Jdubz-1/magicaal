@@ -3,6 +3,17 @@ import type { IntegrationPackage } from '@magicaal/sdk-node';
 import { SLACK_INTEGRATION } from '@magicaal/integration-slack';
 import { GITHUB_INTEGRATION } from '@magicaal/integration-github';
 import { JIRA_INTEGRATION } from '@magicaal/integration-jira';
+import { GMAIL_INTEGRATION } from '@magicaal/integration-gmail';
+import { SENDGRID_INTEGRATION } from '@magicaal/integration-sendgrid';
+import { STRIPE_INTEGRATION } from '@magicaal/integration-stripe';
+import { GOOGLE_WORKSPACE_INTEGRATION } from '@magicaal/integration-google-workspace';
+import { SALESFORCE_INTEGRATION } from '@magicaal/integration-salesforce';
+import { HUBSPOT_INTEGRATION } from '@magicaal/integration-hubspot';
+import { ZENDESK_INTEGRATION } from '@magicaal/integration-zendesk';
+import { TWILIO_INTEGRATION } from '@magicaal/integration-twilio';
+import { QUICKBOOKS_INTEGRATION } from '@magicaal/integration-quickbooks';
+import { BAMBOOHR_INTEGRATION } from '@magicaal/integration-bamboohr';
+import { SHOPIFY_INTEGRATION } from '@magicaal/integration-shopify';
 import { registry } from './node-registry';
 import { integrationRegistry } from './integration-registry';
 import { logger } from '../lib/logger';
@@ -16,6 +27,17 @@ const BUILT_IN_INTEGRATIONS: IntegrationPackage[] = [
   SLACK_INTEGRATION,
   GITHUB_INTEGRATION,
   JIRA_INTEGRATION,
+  GMAIL_INTEGRATION,
+  SENDGRID_INTEGRATION,
+  STRIPE_INTEGRATION,
+  GOOGLE_WORKSPACE_INTEGRATION,
+  SALESFORCE_INTEGRATION,
+  HUBSPOT_INTEGRATION,
+  ZENDESK_INTEGRATION,
+  TWILIO_INTEGRATION,
+  QUICKBOOKS_INTEGRATION,
+  BAMBOOHR_INTEGRATION,
+  SHOPIFY_INTEGRATION,
 ];
 
 export function registerNodes(): void {

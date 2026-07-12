@@ -119,15 +119,51 @@ importers:
       '@magicaal/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@magicaal/integration-bamboohr':
+        specifier: workspace:*
+        version: link:../../packages/integrations/bamboohr
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../../packages/integrations/core
       '@magicaal/integration-github':
         specifier: workspace:*
         version: link:../../packages/integrations/github
+      '@magicaal/integration-gmail':
+        specifier: workspace:*
+        version: link:../../packages/integrations/gmail
+      '@magicaal/integration-google-workspace':
+        specifier: workspace:*
+        version: link:../../packages/integrations/google-workspace
+      '@magicaal/integration-hubspot':
+        specifier: workspace:*
+        version: link:../../packages/integrations/hubspot
       '@magicaal/integration-jira':
         specifier: workspace:*
         version: link:../../packages/integrations/jira
+      '@magicaal/integration-quickbooks':
+        specifier: workspace:*
+        version: link:../../packages/integrations/quickbooks
+      '@magicaal/integration-salesforce':
+        specifier: workspace:*
+        version: link:../../packages/integrations/salesforce
+      '@magicaal/integration-sendgrid':
+        specifier: workspace:*
+        version: link:../../packages/integrations/sendgrid
+      '@magicaal/integration-shopify':
+        specifier: workspace:*
+        version: link:../../packages/integrations/shopify
       '@magicaal/integration-slack':
         specifier: workspace:*
         version: link:../../packages/integrations/slack
+      '@magicaal/integration-stripe':
+        specifier: workspace:*
+        version: link:../../packages/integrations/stripe
+      '@magicaal/integration-twilio':
+        specifier: workspace:*
+        version: link:../../packages/integrations/twilio
+      '@magicaal/integration-zendesk':
+        specifier: workspace:*
+        version: link:../../packages/integrations/zendesk
       '@magicaal/nodes':
         specifier: workspace:^
         version: link:../../packages/nodes
@@ -333,6 +369,34 @@ importers:
 
   packages/core: {}
 
+  packages/integrations/bamboohr:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/integrations/caal:
     dependencies:
       '@magicaal/core':
@@ -402,6 +466,90 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/integrations/gmail:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/google-workspace:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/hubspot:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/integrations/jira:
     dependencies:
       '@magicaal/core':
@@ -430,7 +578,203 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  packages/integrations/quickbooks:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/salesforce:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/sendgrid:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/shopify:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/integrations/slack:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/stripe:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/twilio:
+    dependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@magicaal/integration-core':
+        specifier: workspace:*
+        version: link:../core
+      '@magicaal/sdk-node':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.19.19)(ts-node@10.9.2(@types/node@22.19.19)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.11(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest-util@29.7.0)(jest@29.7.0(@types/node@22.19.19))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/integrations/zendesk:
     dependencies:
       '@magicaal/core':
         specifier: workspace:*
