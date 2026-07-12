@@ -25,6 +25,22 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Sync deploy env example and docker-compose with Phase 5 configuration
+
+**Type:** Infrastructure
+
+**Description:**
+The quick-deploy files under `deploy/` predated the Phase 5 Marketplace/integration work and were missing the environment variables it introduced. Brought them in line with the current `apps/api/src/config.ts` and `apps/engine/src/config.ts`.
+
+**Changes:**
+- `deploy/.env.example` — documented `PACKAGES_DIR` (engine .mpack install dir inside the shared /data volume), `MAGICAAL_SIGNING_PUBLIC_KEY` (countersignature key needed until the production key is pinned), `MARKETPLACE_ALLOW_UNVERIFIED=false` (security gate from the verifier review, with warning), and `MARKETPLACE_API_URL`; moved `API_BASE_URL` to the SHARED section since the engine now uses it to persist refreshed OAuth tokens; fixed the `MARKETPLACE_LOCAL_CATALOG_PATH` example (`/catalog/catalog.json` → `/marketplace/catalog.json`, matching the config default); expanded the `PUBLIC_BASE_URL` comment to cover integration trigger receiver URLs; added commented `CORS_ORIGIN`; collapsed the duplicated `JWT_SECRET` (API + WEB sections) into a single SHARED entry — docker compose applies last-occurrence-wins to duplicate keys in one env_file, so editing only the first occurrence silently kept the placeholder (`deploy/README.md` updated to match)
+- `deploy/docker-compose.yml` — engine service now sets `API_BASE_URL` and `PACKAGES_DIR` explicitly (matching how api pins `ENGINE_BASE_URL`); added a commented `./marketplace:/marketplace:ro` volume on api for air-gapped catalog mode
+
+**Impact:**
+`deploy/` now works out of the box for Phase 5 features: OAuth token refresh persistence, package installs surviving restarts, air-gapped catalog mounting, and staging Marketplace validation. The unverified-install security default is documented where operators will see it.
+
+---
+
 ### 2026-07-11 - Phase 5 Completion: Full First-Wave Integration Set + OAuth Refresh at Expiry
 
 **Type:** Feature
