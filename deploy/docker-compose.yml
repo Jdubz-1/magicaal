@@ -42,7 +42,9 @@ services:
   engine:
     image: ghcr.io/magicaal/engine:latest
     ports:
-      - "${ENGINE_PORT:-4000}:4000"
+      # Bound to loopback: the engine's /internal API is reached by api over the
+      # compose network. Publishing it on 0.0.0.0 would expose it to the LAN.
+      - "127.0.0.1:${ENGINE_PORT:-4000}:4000"
     env_file:
       - .env
     environment:

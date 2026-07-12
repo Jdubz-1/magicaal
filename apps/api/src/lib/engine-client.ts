@@ -4,5 +4,9 @@ import { config } from '../config';
 export const engineClient = axios.create({
   baseURL: config.engineBaseUrl,
   timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    // The engine's /internal API requires the shared master key on every call
+    'X-Internal-Auth': config.masterKey,
+  },
 });

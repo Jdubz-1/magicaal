@@ -6,17 +6,31 @@ import { apiKeys, users } from '../db/schema';
 import { verifyJwt } from '../lib/jwt';
 import { config } from '../config';
 
+function sha256hex(input: string): string {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+/** Constant-time secret comparison; both sides hashed so lengths always match. */
+function secretsMatch(provided: string, expected: string): boolean {
+  return crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(provided).digest(),
+    crypto.createHash('sha256').update(expected).digest(),
+  );
+}
+
+/**
+ * Guards the API's /internal/* routes, called only by the engine over the
+ * internal network. Fails closed when MAGICAAL_MASTER_KEY is unset.
+ */
 export const requireInternalAuth: RequestHandler = (req, _res, next) => {
   const header = req.headers['x-internal-auth'];
-  if (!header || header !== config.masterKey || !config.masterKey) {
+  const provided = Array.isArray(header) ? header[0] : header;
+
+  if (!config.masterKey || !provided || !secretsMatch(provided, config.masterKey)) {
     return next(Object.assign(new Error('Internal auth required'), { status: 401 }));
   }
   next();
 };
-
-function sha256hex(input: string): string {
-  return crypto.createHash('sha256').update(input).digest('hex');
-}
 
 export const requireAuth: RequestHandler = async (req, res, next) => {
   try {
