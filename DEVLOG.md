@@ -25,6 +25,24 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Comprehensive code review of Phases 0–5
+
+**Type:** Documentation
+
+**Description:**
+Full-codebase review of all work through Phase 5 against `MAGICAAL_DEV_ROADMAP.md`, covering apps/api, apps/engine, apps/web, and all packages — weighted toward the Phase 5 surface (14 integration packages, trigger dispatch, `.mpack` marketplace pipeline, OAuth refresh at expiry) and security-sensitive paths from earlier phases. 16 new issues recorded as ISS-047–ISS-062.
+
+**Changes:**
+- `.ai_docs/MAGICAAL_ISSUES.md` — new "Phases 0–5 Comprehensive Review" section: 1 critical, 4 high, 5 medium, 6 low; summary table and totals updated (62 issues, 46 resolved, 16 open)
+
+**Impact:**
+Identifies a critical unauthenticated credential-overwrite endpoint (ISS-047) and three high-severity auth/tenancy gaps (unauthenticated engine internal API with a host-published port, cross-tenant run access, marketplace packages not re-loaded on engine restart) that should be resolved before Stage 2 (repo goes public). Also confirms sound areas: all 14 integration trigger handlers use timing-safe HMAC comparison, the `.mpack` signature verifier and path-traversal guards hold up, refresh-token rotation and the `core:code` isolated-vm sandbox are correct.
+
+**Notes:**
+No code changes — review output only. ISS-051 (OAuth callback still a Phase 2 stub) means the Phase 5 OAuth-refresh path is currently only reachable for manually-pasted tokens; worth resolving alongside the pending live-stack Phase 5 sign-off items.
+
+---
+
 ### 2026-07-12 - Fix type-check failures from stale tsconfig project references
 
 **Type:** Bugfix
