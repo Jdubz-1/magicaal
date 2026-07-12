@@ -44,6 +44,7 @@ function toEpochMs(value: number | null): number | undefined {
 export async function maybeRefreshOAuth(
   connectionId: string,
   service: string,
+  tenantId: string,
   rawCreds: Record<string, unknown>,
   resolved: ResolvedCredentials,
 ): Promise<ResolvedCredentials> {
@@ -73,6 +74,8 @@ export async function maybeRefreshOAuth(
       tokenUrl: oauth.tokenUrl,
       clientId,
       clientSecret: typeof rawCreds.client_secret === 'string' ? rawCreds.client_secret : undefined,
+      clientAuth: oauth.clientAuth,
+      extraParams: oauth.extraParams,
     },
     refreshToken,
   );
@@ -86,11 +89,27 @@ export async function maybeRefreshOAuth(
   // Best-effort persist via the API layer so the next run starts fresh
   void fetch(`${config.apiBaseUrl}/internal/integrations/connections/${connectionId}/credentials`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credentials: updatedRaw, expiresAt: refreshed.expiresAt ?? null }),
-  }).catch((err) => {
-    logger.warn({ connectionId, err }, 'Failed to persist refreshed OAuth credentials');
-  });
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Auth': config.masterKey,
+    },
+    body: JSON.stringify({
+      credentials: updatedRaw,
+      expiresAt: refreshed.expiresAt ?? null,
+      tenantId,
+    }),
+  })
+    .then((res) => {
+      if (!res.ok) {
+        logger.warn(
+          { connectionId, status: res.status },
+          'Failed to persist refreshed OAuth credentials',
+        );
+      }
+    })
+    .catch((err) => {
+      logger.warn({ connectionId, err }, 'Failed to persist refreshed OAuth credentials');
+    });
 
   logger.info({ connectionId, service }, 'OAuth token refreshed at expiry');
   return {
@@ -190,7 +209,13 @@ export async function resolveCredentials(
       };
 
       try {
-        resolved = await maybeRefreshOAuth(connectionId, row.service, rawCreds, resolved);
+        resolved = await maybeRefreshOAuth(
+          connectionId,
+          row.service,
+          ctx.tenantId,
+          rawCreds,
+          resolved,
+        );
       } catch (err) {
         logger.error({ connectionId, err }, 'OAuth refresh failed — using stale token');
       }

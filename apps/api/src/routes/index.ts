@@ -19,8 +19,11 @@ import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
 import { getRunDirect } from '../controllers/runs.controller';
-import { internalUpdateCredentials } from '../controllers/integrations.controller';
-import { requireAuth } from '../middleware/auth';
+import {
+  internalUpdateCredentials,
+  oauthCallback,
+} from '../controllers/integrations.controller';
+import { requireAuth, requireInternalAuth } from '../middleware/auth';
 
 export const router: RouterType = Router();
 
@@ -30,6 +33,10 @@ router.use('/v1/users', usersRouter);
 router.use('/v1/tenants', tenantsRouter);
 router.use('/v1/agents', agentsRouter);
 router.use('/v1/llm', llmRouter);
+// Public OAuth callback — the provider redirects the user's browser here with no
+// bearer token; the single-use state token + nonce cookie authenticate it. Must
+// precede integrationsRouter, which applies requireAuth to the whole prefix.
+router.get('/v1/integrations/oauth/:service/callback', oauthCallback);
 router.use('/v1/integrations', integrationsRouter);
 router.use('/v1/telemetry', telemetryRouter);
 router.use('/v1/datasources', datasourcesRouter);
@@ -47,7 +54,11 @@ router.get('/v1/openapi.json', (_req, res) => {
 // Internal engine→API session endpoints
 router.use('/internal/sessions', internalSessionRouter);
 // Internal engine→API credential refresh persistence
-router.post('/internal/integrations/connections/:id/credentials', internalUpdateCredentials);
+router.post(
+  '/internal/integrations/connections/:id/credentials',
+  requireInternalAuth,
+  internalUpdateCredentials,
+);
 // Public webhook endpoint — no auth middleware; secret is in URL
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 // Public integration trigger receiver — no auth middleware; authenticity is

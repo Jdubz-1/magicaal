@@ -13,6 +13,14 @@ export interface IntegrationOAuthConfig {
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
+  /**
+   * How the token endpoint expects client credentials on the authorization-code
+   * exchange and the refresh grant: in the form body (default) or as an HTTP
+   * Basic auth header (Zendesk, some Atlassian flows).
+   */
+  clientAuth?: 'body' | 'basic';
+  /** Extra token-endpoint body parameters some providers require. */
+  extraParams?: Record<string, string>;
 }
 
 export interface IntegrationAuthSchema {

@@ -8,6 +8,8 @@ const config: Config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@magicaal/nodes$': '<rootDir>/../../packages/nodes/src/index.ts',
+    '^@magicaal/sdk-node$': '<rootDir>/../../packages/sdk/src/index.ts',
+    '^@magicaal/integration-core$': '<rootDir>/../../packages/integrations/core/src/index.ts',
   },
   collectCoverageFrom: [
     'src/**/*.ts',

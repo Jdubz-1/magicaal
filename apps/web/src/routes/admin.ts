@@ -840,7 +840,25 @@ adminRouter.get('/integrations', async (req, res, next) => {
       connections = data;
     } catch { /* no connections yet */ }
 
+    let oauthApps: Array<{ id: string; service: string; clientId: string; scopes: string[] | null }> = [];
+    try {
+      const { data } = await api.get<typeof oauthApps>('/v1/integrations/oauth-apps');
+      oauthApps = data;
+    } catch { /* none configured, or not a tenant admin */ }
+
     const statusColor = (s: string) => s === 'active' ? '#4ade80' : s === 'expired' ? '#fcd34d' : '#fca5a5';
+
+    const appRows = oauthApps.map((a) => `
+      <tr>
+        <td>${escHtml(a.service)}</td>
+        <td style="color:#94a3b8;font-family:monospace;font-size:0.75rem">${escHtml(a.clientId)}</td>
+        <td style="color:#94a3b8;font-size:0.75rem">${a.scopes?.length ? escHtml(a.scopes.join(', ')) : 'package defaults'}</td>
+        <td>
+          <form method="POST" action="/admin/integrations/oauth-apps/${escHtml(a.id)}/delete" style="display:inline">
+            <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
+          </form>
+        </td>
+      </tr>`).join('');
 
     const rows = connections.map((c) => `
       <tr>
@@ -866,6 +884,22 @@ adminRouter.get('/integrations', async (req, res, next) => {
           <table>
             <thead><tr><th>Name</th><th>Service</th><th>Auth Type</th><th>Status</th><th>Created</th><th></th></tr></thead>
             <tbody>${rows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:2rem">No connections configured</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:2rem 0 1rem">
+          <div>
+            <h2 style="margin:0;font-size:1.125rem">OAuth Applications</h2>
+            <div style="color:#64748b;font-size:0.8125rem;margin-top:0.25rem">
+              Client credentials for each service's OAuth app. Required before a user can connect that service via OAuth.
+            </div>
+          </div>
+          <a href="/admin/integrations/oauth-apps/create" class="btn btn-primary">+ Add OAuth App</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Service</th><th>Client ID</th><th>Scopes</th><th></th></tr></thead>
+            <tbody>${appRows || '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No OAuth apps configured</td></tr>'}</tbody>
           </table>
         </div>
       </div>`, { title: 'Integrations — Admin', user: { name: user.userId, role: user.role } }));
@@ -905,6 +939,63 @@ adminRouter.post('/integrations/create', async (req, res, next) => {
     let credObj: Record<string, unknown> = {};
     try { credObj = JSON.parse(credentials) as Record<string, unknown>; } catch { /* invalid json */ }
     await api.post('/v1/integrations/connections', { displayName, service, authType, credentials: credObj });
+    res.redirect('/admin/integrations');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/integrations/oauth-apps/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/integrations" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Add OAuth Application</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/integrations/oauth-apps/create">
+        <div class="form-group"><label>Service (e.g. slack, github, salesforce)</label><input name="service" required /></div>
+        <div class="form-group"><label>Client ID</label><input name="clientId" required /></div>
+        <div class="form-group"><label>Client Secret</label><input name="clientSecret" type="password" required /></div>
+        <div class="form-group">
+          <label>Scopes (comma-separated — leave blank to use the package defaults)</label>
+          <input name="scopes" placeholder="chat:write, channels:read" />
+        </div>
+        <p style="color:#64748b;font-size:0.8125rem">
+          Register this redirect URL with the provider:
+          <code>&lt;PUBLIC_BASE_URL&gt;/v1/integrations/oauth/&lt;service&gt;/callback</code>
+        </p>
+        <button type="submit" class="btn btn-primary">Save OAuth App</button>
+      </form>
+    </div>`, { title: 'Add OAuth App — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/integrations/oauth-apps/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { service, clientId, clientSecret, scopes } = req.body as {
+      service: string; clientId: string; clientSecret: string; scopes?: string;
+    };
+    const scopeList = (scopes ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    await api.put('/v1/integrations/oauth-apps', {
+      service,
+      clientId,
+      clientSecret,
+      ...(scopeList.length > 0 && { scopes: scopeList }),
+    });
+    res.redirect('/admin/integrations');
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/integrations/oauth-apps/:id/delete', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/integrations/oauth-apps/${req.params.id}`);
     res.redirect('/admin/integrations');
   } catch (err) {
     next(err);

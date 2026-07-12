@@ -9,6 +9,7 @@ export {
 } from './pagination';
 export {
   refreshOAuthToken,
+  exchangeAuthorizationCode,
   isExpired,
   type OAuthRefreshConfig,
   type RefreshedToken,

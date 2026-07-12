@@ -51,7 +51,7 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
     global.fetch = mockFetch as typeof fetch;
 
     const { raw, resolved } = expiredCreds();
-    const result = await maybeRefreshOAuth('conn-1', 'slack', raw, resolved);
+    const result = await maybeRefreshOAuth('conn-1', 'slack', 'tenant-1', raw, resolved);
 
     expect(result.accessToken).toBe('fresh-token');
     expect(result.expiresAt).toBeGreaterThan(NOW);
@@ -72,6 +72,9 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
     expect(persistCall).toBeDefined();
     const persisted = JSON.parse(persistCall![1].body);
     expect(persisted.credentials.access_token).toBe('fresh-token');
+    expect(persisted.tenantId).toBe('tenant-1');
+    // The API's /internal route is gated — the persist must authenticate
+    expect(persistCall![1].headers['X-Internal-Auth']).toBeTruthy();
   });
 
   it('does nothing for non-expired tokens', async () => {
@@ -81,7 +84,7 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
     const { raw, resolved } = expiredCreds();
     resolved.expiresAt = NOW + 3_600_000;
 
-    const result = await maybeRefreshOAuth('conn-1', 'slack', raw, resolved);
+    const result = await maybeRefreshOAuth('conn-1', 'slack', 'tenant-1', raw, resolved);
     expect(result.accessToken).toBe('stale-token');
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -90,7 +93,7 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
     const mockFetch = jest.fn();
     global.fetch = mockFetch as typeof fetch;
 
-    const result = await maybeRefreshOAuth('conn-1', 'github', {}, { type: 'apikey', apiKey: 'k' });
+    const result = await maybeRefreshOAuth('conn-1', 'github', 'tenant-1', {}, { type: 'apikey', apiKey: 'k' });
     expect(result.apiKey).toBe('k');
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -100,7 +103,7 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
     global.fetch = mockFetch as typeof fetch;
 
     const { resolved } = expiredCreds();
-    const result = await maybeRefreshOAuth('conn-1', 'slack', { access_token: 'stale-token' }, resolved);
+    const result = await maybeRefreshOAuth('conn-1', 'slack', 'tenant-1', { access_token: 'stale-token' }, resolved);
     expect(result.accessToken).toBe('stale-token');
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -111,7 +114,7 @@ describe('maybeRefreshOAuth (synthetic token expiry)', () => {
 
     const { raw, resolved } = expiredCreds();
     // sendgrid is api_key-only — no authSchema.oauth
-    const result = await maybeRefreshOAuth('conn-1', 'sendgrid', raw, resolved);
+    const result = await maybeRefreshOAuth('conn-1', 'sendgrid', 'tenant-1', raw, resolved);
     expect(result.accessToken).toBe('stale-token');
     expect(mockFetch).not.toHaveBeenCalled();
   });

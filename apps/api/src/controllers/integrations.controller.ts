@@ -1,50 +1,48 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
+import type { IntegrationAuthSchema, IntegrationOAuthConfig } from '@magicaal/sdk-node';
+import { exchangeAuthorizationCode } from '@magicaal/integration-core';
 import { db } from '../db/client';
 import { integrationConnections, integrationOauthStates } from '../db/schema';
+import { engineClient } from '../lib/engine-client';
+import { encryptCredentials } from '../lib/credentials';
+import { loadOAuthApp } from './oauth-apps.controller';
 import { config } from '../config';
 
 function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function deriveKey(masterKey: string): Buffer {
-  return crypto.createHash('sha256').update(masterKey).digest();
-}
-
-export function encryptCredentials(plaintext: string): string {
-  if (!config.masterKey) {
-    throw new Error('MAGICAAL_MASTER_KEY is required for Integration Connections');
-  }
-  const key = deriveKey(config.masterKey);
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return Buffer.concat([iv, authTag, encrypted]).toString('base64');
-}
-
 /**
  * POST /internal/integrations/connections/:id/credentials — engine-internal
- * persistence of mid-run OAuth token refreshes. No platform auth (internal
- * network only, same trust model as /internal/sessions).
+ * persistence of mid-run OAuth token refreshes. Requires X-Internal-Auth
+ * (requireInternalAuth), same trust model as /internal/sessions.
+ *
+ * The engine sends the run's tenantId; the connection must belong to it, so a
+ * compromised or buggy caller cannot rewrite another tenant's credentials.
  */
 export const internalUpdateCredentials: RequestHandler = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { credentials, expiresAt } = req.body as {
+    const { credentials, expiresAt, tenantId } = req.body as {
       credentials?: Record<string, unknown>;
       expiresAt?: number | null;
+      tenantId?: string;
     };
     if (!credentials) {
       throw Object.assign(new Error('credentials are required'), { status: 400 });
+    }
+    if (!tenantId) {
+      throw Object.assign(new Error('tenantId is required'), { status: 400 });
     }
 
     const existing = await db
       .select({ id: integrationConnections.id })
       .from(integrationConnections)
-      .where(eq(integrationConnections.id, id));
+      .where(
+        and(eq(integrationConnections.id, id), eq(integrationConnections.tenantId, tenantId)),
+      );
     if (!existing[0]) {
       throw Object.assign(new Error('Connection not found'), { status: 404 });
     }
@@ -227,6 +225,62 @@ export const deleteConnection: RequestHandler = async (req, res, next) => {
   }
 };
 
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_NONCE_COOKIE = 'magicaal_oauth_nonce';
+
+/** The callback URL registered with the provider; must byte-match at exchange. */
+function callbackUrl(service: string): string {
+  return `${config.publicBaseUrl}/v1/integrations/oauth/${service}/callback`;
+}
+
+/**
+ * Only same-origin redirect targets are accepted. An attacker-supplied
+ * absolute URL would otherwise turn the public callback into an open redirect.
+ */
+function assertSafeRedirect(redirectUri: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectUri, config.publicBaseUrl);
+  } catch {
+    throw Object.assign(new Error('redirectUri is not a valid URL'), { status: 400 });
+  }
+
+  const base = new URL(config.publicBaseUrl);
+  if (parsed.origin !== base.origin) {
+    throw Object.assign(
+      new Error('redirectUri must be on the same origin as PUBLIC_BASE_URL'),
+      { status: 400, code: 'REDIRECT_URI_NOT_ALLOWED' },
+    );
+  }
+  return parsed.toString();
+}
+
+function sha256hex(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+/** Fetch a service's OAuth endpoints from the engine's integration registry. */
+async function serviceOAuthConfig(service: string): Promise<IntegrationOAuthConfig> {
+  const { data } = await engineClient.get('/internal/integrations');
+  const pkg = (data as Array<{ service: string; authSchema?: IntegrationAuthSchema }>).find(
+    (p) => p.service === service,
+  );
+
+  const oauth = pkg?.authSchema?.oauth;
+  if (!oauth) {
+    throw Object.assign(new Error(`Service "${service}" does not support OAuth`), {
+      status: 400,
+      code: 'OAUTH_NOT_SUPPORTED',
+    });
+  }
+  return oauth;
+}
+
+/**
+ * POST /v1/integrations/oauth/initiate — start the authorization-code flow.
+ * Returns the provider authorization URL for the browser to visit, and binds
+ * the flow to this browser with a nonce cookie.
+ */
 export const initiateOAuth: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
@@ -236,26 +290,69 @@ export const initiateOAuth: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('service and redirectUri are required'), { status: 400 });
     }
 
-    const stateToken = crypto.randomBytes(32).toString('hex');
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
+    const safeRedirect = assertSafeRedirect(redirectUri);
 
+    const app = await loadOAuthApp(tenantId, service);
+    if (!app) {
+      throw Object.assign(
+        new Error(`No OAuth app configured for "${service}" — add one in Admin → Integrations`),
+        { status: 400, code: 'OAUTH_APP_NOT_CONFIGURED' },
+      );
+    }
+
+    const oauth = await serviceOAuthConfig(service);
+
+    const stateToken = crypto.randomBytes(32).toString('hex');
+    // PKCE (RFC 7636) — providers that ignore it are unaffected
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    const nonce = crypto.randomBytes(32).toString('hex');
+
+    const now = new Date();
     await db.insert(integrationOauthStates).values({
-      id: newId(),
+      id: crypto.randomUUID(),
       tenantId,
       service,
       stateToken,
-      redirectUri,
+      redirectUri: safeRedirect,
+      codeVerifier,
+      nonceHash: sha256hex(nonce),
       createdAt: now,
-      expiresAt,
+      expiresAt: new Date(now.getTime() + OAUTH_STATE_TTL_MS),
     });
 
-    res.json({ stateToken, message: 'Use stateToken in your OAuth authorization URL state parameter' });
+    // Bound to the initiating browser: the callback rejects a request that
+    // cannot present this nonce, so a victim cannot be walked through a flow
+    // whose state was minted by someone else.
+    res.cookie(OAUTH_NONCE_COOKIE, nonce, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'lax',
+      maxAge: OAUTH_STATE_TTL_MS,
+      path: '/v1/integrations/oauth',
+    });
+
+    const authUrl = new URL(oauth.authorizationUrl);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', app.clientId);
+    authUrl.searchParams.set('redirect_uri', callbackUrl(service));
+    authUrl.searchParams.set('scope', (app.scopes ?? oauth.scopes).join(' '));
+    authUrl.searchParams.set('state', stateToken);
+    authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+
+    res.json({ authorizationUrl: authUrl.toString(), stateToken });
   } catch (err) {
     next(err);
   }
 };
 
+/**
+ * GET /v1/integrations/oauth/:service/callback — the provider redirects the
+ * user's browser here. Mounted outside requireAuth: the request carries no
+ * bearer token. Authenticity comes from the single-use state token plus the
+ * nonce cookie set at initiate.
+ */
 export const oauthCallback: RequestHandler = async (req, res, next) => {
   try {
     const { service } = req.params;
@@ -268,7 +365,6 @@ export const oauthCallback: RequestHandler = async (req, res, next) => {
     if (oauthError) {
       return res.redirect(`/admin/integrations?error=${encodeURIComponent(oauthError)}`);
     }
-
     if (!code || !state) {
       throw Object.assign(new Error('Missing code or state parameter'), { status: 400 });
     }
@@ -286,32 +382,82 @@ export const oauthCallback: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('OAuth state expired'), { status: 400 });
     }
 
-    // Clean up state token
+    const nonce = req.cookies?.[OAUTH_NONCE_COOKIE] as string | undefined;
+    if (!stateRecord.nonceHash || !nonce || sha256hex(nonce) !== stateRecord.nonceHash) {
+      throw Object.assign(
+        new Error('OAuth flow was not started in this browser'),
+        { status: 400, code: 'OAUTH_NONCE_MISMATCH' },
+      );
+    }
+
+    // State is single-use — consume it before the exchange
     await db.delete(integrationOauthStates).where(eq(integrationOauthStates.id, stateRecord.id));
+    res.clearCookie(OAUTH_NONCE_COOKIE, { path: '/v1/integrations/oauth' });
 
-    // Token exchange is service-specific — stub here; full impl in Phase 5 integrations
-    // For now, store the code as a placeholder credential
-    const credentialsEnc = encryptCredentials(JSON.stringify({
-      auth_code: code,
-      service,
-      exchanged: false,
-      note: 'OAuth token exchange pending Phase 5 integration package',
-    }));
+    const app = await loadOAuthApp(stateRecord.tenantId, service);
+    if (!app) {
+      throw Object.assign(new Error(`No OAuth app configured for "${service}"`), {
+        status: 400,
+        code: 'OAUTH_APP_NOT_CONFIGURED',
+      });
+    }
+    const oauth = await serviceOAuthConfig(service);
 
+    const redirect = new URL(stateRecord.redirectUri);
     const now = new Date();
-    await db.insert(integrationConnections).values({
-      id: newId(),
-      tenantId: stateRecord.tenantId,
-      service,
-      displayName: `${service} (OAuth)`,
-      authType: 'oauth2',
-      credentialsEnc,
-      status: 'active',
-      createdAt: now,
-      updatedAt: now,
-    });
 
-    res.redirect(stateRecord.redirectUri + '?connected=true');
+    let token;
+    try {
+      token = await exchangeAuthorizationCode(
+        {
+          service,
+          tokenUrl: oauth.tokenUrl,
+          clientId: app.clientId,
+          clientSecret: app.clientSecret,
+          clientAuth: oauth.clientAuth,
+          extraParams: oauth.extraParams,
+        },
+        code,
+        callbackUrl(service),
+        stateRecord.codeVerifier ?? undefined,
+      );
+    } catch (err) {
+      // Never leave a connection marked active when no token was obtained
+      redirect.searchParams.set('error', err instanceof Error ? err.message : 'exchange_failed');
+      return res.redirect(redirect.toString());
+    }
+
+    // client_id/client_secret ride along in the credential blob: that is where
+    // the engine's credential resolver reads them from when it refreshes an
+    // expired token mid-run.
+    const credentialsEnc = encryptCredentials(
+      JSON.stringify({
+        access_token: token.accessToken,
+        refresh_token: token.refreshToken,
+        client_id: app.clientId,
+        client_secret: app.clientSecret,
+      }),
+    );
+
+    const [created] = await db
+      .insert(integrationConnections)
+      .values({
+        id: crypto.randomUUID(),
+        tenantId: stateRecord.tenantId,
+        service,
+        displayName: `${service} (OAuth)`,
+        authType: 'oauth2',
+        credentialsEnc,
+        status: 'active',
+        expiresAt: token.expiresAt ? new Date(token.expiresAt) : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: integrationConnections.id });
+
+    redirect.searchParams.set('connected', 'true');
+    redirect.searchParams.set('connectionId', created.id);
+    res.redirect(redirect.toString());
   } catch (err) {
     next(err);
   }

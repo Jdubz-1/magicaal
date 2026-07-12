@@ -7,8 +7,12 @@ import {
   updateConnection,
   deleteConnection,
   initiateOAuth,
-  oauthCallback,
 } from '../controllers/integrations.controller';
+import {
+  listOAuthApps,
+  upsertOAuthApp,
+  deleteOAuthApp,
+} from '../controllers/oauth-apps.controller';
 import {
   listIntegrationTypes,
   listTriggers,
@@ -35,6 +39,11 @@ integrationsRouter.post('/connections', requireMinRole('tenant_admin'), createCo
 integrationsRouter.patch('/connections/:id', requireMinRole('tenant_admin'), updateConnection);
 integrationsRouter.delete('/connections/:id', requireMinRole('tenant_admin'), deleteConnection);
 
-// OAuth flow
+// OAuth client applications (per tenant + service)
+integrationsRouter.get('/oauth-apps', requireMinRole('tenant_admin'), listOAuthApps);
+integrationsRouter.put('/oauth-apps', requireMinRole('tenant_admin'), upsertOAuthApp);
+integrationsRouter.delete('/oauth-apps/:id', requireMinRole('tenant_admin'), deleteOAuthApp);
+
+// OAuth flow. The provider's callback redirect carries no bearer token, so
+// GET /oauth/:service/callback is mounted publicly in routes/index.ts.
 integrationsRouter.post('/oauth/initiate', requireMinRole('tenant_admin'), initiateOAuth);
-integrationsRouter.get('/oauth/:service/callback', oauthCallback);

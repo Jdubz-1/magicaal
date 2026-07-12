@@ -13,7 +13,7 @@ import {
 } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 import { config } from '../config';
-import { encryptCredentials } from './integrations.controller';
+import { encryptCredentials } from '../lib/credentials';
 
 const CATALOG_TTL_MS = 6 * 60 * 60 * 1000; // 6-hour refresh per MARKETPLACE_SPEC
 
