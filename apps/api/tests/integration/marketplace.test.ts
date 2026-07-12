@@ -43,8 +43,8 @@ describe('MARKETPLACE_ENABLED=false gate (default)', () => {
     const { token } = await createUserAndLogin(app, 'tenant_admin');
 
     for (const route of GATED_ROUTES) {
-      const res = await request(app)
-        [route.method](route.path)
+      const agent = request(app);
+      const res = await agent[route.method](route.path)
         .set('Authorization', `Bearer ${token}`)
         .send({});
       expect({ ...route, status: res.status }).toEqual({ ...route, status: 503 });
