@@ -5,6 +5,13 @@ import type { NodeModule, IntegrationPackage } from '@magicaal/sdk-node';
 import { verifyPackage, isInstallAllowed, type PackageManifest } from './package-verifier';
 
 /**
+ * Cap on the decompressed size of a bundle. Gzip reaches ratios of 1000:1, so
+ * without a cap a small upload can inflate to tens of gigabytes and take the
+ * engine down before any signature is even checked — extraction happens first.
+ */
+export const MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024;
+
+/**
  * Extract a .mpack bundle (gzipped POSIX tar) into a path → content map.
  * Minimal ustar reader: 512-byte headers, name (+ optional ustar prefix),
  * octal size, content padded to 512-byte blocks. Bundles are produced by
@@ -12,7 +19,18 @@ import { verifyPackage, isInstallAllowed, type PackageManifest } from './package
  * are out of scope and rejected implicitly by the plain-file filter.
  */
 export function extractMpack(bundle: Buffer): Map<string, Buffer> {
-  const tar = zlib.gunzipSync(bundle);
+  let tar: Buffer;
+  try {
+    tar = zlib.gunzipSync(bundle, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
+  } catch (err) {
+    // zlib raises ERR_BUFFER_TOO_LARGE once the cap is exceeded
+    throw new Error(
+      `bundle failed to decompress (max ${MAX_DECOMPRESSED_BYTES} bytes): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
   const files = new Map<string, Buffer>();
 
   let offset = 0;
@@ -30,6 +48,11 @@ export function extractMpack(bundle: Buffer): Map<string, Buffer> {
     const fullName = prefix ? `${prefix}/${name}` : name;
 
     offset += 512;
+
+    // A header may not claim more content than the archive actually holds
+    if (!Number.isFinite(size) || size < 0 || offset + size > tar.length) {
+      throw new Error(`bundle entry "${fullName}" declares a size outside the archive`);
+    }
 
     // '0' or NUL = plain file; directories ('5') and everything else are skipped
     if ((typeFlag === 0x30 || typeFlag === 0) && fullName) {
@@ -65,6 +88,21 @@ function safeSegment(kind: string, value: unknown): string {
     throw new Error(`unsafe package ${kind}: ${JSON.stringify(value)}`);
   }
   return value;
+}
+
+/**
+ * Assert a package directory lies inside the install root. Loading a package
+ * `require()`s its code with full engine privileges, so a directory that
+ * arrives from outside this process (e.g. a Redis hot-load event) must never
+ * be trusted to point where it claims.
+ */
+export function assertWithinPackagesDir(dir: string, installRoot: string): string {
+  const resolved = path.resolve(dir);
+  const root = path.resolve(installRoot);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error(`package directory is outside the install root: ${dir}`);
+  }
+  return resolved;
 }
 
 /** Safe, validated install directory for a manifest under installRoot. */

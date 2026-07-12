@@ -18,7 +18,7 @@ jest.mock('@/config', () => ({
 }));
 
 import { computeContentHash } from '@/marketplace/package-verifier';
-import { reloadInstalledPackages } from '@/marketplace/hot-load';
+import { reloadInstalledPackages, applyPackageEvent, INSTANCE_ID } from '@/marketplace/hot-load';
 import { registry } from '@/registry/node-registry';
 
 const publisherKeys = crypto.generateKeyPairSync('ed25519');
@@ -113,5 +113,70 @@ describe('reloadInstalledPackages (ISS-050)', () => {
     jest.isolateModules(() => {
       expect(() => reloadInstalledPackages()).not.toThrow();
     });
+  });
+
+  it('records package provenance so entitlement can be enforced', () => {
+    writeInstalledPackage('provenance', 'community:provenance:node');
+
+    reloadInstalledPackages();
+
+    expect(registry.packageOf('community:provenance:node')).toBe('acme/provenance');
+    // Built-ins carry no provenance
+    expect(registry.packageOf('core:start')).toBeUndefined();
+  });
+});
+
+describe('applyPackageEvent — Redis events are untrusted (ISS-057)', () => {
+  it('hot-loads a valid, verified package from an event', () => {
+    const dir = writeInstalledPackage('evented', 'community:evented:node');
+
+    applyPackageEvent({ event: 'installed', packageId: 'acme/evented', packageDir: dir });
+
+    expect(registry.get('community:evented:node').type).toBe('community:evented:node');
+    expect(registry.packageOf('community:evented:node')).toBe('acme/evented');
+  });
+
+  it('refuses an event pointing outside the packages directory', () => {
+    // A fully valid, correctly signed package — but somewhere the engine never installed to
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'magicaal-outside-'));
+    const staged = writeInstalledPackage('sneaky', 'community:sneaky:node');
+    fs.cpSync(staged, path.join(outside, 'pkg'), { recursive: true });
+    fs.rmSync(staged, { recursive: true, force: true });
+
+    expect(() =>
+      applyPackageEvent({
+        event: 'installed',
+        packageId: 'acme/sneaky',
+        packageDir: path.join(outside, 'pkg'),
+      }),
+    ).toThrow(/outside the install root/);
+
+    expect(() => registry.get('community:sneaky:node')).toThrow(/Unknown node type/);
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('refuses an event whose package code was tampered with on disk', () => {
+    const dir = writeInstalledPackage('tampered', 'community:tampered:node');
+    fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports.NODES = []; /* injected */');
+
+    expect(() =>
+      applyPackageEvent({ event: 'installed', packageId: 'acme/tampered', packageDir: dir }),
+    ).toThrow(/re-verification/);
+
+    expect(() => registry.get('community:tampered:node')).toThrow(/Unknown node type/);
+  });
+
+  it('ignores the event it published itself', () => {
+    const dir = writeInstalledPackage('selfecho', 'community:selfecho:node');
+
+    applyPackageEvent({
+      event: 'installed',
+      packageId: 'acme/selfecho',
+      packageDir: dir,
+      origin: INSTANCE_ID,
+    });
+
+    // Not loaded from the event — the publishing instance already registered it directly
+    expect(() => registry.get('community:selfecho:node')).toThrow(/Unknown node type/);
   });
 });

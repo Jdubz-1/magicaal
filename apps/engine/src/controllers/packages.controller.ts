@@ -4,7 +4,12 @@ import { config } from '../config';
 import { logger } from '../lib/logger';
 import { extractMpack, installAndLoad } from '../marketplace/package-loader';
 import { verifyPackage, isInstallAllowed } from '../marketplace/package-verifier';
-import { PACKAGE_EVENTS_CHANNEL, type PackageEvent } from '../marketplace/hot-load';
+import {
+  PACKAGE_EVENTS_CHANNEL,
+  INSTANCE_ID,
+  packageIdOf,
+  type PackageEvent,
+} from '../marketplace/hot-load';
 import { registry } from '../registry/node-registry';
 import { integrationRegistry } from '../registry/integration-registry';
 
@@ -59,7 +64,7 @@ export const installPackage: RequestHandler = async (req, res, next) => {
     }
 
     const loaded = installAndLoad(files, config.packagesDir);
-    const generation = registry.hotLoad(loaded.nodes);
+    const generation = registry.hotLoad(loaded.nodes, packageIdOf(loaded.manifest));
     if (loaded.integration) {
       integrationRegistry.register(loaded.integration);
     }
@@ -69,6 +74,8 @@ export const installPackage: RequestHandler = async (req, res, next) => {
       event: 'installed',
       packageId,
       packageDir: loaded.dir,
+      // Other instances load from this; we already have it registered
+      origin: INSTANCE_ID,
     };
     await redis.publish(PACKAGE_EVENTS_CHANNEL, JSON.stringify(event));
 

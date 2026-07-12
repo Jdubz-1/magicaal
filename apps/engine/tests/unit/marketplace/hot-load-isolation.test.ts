@@ -7,6 +7,12 @@ jest.mock('@/execution/lifecycle');
 jest.mock('@/lib/logger', () => ({
   logger: { info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
+// Entitlement is covered in execution/entitlement.test.ts; here the test
+// tenant owns the package so the gate never interferes with snapshot semantics.
+jest.mock('@/registry/entitlements', () => ({
+  ...jest.requireActual('@/registry/entitlements'),
+  loadEntitledPackages: () => new Set(['test/pkg']),
+}));
 
 import { executeGraph } from '@/execution/worker';
 import { registry } from '@/registry/node-registry';
@@ -67,7 +73,7 @@ describe('registry snapshot semantics', () => {
     const snapshot = registry.snapshot();
 
     const genBefore = registry.generation;
-    registry.hotLoad([testNode('test:snap-b', 'new')]);
+    registry.hotLoad([testNode('test:snap-b', 'new')], 'test/pkg');
 
     expect(registry.generation).toBe(genBefore + 1);
     expect(() => snapshot.get('test:snap-b')).toThrow(/Unknown node type/);
@@ -79,7 +85,7 @@ describe('registry snapshot semantics', () => {
     registry.register(testNode('test:versioned', 'v1'));
     const snapshot = registry.snapshot();
 
-    registry.hotLoad([testNode('test:versioned', 'v2')]);
+    registry.hotLoad([testNode('test:versioned', 'v2')], 'test/pkg');
 
     expect((snapshot.get('test:versioned') as NodeModule).meta.name).toBe('test:versioned');
     // The snapshot still resolves the original module object
@@ -111,7 +117,7 @@ describe('in-flight run isolation under hot-load', () => {
 
     // Hot-load a replacement for test:emit while the run is suspended at the gate
     await reachedGate;
-    registry.hotLoad([testNode('test:emit', 'v2')]);
+    registry.hotLoad([testNode('test:emit', 'v2')], 'test/pkg');
 
     releaseGate();
     await run;

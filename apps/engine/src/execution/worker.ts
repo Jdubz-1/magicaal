@@ -1,5 +1,6 @@
 import type { AgentGraphDefinition, NodeDefinition } from '@magicaal/core';
 import { registry } from '../registry/node-registry';
+import { loadEntitledPackages, isNodeTypeAllowed } from '../registry/entitlements';
 import { lifecycle } from './lifecycle';
 import { ExecutionContextImpl } from './context';
 import type { RunParams } from './context';
@@ -55,7 +56,22 @@ async function executeNodeOnce(
   const snapshot = (ctx as unknown as Record<string, unknown>)._registrySnapshot as
     | ReturnType<typeof registry.snapshot>
     | undefined;
-  const module = (snapshot ?? registry).get(nodeDef.type);
+  const source = snapshot ?? registry;
+  const module = source.get(nodeDef.type);
+
+  // Package nodes are executable only by tenants entitled to that package.
+  const packageId = source.packageOf(nodeDef.type);
+  const entitled = ((ctx as unknown as Record<string, unknown>)._entitledPackages ??
+    new Set<string>()) as ReadonlySet<string>;
+  if (!isNodeTypeAllowed(packageId, entitled)) {
+    throw Object.assign(
+      new Error(
+        `Node type "${nodeDef.type}" belongs to package "${packageId}", which is not installed for this tenant`,
+      ),
+      { status: 403, code: 'PACKAGE_NOT_ENTITLED', retryable: false },
+    );
+  }
+
   const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);
   const ts = new Date().toISOString();
 
@@ -139,6 +155,14 @@ export async function executeGraph(
   // Pin the node registry view for the lifetime of this run (hot-load isolation)
   if (!(ctx as unknown as Record<string, unknown>)._registrySnapshot) {
     (ctx as unknown as Record<string, unknown>)._registrySnapshot = registry.snapshot();
+  }
+  // Pin the tenant's package entitlements alongside it. The node registry is
+  // engine-wide but packages are installed per tenant, so a package node is
+  // only executable by a tenant that installed it with a live license.
+  if (!(ctx as unknown as Record<string, unknown>)._entitledPackages) {
+    (ctx as unknown as Record<string, unknown>)._entitledPackages = loadEntitledPackages(
+      ctx.tenantId,
+    );
   }
 
   const queue: string[] = [graph.entry];

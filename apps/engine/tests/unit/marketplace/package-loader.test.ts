@@ -2,7 +2,12 @@ import * as zlib from 'node:zlib';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { extractMpack, installAndLoad } from '@/marketplace/package-loader';
+import {
+  extractMpack,
+  installAndLoad,
+  assertWithinPackagesDir,
+  MAX_DECOMPRESSED_BYTES,
+} from '@/marketplace/package-loader';
 
 /** Minimal ustar writer for test fixtures (mirrors what the publisher CLI produces). */
 function makeTarGz(files: Record<string, string>): Buffer {
@@ -57,6 +62,47 @@ describe('extractMpack', () => {
 
   it('rejects non-gzip input', () => {
     expect(() => extractMpack(Buffer.from('not a bundle'))).toThrow();
+  });
+
+  it('refuses a gzip bomb rather than inflating it (ISS-056)', () => {
+    // ~600 MB of zeroes compresses to a few hundred KB — well past the cap
+    const bomb = zlib.gzipSync(Buffer.alloc(MAX_DECOMPRESSED_BYTES + 64 * 1024 * 1024));
+    expect(bomb.length).toBeLessThan(2 * 1024 * 1024);
+
+    expect(() => extractMpack(bomb)).toThrow(/failed to decompress/);
+  });
+
+  it('rejects an entry whose declared size runs past the archive', () => {
+    const bundle = makeTarGz({ 'index.js': 'x' });
+    const tar = zlib.gunzipSync(bundle);
+    // Overwrite the size field (octal, offset 124) with an absurd length
+    tar.write('77777777777\0', 124, 'utf8');
+
+    expect(() => extractMpack(zlib.gzipSync(tar))).toThrow(/size outside the archive/);
+  });
+});
+
+describe('assertWithinPackagesDir (ISS-057)', () => {
+  const root = path.join(os.tmpdir(), 'magicaal-root');
+
+  it('accepts a directory inside the install root', () => {
+    expect(assertWithinPackagesDir(path.join(root, 'acme-demo-1.0.0'), root)).toBe(
+      path.join(root, 'acme-demo-1.0.0'),
+    );
+  });
+
+  it('refuses a directory outside the install root', () => {
+    expect(() => assertWithinPackagesDir('/etc', root)).toThrow(/outside the install root/);
+  });
+
+  it('refuses traversal out of the install root', () => {
+    expect(() => assertWithinPackagesDir(path.join(root, '..', 'evil'), root)).toThrow(
+      /outside the install root/,
+    );
+  });
+
+  it('refuses a sibling directory sharing the root prefix', () => {
+    expect(() => assertWithinPackagesDir(`${root}-evil`, root)).toThrow(/outside the install root/);
   });
 });
 

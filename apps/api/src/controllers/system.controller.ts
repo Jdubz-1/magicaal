@@ -1,12 +1,13 @@
 import type { RequestHandler } from 'express';
-import { eq, desc } from 'drizzle-orm';
+import * as crypto from 'node:crypto';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db } from '../db/client';
-import { providerPricing, syncEvents } from '../db/schema';
+import { providerPricing, syncEvents, packageRegistry, assetLicenses } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 import { config } from '../config';
 
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 /** Non-sensitive platform feature flags for the frontend. */
@@ -34,10 +35,51 @@ export const getSystemHealth: RequestHandler = async (_req, res, next) => {
   }
 };
 
-export const listNodes: RequestHandler = async (_req, res, next) => {
+interface EngineNode {
+  type: string;
+  /** `{publisher}/{name}`; absent for built-in nodes. */
+  packageId?: string;
+}
+
+/**
+ * The packages this tenant may use, as `{publisher}/{name}`. Mirrors the
+ * engine's execution-time entitlement check (registry/entitlements.ts) so the
+ * palette only ever offers node types the tenant can actually run.
+ */
+export async function entitledPackages(tenantId: string): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({
+      publisher: packageRegistry.publisher,
+      name: packageRegistry.name,
+    })
+    .from(packageRegistry)
+    .innerJoin(assetLicenses, eq(assetLicenses.packageId, packageRegistry.id))
+    .where(
+      and(
+        eq(packageRegistry.tenantId, tenantId),
+        eq(packageRegistry.enabled, true),
+        inArray(assetLicenses.status, ['active', 'grace']),
+      ),
+    );
+
+  return new Set(rows.map((r) => `${r.publisher}/${r.name}`));
+}
+
+/**
+ * GET /v1/nodes — node types available to the calling tenant.
+ *
+ * The engine's registry is process-wide, so it holds every installed package's
+ * nodes. Filter to built-ins plus the packages this tenant installed; without
+ * this, every tenant sees (and could reference) other tenants' paid nodes.
+ */
+export const listNodes: RequestHandler = async (req, res, next) => {
   try {
+    const { tenantId } = req.user!;
     const response = await engineClient.get('/internal/nodes');
-    res.json(response.data);
+    const nodes = response.data as EngineNode[];
+
+    const entitled = await entitledPackages(tenantId);
+    res.json(nodes.filter((n) => !n.packageId || entitled.has(n.packageId)));
   } catch (err) {
     next(err);
   }
