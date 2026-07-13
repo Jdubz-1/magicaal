@@ -240,3 +240,306 @@ describe('Agents CRUD', () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 });
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { engineClient } = require('../../src/lib/engine-client') as {
+  engineClient: { post: jest.Mock; get: jest.Mock };
+};
+
+const START_ONLY = {
+  entry: 'start',
+  nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+  edges: [],
+};
+
+function graphWithSchemas(): string {
+  return JSON.stringify({
+    entry: 'start',
+    nodes: {
+      start: {
+        id: 'start',
+        type: 'core:start',
+        config: { inputSchema: { type: 'object', required: ['q'] } },
+      },
+      end: {
+        id: 'end',
+        type: 'core:end',
+        config: { outputSchema: { type: 'object', required: ['a'] } },
+      },
+    },
+    edges: [{ id: 'e1', from: 'start', to: 'end', type: 'unconditional' }],
+  });
+}
+
+describe('agent config', () => {
+  let token: string;
+  let agentId: string;
+
+  beforeEach(async () => {
+    ({ token } = await createUserAndLogin(app, 'developer'));
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Cfg', handle: `cfg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
+    agentId = create.body.id as string;
+  });
+
+  it('returns the config created alongside the agent', async () => {
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/config`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('triggerConfig');
+    expect(res.body).toHaveProperty('timeoutMs');
+  });
+
+  it('updates trigger config and timeout, and redeploys', async () => {
+    const res = await request(app)
+      .patch(`/v1/agents/${agentId}/config`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ triggerConfig: { type: 'cron', expression: '0 * * * *' }, timeoutMs: 9000 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.triggerConfig).toEqual({ type: 'cron', expression: '0 * * * *' });
+    expect(res.body.timeoutMs).toBe(9000);
+    expect(engineClient.post).toHaveBeenCalledWith(`/internal/agents/${agentId}/deploy`);
+  });
+
+  it('applies a partial update without clobbering the other field', async () => {
+    await request(app)
+      .patch(`/v1/agents/${agentId}/config`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ timeoutMs: 1234 });
+
+    const res = await request(app)
+      .patch(`/v1/agents/${agentId}/config`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ triggerConfig: { type: 'rest' } });
+
+    expect(res.body.timeoutMs).toBe(1234);
+    expect(res.body.triggerConfig).toEqual({ type: 'rest' });
+  });
+
+  it('404s on config for an unknown agent', async () => {
+    const get = await request(app)
+      .get('/v1/agents/ghost/config')
+      .set('Authorization', `Bearer ${token}`);
+    expect(get.status).toBe(404);
+
+    const patch = await request(app)
+      .patch('/v1/agents/ghost/config')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ timeoutMs: 1 });
+    expect(patch.status).toBe(404);
+  });
+});
+
+describe('publish trigger wiring', () => {
+  it('schedules a cron job on the engine when the graph declares one', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Cron', handle: `cron-${Date.now()}` });
+
+    const graphJson = JSON.stringify({
+      ...START_ONLY,
+      config: { trigger: { type: 'cron', expression: '*/5 * * * *' } },
+    });
+
+    const res = await request(app)
+      .post(`/v1/agents/${create.body.id}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson });
+
+    expect(res.status).toBe(200);
+    expect(engineClient.post).toHaveBeenCalledWith('/internal/agents/schedule', {
+      agentId: create.body.id,
+      tenantId,
+      cronExpression: '*/5 * * * *',
+    });
+  });
+
+  it('returns a webhook URL when the graph declares a webhook trigger', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Hook', handle: `hook-${Date.now()}` });
+
+    const graphJson = JSON.stringify({
+      ...START_ONLY,
+      config: { trigger: { type: 'webhook' } },
+    });
+
+    const res = await request(app)
+      .post(`/v1/agents/${create.body.id}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson });
+
+    expect(res.status).toBe(200);
+    expect(res.body.webhookUrl).toContain(`/v1/agents/${create.body.id}/webhook/`);
+  });
+});
+
+describe('version diff and rollback', () => {
+  let token: string;
+  let agentId: string;
+  let v1: string;
+  let v2: string;
+
+  beforeAll(async () => {
+    ({ token } = await createUserAndLogin(app, 'developer'));
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Versioned', handle: `ver-${Date.now()}` });
+    agentId = create.body.id as string;
+
+    const first = await request(app)
+      .post(`/v1/agents/${agentId}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson: JSON.stringify(START_ONLY) });
+    v1 = first.body.versionId as string;
+
+    const second = await request(app)
+      .post(`/v1/agents/${agentId}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson: graphWithSchemas() });
+    v2 = second.body.versionId as string;
+  });
+
+  it('diffs a version against its predecessor by default', async () => {
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/versions/${v2}/diff`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.targetVersionId).toBe(v2);
+    expect(res.body.compareVersionId).toBe(v1);
+    expect(res.body.changes.length).toBeGreaterThan(0);
+  });
+
+  it('diffs against an explicitly requested version', async () => {
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/versions/${v2}/diff?compareWith=${v1}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.compareVersion.versionNumber).toBe(1);
+  });
+
+  it('diffs the first version against an empty graph', async () => {
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/versions/${v1}/diff`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.compareVersionId).toBeNull();
+    expect(res.body.compareVersion).toBeNull();
+  });
+
+  it('404s diffing an unknown version', async () => {
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/versions/ghost/diff`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s diffing another tenant's agent", async () => {
+    const bob = await createUserAndLogin(app, 'developer');
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/versions/${v2}/diff`)
+      .set('Authorization', `Bearer ${bob.token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('rolls back to an earlier version as a new draft', async () => {
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/versions/${v1}/rollback`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rolledBackFrom).toBe(v1);
+    expect(res.body.versionNumber).toBe(3);
+
+    // rollback stages a draft rather than going live
+    const agent = await request(app)
+      .get(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(agent.body.status).toBe('draft');
+  });
+
+  it('404s rolling back an unknown version', async () => {
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/versions/ghost/rollback`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('schema discovery', () => {
+  it('returns the input and output schemas from the published graph', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Schemas', handle: `sch-${Date.now()}` });
+    const agentId = create.body.id as string;
+
+    await request(app)
+      .post(`/v1/agents/${agentId}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson: graphWithSchemas() });
+
+    const input = await request(app)
+      .get(`/v1/agents/${agentId}/schema/input`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(input.status).toBe(200);
+    expect(input.body.inputSchema.required).toEqual(['q']);
+
+    const output = await request(app)
+      .get(`/v1/agents/${agentId}/schema/output`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(output.status).toBe(200);
+    expect(output.body.outputSchema.required).toEqual(['a']);
+  });
+
+  it('404s when the graph declares no schema', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'NoSchema', handle: `nosch-${Date.now()}` });
+    const agentId = create.body.id as string;
+
+    await request(app)
+      .post(`/v1/agents/${agentId}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ graphJson: JSON.stringify(START_ONLY) });
+
+    const input = await request(app)
+      .get(`/v1/agents/${agentId}/schema/input`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(input.status).toBe(404);
+
+    const output = await request(app)
+      .get(`/v1/agents/${agentId}/schema/output`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(output.status).toBe(404);
+  });
+
+  it('404s when the agent has never been published', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const create = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Unpublished', handle: `unpub-${Date.now()}` });
+
+    const res = await request(app)
+      .get(`/v1/agents/${create.body.id}/schema/input`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+});

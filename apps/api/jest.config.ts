@@ -14,6 +14,10 @@ const config: Config = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/index.ts',
+    // Drizzle table declarations. Their only "functions" are foreign-key arrows
+    // (`() => tenants.id`) that Drizzle alone invokes — covering them would mean
+    // testing Drizzle, not this codebase.
+    '!src/db/schema/**',
   ],
   transform: {
     '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
