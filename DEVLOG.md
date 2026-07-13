@@ -25,6 +25,43 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-12 - Raise apps/api test coverage to 94% and clear the 80% gate
+
+**Type:** Tests
+
+**Description:**
+`apps/api` enforces an 80% Jest coverage threshold (a CLAUDE.md pre-push check) that had been failing for some time — 46% before the recent security work, 52% after. The gap was almost entirely `src/controllers`, thirteen of which had no test file at all. Branches were the binding constraint (22% → needed 80%), so error paths, not happy paths, were the actual work.
+
+**Changes:**
+- `apps/api/jest.config.ts` — exclude `src/db/schema/**` from coverage collection; those are Drizzle table declarations whose only "functions" are foreign-key arrows that Drizzle alone invokes
+- 11 new test files (201 tests) covering every controller: `sessions`, `test-cases`, `marketplace-enabled` (the flag-on paths the 503 gate otherwise hides), `datasources`, `mcp-servers`, `users-tenants`, `llm-telemetry-invocation`, `system-prompts-caal`, `connections-webhook`, `auth-middleware`, `auth-runs-flows`; plus extensions to the existing `agents` tests
+- Also covers the previously-untested `mk_` API-key auth path in `middleware/auth.ts`, `platform/bootstrap.ts`, and the `lib/` crypto, JWT, and graph-validator helpers
+
+**Impact:**
+`pnpm --filter @magicaal/api run test:cov` now exits 0. Coverage: 94.19% statements, 83.94% branches, 93.53% functions, 94.39% lines. apps/api goes from 84 to 285 tests; the monorepo from 462 to 645.
+
+**Notes:**
+Testing previously-untested code surfaced four defects. Three are fixed in `4ceb2f7` (see below). The fourth, **ISS-063**, is left open because the fix is an auth-design decision: invocation keys cannot invoke anything — `requireAuth` resolves every `mk_` token against the platform `api_keys` table, so an invocation key 401s before `resolveInvocationKey` ever runs, while a valid platform key then fails that same check. `POST /runs` is currently invokable only with a JWT, which makes the whole Phase 1 invocation-key feature unreachable over the public API.
+
+---
+
+### 2026-07-12 - Fix webhook receiver, refresh-token collision, and refresh 500
+
+**Type:** Bugfix
+
+**Description:**
+Three bugs found by writing tests for previously-untested code.
+
+**Changes:**
+- `apps/api/src/routes/index.ts` — the public webhook receiver was **unreachable**. `POST /v1/agents/:id/webhook/:secret` was mounted after `router.use('/v1/agents', agentsRouter)`, and a router-level `use(requireAuth)` runs for every request into that prefix even when no route inside it matches, so the webhook always 401'd before its handler. Mounted ahead of `agentsRouter` — the same fix already applied to the OAuth callback. The Phase 2 webhook trigger had therefore never worked end-to-end.
+- `apps/api/src/lib/jwt.ts` — `signRefreshToken()` carried no unique claim; its only varying field was `iat`, at one-second granularity. Two logins by the same user within the same second minted byte-identical tokens, colliding on the unique `auth_sessions.refresh_token_hash` and returning 500 — reachable by two browser tabs or a double-clicked login. It also meant two sessions could share one refresh token. Added a random `jti`.
+- `apps/api/src/controllers/auth.controller.ts` — a malformed or forged refresh token returned 500 instead of 401 (`verifyRefreshToken`'s throw was uncaught).
+
+**Impact:**
+The webhook trigger works for the first time. Concurrent logins no longer 500, and refresh tokens are unique per issuance.
+
+---
+
 ### 2026-07-12 - Close the remaining 9 issues from the Phases 0–5 review
 
 **Type:** Bugfix
