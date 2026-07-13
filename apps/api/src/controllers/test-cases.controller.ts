@@ -178,6 +178,9 @@ export const runTestSuite: RequestHandler = async (req, res, next) => {
           agentId,
           tenantId,
           triggerType: 'test',
+          // Suite runs are driven by an authenticated developer, not an external
+          // caller — a §11.4 exemption from the agent's invocation policy.
+          caller: { kind: 'platform', strategy: 'test' },
           input: JSON.parse(tc.inputJson) as Record<string, unknown>,
         });
         const { runId } = dispatchRes.data as { runId: string };

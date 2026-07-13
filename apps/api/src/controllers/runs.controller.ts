@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
-import { agents, invocationKeys, invocationPolicies, invocationLog } from '../db/schema';
+import { agents, invocationPolicies, invocationLog } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 
 function newId(): string {
@@ -85,36 +85,44 @@ async function checkRateLimit(
   return { limited: false, limit, remaining, resetAt };
 }
 
-function sha256hex(input: string): string {
-  return crypto.createHash('sha256').update(input).digest('hex');
-}
-
-async function resolveInvocationKey(agentId: string, authHeader: string | undefined): Promise<string | undefined> {
-  if (!authHeader?.startsWith('Bearer ')) return undefined;
-  const token = authHeader.slice(7);
-  if (!token.startsWith('mk_')) return undefined;
-
-  const keyHash = sha256hex(token);
-  const rows = await db
-    .select()
-    .from(invocationKeys)
-    .where(eq(invocationKeys.keyHash, keyHash));
-  const key = rows[0];
-
-  if (!key || key.revoked || key.agentId !== agentId) {
-    throw Object.assign(new Error('Invalid or revoked invocation key'), { status: 401 });
-  }
-  if (key.expiresAt && key.expiresAt < new Date()) {
-    throw Object.assign(new Error('Invocation key expired'), { status: 401 });
-  }
-
-  return token;
+/**
+ * Invocation audit log (ARCHITECTURE §11.5): agent, tenant, strategy, caller
+ * identity, and outcome — including failures, which is why it is written after
+ * the dispatch attempt rather than before it. Never fatal to the request.
+ */
+async function recordInvocation(
+  req: Parameters<RequestHandler>[0],
+  agentId: string,
+  tenantId: string,
+  status: 'dispatched' | 'rejected',
+  runId?: string,
+): Promise<void> {
+  await db
+    .insert(invocationLog)
+    .values({
+      id: newId(),
+      agentId,
+      tenantId,
+      // A platform caller bypassed invocation auth; an invocation caller was
+      // authenticated by the agent's policy, which named the strategy.
+      strategy: req.caller?.strategy ?? 'unknown',
+      // Only the api-key strategy yields a real invocation_keys row id; jwt and
+      // public return a sentinel, and a platform caller has no key at all.
+      invocationKeyId: req.caller?.strategy === 'api-key' ? (req.caller.keyId ?? null) : null,
+      requestIp: req.ip ?? 'unknown',
+      runId: runId ?? null,
+      status,
+      createdAt: new Date(),
+    })
+    .catch(() => { /* audit write must never fail the request */ });
 }
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
+  const { id: agentId } = req.params;
+  const tenantId = req.user?.tenantId ?? '';
+
   try {
-    const { id: agentId } = req.params;
-    const { tenantId, userId } = req.user!;
+    const { userId } = req.user!;
     const { input = {}, mode = 'async', session_id } = req.body as {
       input?: Record<string, unknown>;
       mode?: 'sync' | 'async';
@@ -130,13 +138,17 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
     const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
     const agent = agentRows[0];
     if (!agent) throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    // An invocation caller is scoped to one agent by its credential; a platform
+    // caller is scoped to its tenant.
+    if (agent.tenantId !== tenantId) {
+      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
     if (agent.status !== 'active' || !agent.enabled) {
       throw Object.assign(new Error('Agent is not active'), { status: 409, code: 'AGENT_NOT_ACTIVE' });
     }
 
-    const authKey = await resolveInvocationKey(agentId, req.headers.authorization);
-
-    // Rate limit check
+    // Per-agent configured limit (§11.3). The engine's Redis limiter is a hard
+    // backstop and was already incremented once, during invocation validation.
     const rl = await checkRateLimit(agentId, tenantId);
     res.setHeader('X-RateLimit-Limit', String(rl.limit === Infinity ? 9999 : rl.limit));
     res.setHeader('X-RateLimit-Remaining', String(rl.remaining === Infinity ? 9999 : rl.remaining));
@@ -145,29 +157,19 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('Rate limit exceeded'), { status: 429, code: 'RATE_LIMIT_EXCEEDED' });
     }
 
-    // Log invocation for audit
-    await db.insert(invocationLog).values({
-      id: newId(),
-      agentId,
-      tenantId,
-      strategy: authKey ? 'api-key' : 'bearer',
-      requestIp: req.ip ?? 'unknown',
-      status: 'dispatched',
-      createdAt: new Date(),
-    }).catch(() => { /* non-fatal */ });
-
     const response = await engineClient.post('/internal/runs', {
       agentId,
       tenantId,
       triggerType: 'api',
       input,
-      authKey,
-      authorizationHeader: req.headers.authorization,
+      caller: req.caller,
       sessionId,
     });
 
     const { runId } = response.data as { runId: string };
     void userId; // Available if needed for audit logging
+
+    await recordInvocation(req, agentId, tenantId, 'dispatched', runId);
 
     if (mode === 'sync') {
       let run: { status: string; output: unknown; error: unknown } | null = null;
@@ -183,6 +185,8 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
 
     res.status(202).json({ runId, ...(sessionId && { sessionId }) });
   } catch (err) {
+    // §11.5: every attempt is logged, including the ones that never dispatched
+    if (tenantId) await recordInvocation(req, agentId, tenantId, 'rejected');
     next(err);
   }
 };

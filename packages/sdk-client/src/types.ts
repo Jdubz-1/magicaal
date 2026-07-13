@@ -1,6 +1,20 @@
 export interface MagiCaalClientConfig {
   baseUrl: string;
+  /**
+   * A per-agent invocation key (`ik_...`), issued from Admin or
+   * `POST /v1/agents/:id/invocation-keys`. Scoped to one agent, and validated
+   * against that agent's invocation policy. This is the credential you give to
+   * an external consumer.
+   *
+   * Agents whose policy is `public` need no credential at all; omit both this
+   * and `bearer`.
+   */
   apiKey?: string;
+  /**
+   * A platform bearer token — a Studio session JWT, or a platform API key
+   * (`mk_...`). Carries full tenant access and bypasses the agent's invocation
+   * policy, so prefer `apiKey` for anything you hand to a third party.
+   */
   bearer?: string;
   timeout?: number;
   retry?: RetryConfig;

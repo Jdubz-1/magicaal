@@ -15,7 +15,6 @@ import {
   getSchemaInput,
   getSchemaOutput,
 } from '../controllers/agents.controller';
-import { dispatchRun, getRun, getRunSteps, streamRun, reviewRun } from '../controllers/runs.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
 import { sessionRouter } from './sessions';
@@ -40,11 +39,8 @@ agentsRouter.patch('/:id/config', updateAgentConfig);
 agentsRouter.get('/:id/schema/input', getSchemaInput);
 agentsRouter.get('/:id/schema/output', getSchemaOutput);
 
-agentsRouter.post('/:id/runs', dispatchRun);
-agentsRouter.get('/:id/runs/:runId', getRun);
-agentsRouter.get('/:id/runs/:runId/steps', getRunSteps);
-agentsRouter.get('/:id/runs/:runId/stream', streamRun);
-agentsRouter.post('/:id/runs/:runId/review', reviewRun);
+// Run routes live in routes/runs.ts, mounted ahead of this router: they admit
+// invocation-plane callers too, which this router's requireAuth would reject.
 
 agentsRouter.get('/:id/invocation-policy', getInvocationPolicy);
 agentsRouter.patch('/:id/invocation-policy', updateInvocationPolicy);

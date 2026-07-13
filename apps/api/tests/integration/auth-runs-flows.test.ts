@@ -1,10 +1,11 @@
 import request from 'supertest';
+import * as crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createApp } from '../../src/app';
 import { runMigrations } from '../../src/db/migrate';
 import { createUserAndLogin } from '../helpers/auth-helpers';
 import { db } from '@/db/client';
-import { authSessions, users, invocationKeys } from '@/db/schema';
+import { authSessions, users, apiKeys, invocationLog } from '@/db/schema';
 
 jest.mock('../../src/lib/engine-client', () => ({
   engineClient: { post: jest.fn(), get: jest.fn() },
@@ -129,7 +130,7 @@ describe('auth: login, refresh, logout', () => {
   });
 });
 
-describe('run dispatch: invocation keys and rate limiting', () => {
+describe('run dispatch: the two auth planes (ISS-063)', () => {
   async function publishedAgent(token: string, handle: string): Promise<string> {
     const create = await request(app)
       .post('/v1/agents')
@@ -150,173 +151,362 @@ describe('run dispatch: invocation keys and rate limiting', () => {
     return agentId;
   }
 
-  it('runs in sync mode by polling the engine to completion', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `sync-${Date.now()}`);
-
-    engineClient.post.mockResolvedValue({ data: { runId: 'run-sync' } });
-    engineClient.get.mockResolvedValue({
-      data: { status: 'completed', output: { answer: 42 }, error: null },
+  /**
+   * Route the engine mock by endpoint: the invocation plane is validated by
+   * POST /internal/invocation-auth/validate, the dispatch by POST /internal/runs.
+   */
+  function mockEngine(opts: {
+    validate?: { keyId: string; tenantId: string; strategy: string } | Error;
+    runId?: string;
+  }): void {
+    engineClient.post.mockImplementation(async (url: string) => {
+      if (url === '/internal/invocation-auth/validate') {
+        if (opts.validate instanceof Error) throw opts.validate;
+        if (!opts.validate) throw Object.assign(new Error('Invalid or revoked invocation key'), { status: 401 });
+        return { data: opts.validate };
+      }
+      if (url === '/internal/runs') return { data: { runId: opts.runId ?? 'run-1' } };
+      return { data: {} };
     });
+  }
 
+  async function issueKey(token: string, agentId: string): Promise<string> {
     const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: {}, mode: 'sync' });
-
-    expect(res.status).toBe(200);
-    expect(res.body.output).toEqual({ answer: 42 });
-  }, 20_000);
-
-  it('emits X-RateLimit headers and 429s once the window is exhausted', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `rl-${Date.now()}`);
-
-    await request(app)
-      .patch(`/v1/agents/${agentId}/invocation-policy`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ rateLimit: { requestsPerWindow: 2, windowSeconds: 60 } });
-
-    const first = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: {} });
-    expect(first.status).toBe(202);
-    expect(first.headers['x-ratelimit-limit']).toBe('2');
-    expect(first.headers['x-ratelimit-remaining']).toBe('1');
-
-    const second = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: {} });
-    expect(second.status).toBe(202);
-    expect(second.headers['x-ratelimit-remaining']).toBe('0');
-
-    const third = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: {} });
-    expect(third.status).toBe(429);
-    expect(third.body.code).toBe('RATE_LIMIT_EXCEEDED');
-  });
-
-  it('reports an unlimited quota when no rate limit is configured', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `norl-${Date.now()}`);
-
-    const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: {} });
-
-    expect(res.status).toBe(202);
-    expect(res.headers['x-ratelimit-limit']).toBe('9999');
-  });
-
-  // NOTE: documents current behaviour, which is arguably wrong — see the
-  // "invocation keys cannot invoke" finding. requireAuth resolves any `mk_`
-  // token against the PLATFORM api_keys table, so a freshly minted invocation
-  // key is rejected before dispatchRun (and its resolveInvocationKey) ever
-  // runs. Changing this is an auth-design decision, not a test fix.
-  it('rejects an invocation key at the platform auth layer', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `key-ok-${Date.now()}`);
-
-    const key = await request(app)
       .post(`/v1/agents/${agentId}/invocation-keys`)
       .set('Authorization', `Bearer ${token}`)
       .send({ label: 'ci' });
+    return res.body.key as string;
+  }
 
-    jest.clearAllMocks();
+  describe('platform plane', () => {
+    it('a Studio JWT dispatches without consulting the invocation policy', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `plat-jwt-${Date.now()}`);
+      mockEngine({ runId: 'run-jwt' });
 
-    const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${key.body.key}`)
-      .send({ input: {} });
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: { q: 'hi' } });
 
-    expect(res.status).toBe(401);
-    expect(engineClient.post).not.toHaveBeenCalled();
+      expect(res.status).toBe(202);
+      expect(res.body.runId).toBe('run-jwt');
+
+      // §11.4: a platform caller bypasses invocation auth entirely
+      const validateCalls = engineClient.post.mock.calls.filter(
+        ([u]: [string]) => u === '/internal/invocation-auth/validate',
+      );
+      expect(validateCalls).toHaveLength(0);
+
+      const [, body] = engineClient.post.mock.calls.find(
+        ([u]: [string]) => u === '/internal/runs',
+      )!;
+      expect(body.caller).toEqual({ kind: 'platform', strategy: 'platform' });
+      expect(body.input).toEqual({ q: 'hi' });
+    });
+
+    it('a platform API key also bypasses the invocation policy', async () => {
+      const { token, tenantId, userId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `plat-key-${Date.now()}`);
+
+      const plaintext = `mk_${crypto.randomBytes(32).toString('hex')}`;
+      await db.insert(apiKeys).values({
+        id: crypto.randomUUID(),
+        tenantId,
+        userId,
+        name: 'ci',
+        keyHash: crypto.createHash('sha256').update(plaintext).digest('hex'),
+        revoked: false,
+        createdAt: new Date(),
+      });
+
+      mockEngine({ runId: 'run-mk' });
+
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${plaintext}`)
+        .send({ input: {} });
+
+      expect(res.status).toBe(202);
+      const [, body] = engineClient.post.mock.calls.find(
+        ([u]: [string]) => u === '/internal/runs',
+      )!;
+      expect(body.caller.kind).toBe('platform');
+    });
   });
 
-  it('dispatches with a platform JWT, forwarding no invocation key', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `jwt-disp-${Date.now()}`);
+  describe('invocation plane', () => {
+    it('an ik_ key is validated by the engine and dispatches as an invocation caller', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `inv-ok-${Date.now()}`);
+      const key = await issueKey(token, agentId);
+      expect(key).toMatch(/^ik_/);
 
-    jest.clearAllMocks();
-    engineClient.post.mockResolvedValue({ data: { runId: 'run-jwt' } });
+      mockEngine({
+        validate: { keyId: 'key-1', tenantId, strategy: 'api-key' },
+        runId: 'run-ik',
+      });
 
-    const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ input: { q: 'hi' } });
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${key}`)
+        .send({ input: {} });
 
-    expect(res.status).toBe(202);
-    const [, body] = engineClient.post.mock.calls[0];
-    expect(body.authKey).toBeUndefined();
-    expect(body.authorizationHeader).toBe(`Bearer ${token}`);
-    expect(body.input).toEqual({ q: 'hi' });
+      expect(res.status).toBe(202);
+
+      // the engine authenticated it against THIS agent's policy
+      const [, validateBody] = engineClient.post.mock.calls.find(
+        ([u]: [string]) => u === '/internal/invocation-auth/validate',
+      )!;
+      expect(validateBody).toEqual({
+        agentId,
+        authorizationHeader: `Bearer ${key}`,
+      });
+
+      const [, body] = engineClient.post.mock.calls.find(
+        ([u]: [string]) => u === '/internal/runs',
+      )!;
+      expect(body.caller).toEqual({
+        kind: 'invocation',
+        strategy: 'api-key',
+        keyId: 'key-1',
+      });
+    });
+
+    it('propagates the engine 401 when the credential fails the policy', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `inv-bad-${Date.now()}`);
+
+      mockEngine({
+        validate: Object.assign(new Error('Invalid or revoked invocation key'), { status: 401 }),
+      });
+
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ik_${'0'.repeat(64)}`)
+        .send({ input: {} });
+
+      expect(res.status).toBe(401);
+      // and no run was dispatched
+      const dispatches = engineClient.post.mock.calls.filter(
+        ([u]: [string]) => u === '/internal/runs',
+      );
+      expect(dispatches).toHaveLength(0);
+    });
+
+    it('a public agent is invokable with no Authorization header at all', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `inv-pub-${Date.now()}`);
+
+      await request(app)
+        .patch(`/v1/agents/${agentId}/invocation-policy`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ strategy: 'public' });
+
+      // the engine resolves the public policy without a credential
+      mockEngine({
+        validate: { keyId: 'public', tenantId, strategy: 'public' },
+        runId: 'run-pub',
+      });
+
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .send({ input: {} });
+
+      expect(res.status).toBe(202);
+      const [, body] = engineClient.post.mock.calls.find(
+        ([u]: [string]) => u === '/internal/runs',
+      )!;
+      expect(body.caller.strategy).toBe('public');
+    });
+
+    it('reaches run status and steps with an invocation key', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `inv-read-${Date.now()}`);
+      const key = await issueKey(token, agentId);
+
+      mockEngine({ validate: { keyId: 'key-1', tenantId, strategy: 'api-key' } });
+      engineClient.get.mockResolvedValue({
+        data: { id: 'run-1', tenantId, agentId, status: 'completed', output: { a: 1 } },
+      });
+
+      const status = await request(app)
+        .get(`/v1/agents/${agentId}/runs/run-1`)
+        .set('Authorization', `Bearer ${key}`);
+      expect(status.status).toBe(200);
+      expect(status.body.output).toEqual({ a: 1 });
+
+      const steps = await request(app)
+        .get(`/v1/agents/${agentId}/runs/run-1/steps`)
+        .set('Authorization', `Bearer ${key}`);
+      expect(steps.status).toBe(200);
+    });
+
+    it("cannot read another agent's run, even in the same tenant", async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentA = await publishedAgent(token, `inv-a-${Date.now()}`);
+      const agentB = await publishedAgent(token, `inv-b-${Date.now()}`);
+      const keyForA = await issueKey(token, agentA);
+
+      mockEngine({ validate: { keyId: 'key-a', tenantId, strategy: 'api-key' } });
+      // the run belongs to agent B
+      engineClient.get.mockResolvedValue({
+        data: { id: 'run-b', tenantId, agentId: agentB, status: 'completed' },
+      });
+
+      const res = await request(app)
+        .get(`/v1/agents/${agentA}/runs/run-b`)
+        .set('Authorization', `Bearer ${keyForA}`);
+
+      expect(res.status).toBe(404);
+    });
   });
 
-  it('401s on a revoked invocation key', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `key-rev-${Date.now()}`);
+  describe('rate limiting and agent state', () => {
+    it('emits X-RateLimit headers and 429s once the window is exhausted', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `rl-${Date.now()}`);
 
-    const key = await request(app)
-      .post(`/v1/agents/${agentId}/invocation-keys`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ label: 'doomed' });
+      await request(app)
+        .patch(`/v1/agents/${agentId}/invocation-policy`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ rateLimit: { requestsPerWindow: 2, windowSeconds: 60 } });
 
-    await db
-      .update(invocationKeys)
-      .set({ revoked: true })
-      .where(eq(invocationKeys.id, key.body.id as string));
+      mockEngine({ runId: 'run-rl' });
 
-    const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${key.body.key}`)
-      .send({ input: {} });
+      const first = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(first.status).toBe(202);
+      expect(first.headers['x-ratelimit-limit']).toBe('2');
+      expect(first.headers['x-ratelimit-remaining']).toBe('1');
 
-    expect(res.status).toBe(401);
+      const second = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(second.headers['x-ratelimit-remaining']).toBe('0');
+
+      const third = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(third.status).toBe(429);
+      expect(third.body.code).toBe('RATE_LIMIT_EXCEEDED');
+    });
+
+    it('reports an unlimited quota when no rate limit is configured', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `norl-${Date.now()}`);
+      mockEngine({ runId: 'run-norl' });
+
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+
+      expect(res.status).toBe(202);
+      expect(res.headers['x-ratelimit-limit']).toBe('9999');
+    });
+
+    it('409s on a draft agent and 404s cross-tenant', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      mockEngine({ runId: 'run-x' });
+
+      const draft = await request(app)
+        .post('/v1/agents')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Draft', handle: `draft-run-${Date.now()}` });
+
+      const notActive = await request(app)
+        .post(`/v1/agents/${draft.body.id}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(notActive.status).toBe(409);
+
+      const other = await createUserAndLogin(app, 'developer');
+      const theirAgent = await publishedAgent(other.token, `theirs-${Date.now()}`);
+
+      const crossTenant = await request(app)
+        .post(`/v1/agents/${theirAgent}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(crossTenant.status).toBe(404);
+    });
+
+    it('runs in sync mode by polling the engine to completion', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `sync-${Date.now()}`);
+
+      mockEngine({ runId: 'run-sync' });
+      engineClient.get.mockResolvedValue({
+        data: { status: 'completed', output: { answer: 42 }, error: null },
+      });
+
+      const res = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {}, mode: 'sync' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.output).toEqual({ answer: 42 });
+    }, 20_000);
   });
 
-  it("401s on an invocation key issued for a different agent", async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentA = await publishedAgent(token, `key-a-${Date.now()}`);
-    const agentB = await publishedAgent(token, `key-b-${Date.now()}`);
+  describe('audit log (§11.5)', () => {
+    it('records the strategy, run id, and outcome of a dispatch', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `audit-ok-${Date.now()}`);
+      mockEngine({ runId: 'run-audit' });
 
-    const key = await request(app)
-      .post(`/v1/agents/${agentA}/invocation-keys`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ label: 'for-a' });
+      await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
 
-    const res = await request(app)
-      .post(`/v1/agents/${agentB}/runs`)
-      .set('Authorization', `Bearer ${key.body.key}`)
-      .send({ input: {} });
+      const rows = await db
+        .select()
+        .from(invocationLog)
+        .where(eq(invocationLog.agentId, agentId));
 
-    expect(res.status).toBe(401);
-  });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        tenantId,
+        strategy: 'platform',
+        status: 'dispatched',
+        runId: 'run-audit',
+      });
+    });
 
-  it('401s on an expired invocation key', async () => {
-    const { token } = await createUserAndLogin(app, 'developer');
-    const agentId = await publishedAgent(token, `key-exp-${Date.now()}`);
+    it('records a rejected attempt too', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `audit-bad-${Date.now()}`);
 
-    const key = await request(app)
-      .post(`/v1/agents/${agentId}/invocation-keys`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ label: 'stale', expiresAt: new Date(Date.now() + 1000).toISOString() });
+      await request(app)
+        .patch(`/v1/agents/${agentId}/invocation-policy`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ rateLimit: { requestsPerWindow: 1, windowSeconds: 60 } });
 
-    await db
-      .update(invocationKeys)
-      .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(eq(invocationKeys.id, key.body.id as string));
+      mockEngine({ runId: 'run-a' });
 
-    const res = await request(app)
-      .post(`/v1/agents/${agentId}/runs`)
-      .set('Authorization', `Bearer ${key.body.key}`)
-      .send({ input: {} });
+      await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      const limited = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(limited.status).toBe(429);
 
-    expect(res.status).toBe(401);
+      const rows = await db
+        .select()
+        .from(invocationLog)
+        .where(eq(invocationLog.agentId, agentId));
+
+      expect(rows.map((r) => r.status).sort()).toEqual(['dispatched', 'rejected']);
+    });
   });
 });
 

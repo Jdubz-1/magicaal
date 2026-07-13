@@ -201,7 +201,7 @@ describe('invocation keys', () => {
       .send({ label: 'ci' });
 
     expect(created.status).toBe(201);
-    expect(created.body.key).toMatch(/^mk_[0-9a-f]{64}$/);
+    expect(created.body.key).toMatch(/^ik_[0-9a-f]{64}$/);
 
     // only the hash is persisted
     const rows = await db

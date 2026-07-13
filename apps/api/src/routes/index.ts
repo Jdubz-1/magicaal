@@ -19,11 +19,12 @@ import { internalSessionRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
 import { getRunDirect } from '../controllers/runs.controller';
+import { runsRouter } from './runs';
 import {
   internalUpdateCredentials,
   oauthCallback,
 } from '../controllers/integrations.controller';
-import { requireAuth, requireInternalAuth } from '../middleware/auth';
+import { requireInternalAuth, authenticateRunCaller } from '../middleware/auth';
 
 export const router: RouterType = Router();
 
@@ -36,6 +37,10 @@ router.use('/v1/tenants', tenantsRouter);
 // which applies requireAuth to the whole /v1/agents prefix (a router-level
 // use() runs even when no route in it matches, so a later mount is unreachable).
 router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
+// Run routes — same precedence requirement. They admit invocation-plane callers
+// (an agent-scoped `ik_` key, an external JWT, or nothing for a `public` agent)
+// which agentsRouter's requireAuth would reject out of hand.
+router.use('/v1/agents/:id/runs', runsRouter);
 router.use('/v1/agents', agentsRouter);
 router.use('/v1/llm', llmRouter);
 // Public OAuth callback — the provider redirects the user's browser here with no
@@ -50,8 +55,8 @@ router.use('/v1/utils', utilsRouter);
 router.use('/v1/prompts', promptsRouter);
 router.use('/v1/caal', caalRouter);
 router.use('/v1/marketplace', marketplaceRouter);
-// Direct run lookup (SDK client.runs.get)
-router.get('/v1/runs/:runId', requireAuth, getRunDirect);
+// Direct run lookup (SDK client.runs.get) — platform or invocation plane
+router.get('/v1/runs/:runId', authenticateRunCaller, getRunDirect);
 // OpenAPI document — public, the source for the published API reference
 router.get('/v1/openapi.json', (_req, res) => {
   res.json(buildOpenApiSpec());

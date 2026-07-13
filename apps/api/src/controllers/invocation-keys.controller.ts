@@ -4,9 +4,16 @@ import * as crypto from 'node:crypto';
 import { db } from '../db/client';
 import { invocationKeys } from '../db/schema';
 
+/**
+ * Invocation keys carry an `ik_` prefix to keep them distinct from platform
+ * API keys (`mk_`, in `api_keys`). The two are different auth planes — a
+ * platform key is a tenant principal on the management API, an invocation key
+ * is a credential you hand to a third party for one agent — and sharing a
+ * prefix is what let the platform auth middleware swallow invocation keys.
+ */
 function generateKey(): { plaintext: string; hash: string } {
   const raw = crypto.randomBytes(32).toString('hex');
-  const plaintext = `mk_${raw}`;
+  const plaintext = `ik_${raw}`;
   const hash = crypto.createHash('sha256').update(plaintext).digest('hex');
   return { plaintext, hash };
 }

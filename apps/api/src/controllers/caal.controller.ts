@@ -40,6 +40,9 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
       agentId: caalAgentRows[0].id,
       tenantId: PLATFORM_TENANT_ID,
       triggerType: 'caal',
+      // Studio-only, already authenticated by the platform JWT on this request:
+      // a §11.4 exemption from the target agent's invocation policy.
+      caller: { kind: 'platform', strategy: 'caal' },
       sessionId,
       input: {
         message,
