@@ -4,7 +4,6 @@ import { eq } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
-import { validateInvocationRequest } from '../auth/invocation-auth';
 import { graphLoader } from '../graph/graph-loader';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
@@ -13,26 +12,47 @@ function newRunId(): string {
   return `run_${crypto.randomUUID()}`;
 }
 
+/**
+ * Who a dispatch is on behalf of. The API is the enforcement point for both
+ * auth planes — it has already authenticated the caller, on exactly one of
+ * them — so this states which, rather than the engine re-validating (which
+ * would double-count the rate limiter, and cannot work for the callers that
+ * legitimately bypass invocation auth).
+ *
+ * - `platform`  — a tenant principal: Studio test run, Caal, test-case suite,
+ *   sub-graph/handoff. Bypasses invocation policy, per ARCHITECTURE §11.4.
+ * - `invocation` — a third-party credential already validated against the
+ *   agent's invocation policy by /internal/invocation-auth/validate.
+ */
+interface RunCaller {
+  kind: 'platform' | 'invocation';
+  strategy: string;
+  keyId?: string;
+}
+
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, authKey, authorizationHeader, sessionId } = req.body as {
+    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, caller } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
       input?: Record<string, unknown>;
-      authKey?: string;
-      authorizationHeader?: string;
       sessionId?: string;
+      caller?: RunCaller;
     };
 
     if (!agentId || !tenantId) {
       throw Object.assign(new Error('agentId and tenantId are required'), { status: 400 });
     }
 
-    // Use the full Authorization header when available (supports JWT + public strategies);
-    // fall back to reconstructing it from the legacy authKey field (api-key strategy).
-    const effectiveAuthHeader = authorizationHeader ?? (authKey ? `Bearer ${authKey}` : undefined);
-    await validateInvocationRequest(agentId, effectiveAuthHeader);
+    // Required, not defaulted: an omitted caller must fail loudly rather than
+    // silently dispatching a run nobody authenticated.
+    if (caller?.kind !== 'platform' && caller?.kind !== 'invocation') {
+      throw Object.assign(
+        new Error('caller.kind must be "platform" or "invocation"'),
+        { status: 400, code: 'CALLER_REQUIRED' },
+      );
+    }
 
     const runId = newRunId();
     const now = new Date();

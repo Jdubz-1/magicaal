@@ -114,10 +114,25 @@ export class ExecutionContextImpl implements ExecutionContext {
     opts?: { await?: boolean },
   ): Promise<{ runId: string; output?: Record<string, unknown> }> {
     const engineUrl = config.engineInternalUrl;
+    // The engine's /internal API is authenticated, and a sub-graph call is a
+    // platform caller: it bypasses the target agent's invocation policy
+    // (ARCHITECTURE §11.4), since the parent run was already authorized.
+    const internalHeaders = {
+      'Content-Type': 'application/json',
+      'X-Internal-Auth': config.masterKey,
+    };
+
     const postResp = await fetch(`${engineUrl}/internal/runs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId, tenantId: this.tenantId, triggerType: 'sub-graph', input, parentRunId: this.runId }),
+      headers: internalHeaders,
+      body: JSON.stringify({
+        agentId,
+        tenantId: this.tenantId,
+        triggerType: 'sub-graph',
+        input,
+        parentRunId: this.runId,
+        caller: { kind: 'platform', strategy: 'sub-graph' },
+      }),
     });
     if (!postResp.ok) throw Object.assign(new Error(`Sub-run dispatch failed: ${postResp.status}`), { code: 'SUB_RUN_DISPATCH_FAILED', retryable: false });
     const { runId } = await postResp.json() as { runId: string };
@@ -127,7 +142,9 @@ export class ExecutionContextImpl implements ExecutionContext {
     const timeout = 300_000;
     while (Date.now() - start < timeout) {
       await new Promise((r) => setTimeout(r, 1000));
-      const getResp = await fetch(`${engineUrl}/internal/runs/${runId}`);
+      const getResp = await fetch(`${engineUrl}/internal/runs/${runId}`, {
+        headers: { 'X-Internal-Auth': config.masterKey },
+      });
       if (!getResp.ok) {
         throw Object.assign(new Error(`Sub-run status check failed: ${getResp.status}`), { code: 'SUB_RUN_STATUS_ERROR', retryable: false });
       }

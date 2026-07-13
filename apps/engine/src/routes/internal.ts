@@ -25,8 +25,13 @@ import {
   integrationTriggerDispatch,
 } from '../controllers/integrations.controller';
 import { installPackage } from '../controllers/packages.controller';
+import { validateInvocation } from '../controllers/invocation-auth.controller';
 
 export const internalRouter: RouterType = Router();
+
+// Invocation-plane authority: the API defers here for callers that present no
+// platform credential, so the agent's invocation policy has one implementation.
+internalRouter.post('/invocation-auth/validate', validateInvocation);
 
 internalRouter.post('/runs', dispatchRun);
 internalRouter.get('/runs/:id', getRun);

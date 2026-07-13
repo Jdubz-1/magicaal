@@ -45,6 +45,8 @@ export interface ValidatedKey {
   keyId: string;
   agentId: string;
   tenantId: string;
+  /** The policy that authenticated this caller — recorded in the audit log. */
+  strategy: 'api-key' | 'jwt' | 'public';
 }
 
 const RATE_LIMIT_RPM = 1000;
@@ -91,7 +93,7 @@ async function validateApiKey(agentId: string, rawKey: string): Promise<Validate
 
   await enforceRateLimit(agentId);
 
-  return { keyId: row.id, agentId: row.agent_id, tenantId: row.tenant_id };
+  return { keyId: row.id, agentId: row.agent_id, tenantId: row.tenant_id, strategy: 'api-key' };
 }
 
 async function validateJwt(agentId: string, token: string, jwtConfig: JwtConfig): Promise<ValidatedKey> {
@@ -128,7 +130,7 @@ async function validateJwt(agentId: string, token: string, jwtConfig: JwtConfig)
 
     await enforceRateLimit(agentId);
 
-    return { keyId: 'jwt', agentId, tenantId: agentRow.tenant_id };
+    return { keyId: 'jwt', agentId, tenantId: agentRow.tenant_id, strategy: 'jwt' };
   } catch (err) {
     if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'JWT_MISSING_CLAIM') {
       throw err;
@@ -157,7 +159,7 @@ async function validateJwt(agentId: string, token: string, jwtConfig: JwtConfig)
           }
         }
         await enforceRateLimit(agentId);
-        return { keyId: 'jwt', agentId, tenantId: agentRow.tenant_id };
+        return { keyId: 'jwt', agentId, tenantId: agentRow.tenant_id, strategy: 'jwt' };
       } catch (retryErr) {
         if (retryErr && typeof retryErr === 'object' && 'code' in retryErr) throw retryErr;
         throw Object.assign(new Error('JWT signature invalid — no matching key'), { status: 401, code: 'JWT_INVALID_SIGNATURE' });
@@ -191,7 +193,7 @@ export async function validateInvocationRequest(
       throw Object.assign(new Error('Agent not found or disabled'), { status: 404, code: 'AGENT_NOT_FOUND' });
     }
     await enforceRateLimit(agentId);
-    return { keyId: 'public', agentId, tenantId: agentRow.tenant_id };
+    return { keyId: 'public', agentId, tenantId: agentRow.tenant_id, strategy: 'public' };
   }
 
   const bearer = authorizationHeader?.replace(/^Bearer\s+/i, '').trim();
