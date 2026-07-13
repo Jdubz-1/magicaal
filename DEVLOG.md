@@ -25,6 +25,33 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-13 - Fix run invocation auth: separate the platform and invocation planes (ISS-063)
+
+**Type:** Bugfix
+
+**Description:**
+ISS-063 was recorded during the coverage pass as "invocation keys cannot invoke". Analysis showed that understated it: **`POST /v1/agents/:id/runs` could not succeed for any caller** against a real engine. Two auth planes were stacked on one route and each rejected the other's callers — and separately, the engine validated invocation auth unconditionally, so Studio test runs, Caal, test-case suites, and sub-graph dispatch all 401'd as well. ARCHITECTURE §11.4 exempts exactly those callers; nothing implemented the exemption. Re-rated `critical`.
+
+**Changes:**
+- `apps/engine/src/controllers/invocation-auth.controller.ts` (new) + `routes/internal.ts` — `POST /internal/invocation-auth/validate` wraps the existing `validateInvocationRequest`, so the API can authenticate the invocation plane without duplicating JWKS handling or the Redis limiter
+- `apps/engine/src/controllers/runs.controller.ts` — `dispatchRun` no longer re-validates; it requires an explicit `caller: { kind: 'platform' | 'invocation', strategy, keyId? }` and 400s when absent, so an unauthenticated dispatch cannot happen by omission
+- `apps/engine/src/execution/context.ts` — `dispatchSubRun` sends `X-Internal-Auth` (repairing a regression ISS-048 introduced) and dispatches as a platform caller
+- `apps/api/src/controllers/invocation-keys.controller.ts` — invocation keys mint `ik_`; platform keys keep `mk_`. Legacy `mk_` invocation keys still resolve by fall-through, so no migration
+- `apps/api/src/middleware/auth.ts` — new `authenticateAgentCaller` / `authenticateRunCaller`: resolve a platform credential first (Studio JWT or platform API key — a tenant principal, which bypasses invocation policy per §11.4), else delegate to the engine's validate endpoint. Anonymous callers work for `public` agents
+- `apps/api/src/routes/runs.ts` (new) — run routes moved out of `agentsRouter` and mounted ahead of it; a router-level `use(requireAuth)` admits only platform principals, so run status, steps, stream, and review were unreachable for external callers
+- `apps/api/src/controllers/{caal,test-cases}.controller.ts` — dispatch as platform callers
+- `apps/api/src/controllers/runs.controller.ts` — `resolveInvocationKey` deleted; invocation audit log (§11.5) now records the real strategy, key id, run id, and outcome, including rejected attempts
+- `packages/sdk-client/src/types.ts` — `apiKey` documented as a per-agent `ik_` invocation key, `bearer` as a platform token (no code change; both already go out as a Bearer header)
+- Tests: 408 pass (was 383) — API 290, engine 118. First tests for `validateInvocationRequest` (valid / wrong-agent / revoked / expired / public / jwt / rate limit), for the engine's dispatch contract, and for both API planes end to end.
+
+**Impact:**
+Run invocation works. The engine remains the single implementation of invocation policy; the API is now the single enforcement point, so a request is validated — and rate-limited — exactly once. External consumers can invoke an agent with an `ik_` key and then observe the run, which is the whole surface `RunHandle`, `stream()`, and `HumanReviewClient` depend on.
+
+**Notes:**
+Two bugs of this size hid in plain sight for the same reason: **every API test mocks `engineClient`, so nothing crossed the API↔engine boundary**, and the engine had no route tests. The live-stack e2e already tracked in `MAGICAAL_PROGRESS.md` is the check that would have caught them, and it remains the right next step — the fix is verified by tests and type-checks, but not yet against a running stack.
+
+---
+
 ### 2026-07-12 - Raise apps/api test coverage to 94% and clear the 80% gate
 
 **Type:** Tests
