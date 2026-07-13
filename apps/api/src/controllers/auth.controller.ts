@@ -62,7 +62,14 @@ export const refresh: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('No refresh token'), { status: 401 });
     }
 
-    const userId = await verifyRefreshToken(refreshToken);
+    let userId: string;
+    try {
+      userId = await verifyRefreshToken(refreshToken);
+    } catch {
+      // A malformed, forged, or expired token is a failed authentication —
+      // not a server error.
+      throw Object.assign(new Error('Invalid or expired refresh token'), { status: 401 });
+    }
     const tokenHash = sha256hex(refreshToken);
 
     const sessions = await db

@@ -31,6 +31,11 @@ router.use(healthRouter);
 router.use('/v1/auth', authRouter);
 router.use('/v1/users', usersRouter);
 router.use('/v1/tenants', tenantsRouter);
+// Public webhook receiver — the calling service carries no bearer token; the
+// per-agent HMAC secret in the URL authenticates it. Must precede agentsRouter,
+// which applies requireAuth to the whole /v1/agents prefix (a router-level
+// use() runs even when no route in it matches, so a later mount is unreachable).
+router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 router.use('/v1/agents', agentsRouter);
 router.use('/v1/llm', llmRouter);
 // Public OAuth callback — the provider redirects the user's browser here with no
@@ -59,8 +64,6 @@ router.post(
   requireInternalAuth,
   internalUpdateCredentials,
 );
-// Public webhook endpoint — no auth middleware; secret is in URL
-router.post('/v1/agents/:id/webhook/:secret', handleWebhook);
 // Public integration trigger receiver — no auth middleware; authenticity is
 // established by the service's webhook signature, verified in the engine
 router.post('/v1/triggers/integrations/:service/:tenantSlug', receiveIntegrationEvent);

@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { config } from '../config';
 
@@ -22,6 +23,11 @@ export async function signRefreshToken(userId: string): Promise<string> {
   return new SignJWT({ type: 'refresh' })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
+    // Without a unique claim the only varying field is `iat`, which has
+    // one-second granularity: two logins by the same user in the same second
+    // would mint byte-identical tokens, collide on the unique hash in
+    // auth_sessions, and 500. It also means two sessions sharing one token.
+    .setJti(crypto.randomUUID())
     .setIssuedAt()
     .setExpirationTime('7d')
     .sign(secret);
