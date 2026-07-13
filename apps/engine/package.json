@@ -30,7 +30,7 @@
     "ioredis": "^5.10.1",
     "jose": "^5.10.0",
     "pino": "^9.5.0",
-    "pino-http": "^10.3.0"
+    "pino-http": "^11.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
