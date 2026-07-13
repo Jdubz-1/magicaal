@@ -110,5 +110,6 @@ export function compile(AgentClass: AgentGraphClass): AgentGraphDefinition {
     toolEdges,
     workspaceEdges,
     config: buildDefaultConfig(meta.config),
+    ...(meta.overridable !== undefined && { overridable: meta.overridable }),
   };
 }

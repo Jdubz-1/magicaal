@@ -6,6 +6,12 @@ export interface AgentMeta {
   name: string;
   description?: string;
   config: Partial<AgentConfig>;
+  /**
+   * Admin-override policy for config fields. false or absent = all fields
+   * locked (code wins on every deploy); true = admin can override any field;
+   * object = per-field flags (true = overridable, false = locked).
+   */
+  overridable?: boolean | Record<string, boolean>;
 }
 
 export const AGENT_META_KEY = 'magicaal:agent';

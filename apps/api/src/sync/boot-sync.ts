@@ -85,6 +85,24 @@ export async function bootTimeSync(agentsDir: string): Promise<SyncResult> {
   return result;
 }
 
+/**
+ * Derive the per-field override map from the definition's `overridable` policy
+ * (ARCHITECTURE §5.2/§5.4). Fields default to locked — code is the source of
+ * truth unless the agent author explicitly opens a field to admin override.
+ */
+const SYNCED_CONFIG_FIELDS = ['trigger', 'concurrency', 'retry'] as const;
+
+export function resolveOverrideMap(
+  overridable: boolean | Record<string, boolean> | undefined,
+): Record<string, 'locked' | 'overridable'> {
+  const map: Record<string, 'locked' | 'overridable'> = {};
+  for (const field of SYNCED_CONFIG_FIELDS) {
+    const flag = typeof overridable === 'object' ? overridable[field] : overridable;
+    map[field] = flag === true ? 'overridable' : 'locked';
+  }
+  return map;
+}
+
 async function syncAgent(
   agentsDir: string,
   entry: ManifestEntry,
@@ -136,7 +154,7 @@ async function syncAgent(
       triggerConfig: JSON.stringify(definition.config?.trigger ?? {}),
       concurrency: JSON.stringify(definition.config?.concurrency ?? {}),
       retry: JSON.stringify(definition.config?.retry ?? {}),
-      overrideMap: '{}',
+      overrideMap: JSON.stringify(resolveOverrideMap(definition.overridable)),
       updatedAt: now,
     });
     result.inserted++;
@@ -173,19 +191,27 @@ async function syncAgent(
       .update(agents)
       .set({ currentVersionId: newVersionId, stale: false, name: definition.name, updatedAt: now })
       .where(eq(agents.id, existing.id));
-    // Update agent config — respect overrideMap for existing values
+    // Update agent config — ARCHITECTURE §5.4: locked fields always take the
+    // incoming code value (code is their source of truth); admin-overridable
+    // fields keep the stored value once an admin has set one. The override
+    // policy itself is code-owned, so it is re-derived from the definition
+    // on every sync rather than read back from the DB.
     const existingConfigRows = await db.select().from(agentConfig).where(eq(agentConfig.agentId, existing.id));
     const existingConfig = existingConfigRows[0];
-    const overrideMap = existingConfig ? (JSON.parse(existingConfig.overrideMap) as Record<string, string>) : {};
+    const overrideMap = resolveOverrideMap(definition.overridable);
 
     const newTrigger = JSON.stringify(definition.config?.trigger ?? {});
     const newConcurrency = JSON.stringify(definition.config?.concurrency ?? {});
     const newRetry = JSON.stringify(definition.config?.retry ?? {});
 
+    const keepStored = (field: string, current: string | null | undefined): current is string =>
+      overrideMap[field] !== 'locked' && current != null;
+
     await db.update(agentConfig).set({
-      triggerConfig: overrideMap['trigger'] === 'locked' ? existingConfig!.triggerConfig : newTrigger,
-      concurrency: overrideMap['concurrency'] === 'locked' ? existingConfig!.concurrency : newConcurrency,
-      retry: overrideMap['retry'] === 'locked' ? existingConfig!.retry : newRetry,
+      triggerConfig: keepStored('trigger', existingConfig?.triggerConfig) ? existingConfig!.triggerConfig : newTrigger,
+      concurrency: keepStored('concurrency', existingConfig?.concurrency) ? existingConfig!.concurrency : newConcurrency,
+      retry: keepStored('retry', existingConfig?.retry) ? existingConfig!.retry : newRetry,
+      overrideMap: JSON.stringify(overrideMap),
       updatedAt: now,
     }).where(eq(agentConfig.agentId, existing.id));
 

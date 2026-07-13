@@ -15,6 +15,13 @@ export interface AgentGraphDefinition {
   routerPolicies?: Record<string, ModelRouterConfig>;
   config: AgentConfig;
   layout?: GraphLayout;
+  /**
+   * Admin-override policy for config fields on code-defined agents.
+   * false or absent = all fields locked (code is the source of truth);
+   * true = all fields admin-overridable; object = per-field flags
+   * (true = overridable, false = locked). Consumed by boot-time sync.
+   */
+  overridable?: boolean | Record<string, boolean>;
 }
 
 export interface NodeDefinition {
