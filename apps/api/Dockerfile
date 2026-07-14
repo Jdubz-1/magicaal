@@ -4,7 +4,7 @@
 ARG GIT_SHA
 
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /monorepo
 
 ENV PNPM_HOME="/pnpm"
@@ -65,7 +65,7 @@ COPY apps/api/tsconfig.build.json ./tsconfig.build.json
 RUN pnpm run build
 
 # Stage 2: Runtime
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
