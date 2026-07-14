@@ -21,6 +21,7 @@ import {
   clearAbort,
   abortError,
   startRunDeadline,
+  planRetry,
 } from '@/execution/run-control';
 
 beforeEach(() => {
@@ -71,5 +72,49 @@ describe('startRunDeadline (ALIGN-002)', () => {
     await Promise.resolve();
 
     expect(await checkAbort('r-ok')).toBeNull();
+  });
+});
+
+describe('planRetry (ALIGN-004)', () => {
+  const retryable = { retryable: true, failedNodeId: 'node-x' };
+
+  it('declines when the error is not retryable or the node is unknown', () => {
+    expect(planRetry({ retryable: false, failedNodeId: 'node-x' }, { maxAttempts: 3 }, {})).toBeNull();
+    expect(planRetry({ retryable: true }, { maxAttempts: 3 }, {})).toBeNull();
+  });
+
+  it('declines with no retry config (default maxAttempts 1)', () => {
+    expect(planRetry(retryable, undefined, {})).toBeNull();
+  });
+
+  it('plans attempts until maxAttempts is exhausted', () => {
+    expect(planRetry(retryable, { maxAttempts: 3, backoff: 'fixed', delayMs: 100 }, {})).toEqual({
+      failedNodeId: 'node-x',
+      attemptsMade: 1,
+      delayMs: 100,
+    });
+    expect(
+      planRetry(retryable, { maxAttempts: 3, backoff: 'fixed', delayMs: 100 }, { 'node-x': 1 }),
+    ).toEqual({ failedNodeId: 'node-x', attemptsMade: 2, delayMs: 100 });
+    // third execution of a maxAttempts:3 node — no further retry
+    expect(
+      planRetry(retryable, { maxAttempts: 3, backoff: 'fixed', delayMs: 100 }, { 'node-x': 2 }),
+    ).toBeNull();
+  });
+
+  it('doubles the delay per attempt with exponential backoff', () => {
+    const cfg = { maxAttempts: 4, backoff: 'exponential' as const, delayMs: 200 };
+    expect(planRetry(retryable, cfg, {})?.delayMs).toBe(200);
+    expect(planRetry(retryable, cfg, { 'node-x': 1 })?.delayMs).toBe(400);
+    expect(planRetry(retryable, cfg, { 'node-x': 2 })?.delayMs).toBe(800);
+  });
+
+  it('tracks attempts per node independently', () => {
+    const cfg = { maxAttempts: 2, backoff: 'fixed' as const, delayMs: 50 };
+    expect(planRetry(retryable, cfg, { 'other-node': 5 })).toEqual({
+      failedNodeId: 'node-x',
+      attemptsMade: 1,
+      delayMs: 50,
+    });
   });
 });

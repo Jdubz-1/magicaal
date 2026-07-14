@@ -77,6 +77,22 @@ export const lifecycle = {
     void mcpRegistry.releaseForRun(runId);
   },
 
+  async markRunRetrying(runId: string, failedNodeId: string, attempt: number, delayMs: number): Promise<void> {
+    // Back to pending while the backoff delay elapses; the retry job re-enters
+    // the normal trigger flow and marks the run running again.
+    await telemetryDb
+      .update(telemetryRuns)
+      .set({ status: 'pending' })
+      .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.retrying', {
+      runId,
+      nodeId: failedNodeId,
+      attempt,
+      delayMs,
+      timestamp: new Date().toISOString(),
+    });
+  },
+
   async markRunCancelled(runId: string, ctx?: ExecutionContextImpl): Promise<void> {
     const usage = ctx?.tokenUsage;
     await telemetryDb

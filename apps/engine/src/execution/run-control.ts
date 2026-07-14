@@ -1,4 +1,5 @@
 import { redis } from '../queue/client';
+import type { RetryConfig } from '@magicaal/core';
 
 /**
  * Cooperative run abort (ALIGN-001/ALIGN-002). A Redis flag is set by whoever
@@ -57,4 +58,43 @@ export function abortError(reason: AbortReason): Error {
 
 export function isAbortErrorCode(code: unknown): code is 'RUN_TIMEOUT' | 'RUN_CANCELLED' {
   return code === 'RUN_TIMEOUT' || code === 'RUN_CANCELLED';
+}
+
+// ── Retry planning (ALIGN-004) ────────────────────────────────────────────────
+
+export interface RetryPlan {
+  /** Node the run resumes from. */
+  failedNodeId: string;
+  /** Executions of that node so far, including the one that just failed. */
+  attemptsMade: number;
+  /** Backoff delay before the retry attempt. */
+  delayMs: number;
+}
+
+/**
+ * Decide whether a failed run gets another attempt (ARCHITECTURE §8.2
+ * requeueWithBackoff). Retries happen when the node marked its error
+ * retryable, the failing node is known, and RetryConfig.maxAttempts (total
+ * attempts per node, default 1 = no retry) is not exhausted.
+ */
+export function planRetry(
+  err: { retryable?: boolean; failedNodeId?: string },
+  retryConfig: Partial<RetryConfig> | undefined,
+  nodeAttempts: Record<string, number>,
+): RetryPlan | null {
+  const maxAttempts = retryConfig?.maxAttempts ?? 1;
+  if (err.retryable !== true || !err.failedNodeId) return null;
+
+  const attemptsMade = (nodeAttempts[err.failedNodeId] ?? 0) + 1;
+  if (attemptsMade >= maxAttempts) return null;
+
+  const delayMs = retryConfig?.delayMs ?? 0;
+  return {
+    failedNodeId: err.failedNodeId,
+    attemptsMade,
+    delayMs:
+      retryConfig?.backoff === 'exponential'
+        ? delayMs * 2 ** (attemptsMade - 1)
+        : delayMs,
+  };
 }

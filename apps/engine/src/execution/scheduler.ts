@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq';
 import * as crypto from 'node:crypto';
-import { redis, runTriggerQueue } from '../queue/client';
+import { redis, runTriggerQueue, runRetryQueue } from '../queue/client';
 import { graphLoader } from '../graph/graph-loader';
 import { ExecutionContextImpl } from './context';
 import { lifecycle } from './lifecycle';
@@ -8,7 +8,7 @@ import { executeGraph } from './worker';
 import { resolveCredentials } from '../resolver/credential-resolver';
 import { logger } from '../lib/logger';
 import { sessionManager } from '../session/session-manager';
-import { checkAbort, clearAbort, startRunDeadline } from './run-control';
+import { checkAbort, clearAbort, startRunDeadline, planRetry } from './run-control';
 import { config } from '../config';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
@@ -20,13 +20,15 @@ interface RunJobData {
   input: Record<string, unknown>;
   resumeFromNodeId?: string;
   sessionId?: string;
+  /** Per-node execution counts, carried across retry re-enqueues (ALIGN-004). */
+  nodeAttempts?: Record<string, number>;
 }
 
 export function startScheduler(): void {
   const worker = new Worker<RunJobData>(
     'runs.trigger',
     async (job) => {
-      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId } = job.data;
+      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId, nodeAttempts = {} } = job.data;
 
       // Cancelled while still queued — the cancel endpoint already marked the
       // run; consume the flag and never start executing.
@@ -96,8 +98,39 @@ export function startScheduler(): void {
           await lifecycle.markRunComplete(runId, ctx.data, ctx);
         }
       } catch (err) {
-        // Still attempt session save on non-session errors so partial progress is preserved
         const code = (err as { code?: string }).code;
+
+        // Node-level retry with backoff (ALIGN-004): a retryable node failure
+        // with attempts remaining re-enqueues the run through runs.retry,
+        // resuming from the failed node with the checkpointed context. Checked
+        // before the session save — the retry carries ctx.data in its job
+        // input, and saving here would double-accumulate append keys when the
+        // retried run saves again. (Abort errors are never retryable.)
+        const plan = planRetry(
+          err as { retryable?: boolean; failedNodeId?: string },
+          graph.config?.retry,
+          nodeAttempts,
+        );
+        if (plan) {
+          await lifecycle.markRunRetrying(runId, plan.failedNodeId, plan.attemptsMade + 1, plan.delayMs);
+          await runRetryQueue.add(
+            'run-retry',
+            {
+              ...job.data,
+              input: ctx.data,
+              resumeFromNodeId: plan.failedNodeId,
+              nodeAttempts: { ...nodeAttempts, [plan.failedNodeId]: plan.attemptsMade },
+            },
+            { delay: plan.delayMs },
+          );
+          logger.info(
+            { runId, nodeId: plan.failedNodeId, attempt: plan.attemptsMade + 1, delayMs: plan.delayMs },
+            'Retryable node failure — run requeued with backoff',
+          );
+          return;
+        }
+
+        // Still attempt session save on non-session errors so partial progress is preserved
         if (sessionId && graph.config?.session && code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
           await sessionManager.saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig).catch(() => {});
         }
@@ -118,7 +151,7 @@ export function startScheduler(): void {
         }
 
         const error = {
-          code: 'EXECUTION_ERROR',
+          code: (err as { code?: string }).code ?? 'EXECUTION_ERROR',
           message: err instanceof Error ? err.message : String(err),
           retryable: false,
         };
@@ -157,5 +190,19 @@ export function startScheduler(): void {
     logger.error({ jobId: job?.id, error: err.message }, 'Scheduled run job failed');
   });
 
-  logger.info('Run scheduler started (trigger + scheduled queues)');
+  // Retry queue (ALIGN-004) — jobs arrive here with their backoff delay
+  // already applied; pass through to the trigger queue for normal execution.
+  const retryWorker = new Worker<RunJobData>(
+    'runs.retry',
+    async (job) => {
+      await runTriggerQueue.add('run-retry', job.data);
+    },
+    { connection: redis, concurrency: 5 },
+  );
+
+  retryWorker.on('failed', (job, err) => {
+    logger.error({ jobId: job?.id, error: err.message }, 'Retry run job failed');
+  });
+
+  logger.info('Run scheduler started (trigger + scheduled + retry queues)');
 }

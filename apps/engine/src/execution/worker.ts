@@ -98,6 +98,9 @@ async function executeNodeOnce(
       error: { code: error.code, message: error.message },
       timestamp: new Date().toISOString(),
     });
+    // Retry metadata (ALIGN-004) — raw exceptions are not retryable; nodes
+    // signal transient failures via NodeOutput.error.retryable instead.
+    if (err instanceof Error) Object.assign(err, { failedNodeId: nodeDef.id });
     throw err;
   } finally {
     delete (ctx as unknown as Record<string, unknown>)._currentNodeId;
@@ -124,6 +127,8 @@ async function executeNodeOnce(
     });
     throw Object.assign(new Error(output.error?.message ?? 'Node execution failed'), {
       code: output.error?.code ?? 'NODE_FAILED',
+      retryable: output.error?.retryable ?? false,
+      failedNodeId: nodeDef.id,
     });
   }
 
@@ -204,6 +209,7 @@ export async function executeGraph(
         };
         await lifecycle.writeStepFailed(stepId, error);
         ctx.emit('node.failed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, error, timestamp: new Date().toISOString() });
+        if (err instanceof Error) Object.assign(err, { failedNodeId: nodeDef.id });
         throw err;
       }
 
@@ -232,6 +238,8 @@ export async function executeGraph(
         });
         throw Object.assign(new Error(output.error?.message ?? 'Agent loop failed'), {
           code: output.error?.code ?? 'AGENT_LOOP_FAILED',
+          retryable: output.error?.retryable ?? false,
+          failedNodeId: nodeDef.id,
         });
       }
 
