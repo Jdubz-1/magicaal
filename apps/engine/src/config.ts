@@ -17,6 +17,8 @@ export const config = Object.freeze({
   marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
   marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
   packagesDir: process.env.PACKAGES_DIR ?? '/data/packages',
+  // Deadline applied to runs whose AgentConfig declares no timeout (10 min).
+  defaultRunTimeoutMs: parseInt(process.env.RUN_TIMEOUT_DEFAULT_MS ?? '600000', 10),
   // Installing a package runs its code (require) in the engine process. Only
   // MagiCaal-countersigned ('verified') packages install by default. Unverified
   // (self-signed community) packages must be sandboxed before they can run —

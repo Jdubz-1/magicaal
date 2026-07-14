@@ -8,7 +8,8 @@ import { executeGraph } from './worker';
 import { resolveCredentials } from '../resolver/credential-resolver';
 import { logger } from '../lib/logger';
 import { sessionManager } from '../session/session-manager';
-import { checkAbort, clearAbort } from './run-control';
+import { checkAbort, clearAbort, startRunDeadline } from './run-control';
+import { config } from '../config';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
 interface RunJobData {
@@ -44,6 +45,15 @@ export function startScheduler(): void {
       const ctx = new ExecutionContextImpl({ runId, agentId, tenantId, triggerType, input, graphDefaultRouter, sessionId });
 
       await lifecycle.markRunStarted(runId, agentId);
+
+      // Run timeout (ALIGN-002): AgentConfig.timeout, else the platform
+      // default. Fires the cooperative abort flag; the worker fails the run
+      // with RUN_TIMEOUT at its next node boundary.
+      const timeoutMs =
+        typeof graph.config?.timeout === 'number' && graph.config.timeout > 0
+          ? graph.config.timeout
+          : config.defaultRunTimeoutMs;
+      const disarmDeadline = startRunDeadline(runId, timeoutMs);
 
       try {
         // Resolve integration credentials inside the error-handled block
@@ -115,6 +125,7 @@ export function startScheduler(): void {
         await lifecycle.markRunFailed(runId, error, ctx);
         throw err;
       } finally {
+        disarmDeadline();
         await clearAbort(runId).catch(() => {});
       }
     },

@@ -30,6 +30,20 @@ export async function clearAbort(runId: string): Promise<void> {
   await redis.del(abortKey(runId));
 }
 
+/**
+ * Arm the run's deadline (ALIGN-002). When it fires, the abort flag is set
+ * with reason 'timeout' and the executing worker fails the run with
+ * RUN_TIMEOUT at its next boundary check. Returns a disarm function the
+ * scheduler calls once the run reaches a terminal state.
+ */
+export function startRunDeadline(runId: string, timeoutMs: number): () => void {
+  const timer = setTimeout(() => {
+    void requestAbort(runId, 'timeout');
+  }, timeoutMs);
+  timer.unref();
+  return () => clearTimeout(timer);
+}
+
 /** Typed error thrown from the execution loop when an abort flag is seen. */
 export function abortError(reason: AbortReason): Error {
   return Object.assign(
