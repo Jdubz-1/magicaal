@@ -1,4 +1,4 @@
-import type { SessionConfig } from '@magicaal/core';
+import type { SessionConfig, ModelRouterConfig } from '@magicaal/core';
 import { config } from '../config';
 import { logger } from '../lib/logger';
 
@@ -94,6 +94,7 @@ export class SessionManager {
     runId: string,
     contextData: Record<string, unknown>,
     sessionConfig: SessionConfig,
+    defaultRouter?: ModelRouterConfig | null,
   ): Promise<void> {
     const url = `${this.baseUrl}/internal/sessions/${encodeURIComponent(sessionId)}/save`;
     const res = await fetch(url, {
@@ -102,7 +103,9 @@ export class SessionManager {
         'Content-Type': 'application/json',
         'X-Internal-Auth': config.masterKey,
       },
-      body: JSON.stringify({ runId, contextData, sessionConfig }),
+      // defaultRouter lets the API's summarize-overflow path route its LLM
+      // call back through this engine (ALIGN-007)
+      body: JSON.stringify({ runId, contextData, sessionConfig, defaultRouter: defaultRouter ?? null }),
     });
 
     if (!res.ok) {

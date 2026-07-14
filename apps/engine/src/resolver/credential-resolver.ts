@@ -139,6 +139,14 @@ function decrypt(encryptedBase64: string, masterKey: string): string {
   return decrypted.toString('utf8');
 }
 
+function addRouterTargets(ids: Set<string>, router: unknown): void {
+  if (typeof router !== 'object' || router === null) return;
+  const targets = (router as { targets?: Array<{ connectionId: string }> }).targets ?? [];
+  for (const t of targets) {
+    if (t.connectionId) ids.add(t.connectionId);
+  }
+}
+
 function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
   const ids = new Set<string>();
   for (const node of Object.values(graph.nodes)) {
@@ -146,12 +154,14 @@ function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
     if (typeof cfg.connectionId === 'string') {
       ids.add(cfg.connectionId);
     }
-    if (typeof cfg.router === 'object' && cfg.router !== null) {
-      const targets = (cfg.router as { targets?: Array<{ connectionId: string }> }).targets ?? [];
-      for (const t of targets) {
-        if (t.connectionId) ids.add(t.connectionId);
-      }
-    }
+    addRouterTargets(ids, cfg.router);
+  }
+  // Graph-level router declarations also carry connection references; an LLM
+  // node with no node-level router resolves to these at call time and would
+  // otherwise find no credentials injected.
+  addRouterTargets(ids, graph.config?.defaultRouter);
+  for (const policy of Object.values(graph.routerPolicies ?? {})) {
+    addRouterTargets(ids, policy);
   }
   return ids;
 }

@@ -26,6 +26,7 @@ import {
 } from '../controllers/integrations.controller';
 import { installPackage } from '../controllers/packages.controller';
 import { validateInvocation } from '../controllers/invocation-auth.controller';
+import { summarizeItems } from '../controllers/llm.controller';
 
 export const internalRouter: RouterType = Router();
 
@@ -61,3 +62,6 @@ internalRouter.get('/integrations', listIntegrations);
 internalRouter.post('/triggers/integrations/:service', integrationTriggerDispatch);
 
 internalRouter.post('/packages/install', installPackage);
+
+// Session-overflow summarization for the API's Session Manager (ALIGN-007)
+internalRouter.post('/llm/summarize', summarizeItems);

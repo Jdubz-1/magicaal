@@ -1,10 +1,12 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq, and, desc, lte } from 'drizzle-orm';
-import type { SessionConfig, ContextSchemaEntry, AgentGraphDefinition } from '@magicaal/core';
+import type { SessionConfig, ContextSchemaEntry, AgentGraphDefinition, ModelRouterConfig } from '@magicaal/core';
 import { db } from '../db/client';
-import { sessions, sessionContext, sessionRunLinks, agents, agentVersions } from '../db/schema';
+import { sessions, sessionContext, sessionRunLinks, agents, agentVersions, promptVersions } from '../db/schema';
 import { migrateSessionToCurrent } from '../lib/session-migration';
+import { engineClient } from '../lib/engine-client';
+import { logger } from '../lib/logger';
 
 function newId(): string {
   return crypto.randomUUID();
@@ -303,16 +305,18 @@ export const internalCreateSession: RequestHandler = async (req, res, next) => {
 export const internalSaveSession: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { runId, contextData, sessionConfig } = req.body as {
+    const { runId, contextData, sessionConfig, defaultRouter } = req.body as {
       runId: string;
       contextData: Record<string, unknown>;
       sessionConfig: SessionConfig;
+      defaultRouter?: ModelRouterConfig | null;
     };
 
     const session = await db.select().from(sessions).where(eq(sessions.id, sessionId));
     if (!session[0]) {
       throw Object.assign(new Error('Session not found'), { status: 404 });
     }
+    const tenantId = session[0].tenantId;
 
     const clearAll = contextData['_session_clear_all'] === true;
     const clearKeys = (contextData['_session_clear_keys'] as string[] | undefined) ?? [];
@@ -349,7 +353,7 @@ export const internalSaveSession: RequestHandler = async (req, res, next) => {
         finalValue = entry.type === 'append' ? [newValue] : newValue;
       } else {
         const current = JSON.parse(existing.valueJson) as unknown;
-        finalValue = accumulateValue(current, newValue, entry);
+        finalValue = await accumulateValue(current, newValue, entry, tenantId, defaultRouter);
       }
 
       const jsonValue = JSON.stringify(finalValue);
@@ -431,7 +435,69 @@ export const internalExpireSessions: RequestHandler = async (_req, res, next) =>
 
 // ── Utility ────────────────────────────────────────────────────────────────────
 
-function accumulateValue(current: unknown, newValue: unknown, entry: ContextSchemaEntry): unknown {
+/** Resolve summarizeWith.prompt — plain string, or a { ref } into prompt_versions. */
+async function resolveSummarizePrompt(
+  prompt: string | { ref: string; version?: number } | undefined,
+  tenantId: string,
+): Promise<string | undefined> {
+  if (!prompt) return undefined;
+  if (typeof prompt === 'string') return prompt;
+
+  const conditions = [eq(promptVersions.tenantId, tenantId), eq(promptVersions.name, prompt.ref)];
+  if (prompt.version !== undefined) {
+    conditions.push(eq(promptVersions.versionNumber, prompt.version));
+  } else {
+    conditions.push(eq(promptVersions.isActive, true));
+  }
+  const rows = await db.select().from(promptVersions).where(and(...conditions));
+  return rows[0]?.content;
+}
+
+/**
+ * `summarize` overflow (§14.4 / ALIGN-007): compress the oldest targetItems
+ * entries into one `role: "summary"` record via the engine's summarize
+ * endpoint. Falls back to evict_oldest when the LLM call cannot run — a
+ * session save must never fail or leave the key unbounded because
+ * summarization was unavailable.
+ */
+async function summarizeOverflow(
+  arr: unknown[],
+  entry: ContextSchemaEntry,
+  tenantId: string,
+  defaultRouter: ModelRouterConfig | null | undefined,
+): Promise<unknown[]> {
+  const targetItems = Math.min(entry.summarizeWith?.targetItems ?? 1, arr.length - 1);
+  try {
+    if (!defaultRouter) {
+      throw Object.assign(new Error('No router config for summarization'), { code: 'ROUTER_NOT_CONFIGURED' });
+    }
+    const oldest = arr.slice(0, targetItems);
+    const prompt = await resolveSummarizePrompt(entry.summarizeWith?.prompt, tenantId);
+    const response = await engineClient.post('/internal/llm/summarize', {
+      tenantId,
+      items: oldest,
+      model: entry.summarizeWith?.model,
+      prompt,
+      routerConfig: defaultRouter,
+    });
+    const { summary } = response.data as { summary: string };
+    return [{ role: 'summary', content: summary }, ...arr.slice(targetItems)];
+  } catch (err) {
+    logger.warn(
+      { tenantId, err: err instanceof Error ? err.message : err },
+      'Session summarize overflow failed — falling back to evict_oldest',
+    );
+    return arr.slice(-(entry.maxItems ?? arr.length));
+  }
+}
+
+async function accumulateValue(
+  current: unknown,
+  newValue: unknown,
+  entry: ContextSchemaEntry,
+  tenantId: string,
+  defaultRouter?: ModelRouterConfig | null,
+): Promise<unknown> {
   if (entry.type === 'replace') return newValue;
   if (entry.type === 'merge') {
     if (typeof current === 'object' && current !== null && typeof newValue === 'object' && newValue !== null) {
@@ -447,6 +513,9 @@ function accumulateValue(current: unknown, newValue: unknown, entry: ContextSche
     }
     if (entry.overflow === 'truncate') {
       return arr.slice(0, entry.maxItems);
+    }
+    if (entry.overflow === 'summarize') {
+      return summarizeOverflow(arr, entry, tenantId, defaultRouter);
     }
   }
   return arr;

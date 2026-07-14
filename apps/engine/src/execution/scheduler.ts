@@ -131,7 +131,7 @@ export function startScheduler(): void {
 
         // Save session context after graph execution
         if (sessionId && sessionConfig?.enabled) {
-          await sessionManager.saveSession(sessionId, runId, ctx.data, sessionConfig);
+          await sessionManager.saveSession(sessionId, runId, ctx.data, sessionConfig, graphDefaultRouter);
         }
 
         if (ctx.isSuspended) {
@@ -174,7 +174,9 @@ export function startScheduler(): void {
 
         // Still attempt session save on non-session errors so partial progress is preserved
         if (sessionId && graph.config?.session && code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
-          await sessionManager.saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig).catch(() => {});
+          await sessionManager
+            .saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig, graphDefaultRouter)
+            .catch(() => {});
         }
 
         // Cooperative aborts are outcomes, not job failures — record the

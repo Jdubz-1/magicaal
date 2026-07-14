@@ -15,6 +15,11 @@ jest.mock('../../src/lib/engine-client', () => ({
   },
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { engineClient: mockEngine } = require('../../src/lib/engine-client') as {
+  engineClient: { post: jest.Mock; get: jest.Mock };
+};
+
 const app = createApp();
 const INTERNAL = config.masterKey;
 
@@ -413,11 +418,12 @@ describe('internal session endpoints (engine → API)', () => {
       contextData: Record<string, unknown>,
       contextSchema: Record<string, unknown>,
       runId = 'run-1',
+      defaultRouter?: Record<string, unknown>,
     ): Promise<request.Response> {
       return request(app)
         .post(`/internal/sessions/${sid}/save`)
         .set('X-Internal-Auth', INTERNAL)
-        .send({ runId, contextData, sessionConfig: { contextSchema } });
+        .send({ runId, contextData, sessionConfig: { contextSchema }, defaultRouter });
     }
 
     it('append: creates then grows an array', async () => {
@@ -444,6 +450,63 @@ describe('internal session endpoints (engine → API)', () => {
       await save({ m: 'c' }, schema);
 
       expect(await contextOf(sid, 'm')).toEqual(['a', 'b']);
+    });
+
+    describe('summarize overflow (ALIGN-007)', () => {
+      const ROUTER = {
+        strategy: 'priority',
+        targets: [{ id: 't1', connectionId: 'conn-1', provider: 'anthropic', model: 'x' }],
+        triggers: [],
+      };
+      const SCHEMA = {
+        m: {
+          type: 'append',
+          maxItems: 2,
+          overflow: 'summarize',
+          summarizeWith: { model: 'summarize-model', targetItems: 2 },
+        },
+      };
+
+      it('compresses the oldest entries into one summary record via the engine', async () => {
+        await save({ m: 'a' }, SCHEMA);
+        await save({ m: 'b' }, SCHEMA);
+        mockEngine.post.mockResolvedValueOnce({ data: { summary: 'condensed a+b' } });
+        await save({ m: 'c' }, SCHEMA, 'run-1', ROUTER);
+
+        expect(await contextOf(sid, 'm')).toEqual([
+          { role: 'summary', content: 'condensed a+b' },
+          'c',
+        ]);
+        expect(mockEngine.post).toHaveBeenCalledWith(
+          '/internal/llm/summarize',
+          expect.objectContaining({
+            items: ['a', 'b'],
+            model: 'summarize-model',
+            routerConfig: ROUTER,
+          }),
+        );
+      });
+
+      it('falls back to evict_oldest when the summarize call fails', async () => {
+        await save({ m: 'a' }, SCHEMA);
+        await save({ m: 'b' }, SCHEMA);
+        mockEngine.post.mockRejectedValueOnce(new Error('engine unavailable'));
+        const res = await save({ m: 'c' }, SCHEMA, 'run-1', ROUTER);
+
+        expect(res.status).toBe(200);
+        expect(await contextOf(sid, 'm')).toEqual(['b', 'c']);
+      });
+
+      it('falls back to evict_oldest when no router config is available', async () => {
+        await save({ m: 'a' }, SCHEMA);
+        await save({ m: 'b' }, SCHEMA);
+        mockEngine.post.mockClear();
+        const res = await save({ m: 'c' }, SCHEMA); // no defaultRouter
+
+        expect(res.status).toBe(200);
+        expect(await contextOf(sid, 'm')).toEqual(['b', 'c']);
+        expect(mockEngine.post).not.toHaveBeenCalled();
+      });
     });
 
     it('replace: overwrites the prior value', async () => {
