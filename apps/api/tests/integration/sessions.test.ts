@@ -485,3 +485,36 @@ describe('internal session endpoints (engine → API)', () => {
     expect(alive[0].status).toBe('active');
   });
 });
+
+describe('POST /internal/sessions/:sid/run-link (ALIGN-009)', () => {
+  it('records ordered run links and the child-run flag', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-link-${Date.now()}`);
+    const sid = await seedSession(agentId, tenantId);
+
+    const first = await request(app)
+      .post(`/internal/sessions/${sid}/run-link`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({ runId: 'run-parent' });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`/internal/sessions/${sid}/run-link`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({ runId: 'run-child', isChildRun: true });
+    expect(second.status).toBe(200);
+
+    const links = await db
+      .select()
+      .from(sessionRunLinks)
+      .where(eq(sessionRunLinks.sessionId, sid));
+
+    expect(links).toHaveLength(2);
+    const parent = links.find((l) => l.runId === 'run-parent')!;
+    const child = links.find((l) => l.runId === 'run-child')!;
+    expect(parent.position).toBe(1);
+    expect(parent.isChildRun).toBe(false);
+    expect(child.position).toBe(2);
+    expect(child.isChildRun).toBe(true);
+  });
+});

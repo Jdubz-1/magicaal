@@ -17,7 +17,7 @@ const mockDb = { prepare: mockPrepare, pragma: jest.fn() };
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { graphLoader } = require('../../../src/graph/graph-loader') as {
   graphLoader: {
-    load(id: string): Promise<AgentGraphDefinition>;
+    load(id: string, tenantId: string): Promise<AgentGraphDefinition>;
     invalidate(id: string): void;
     invalidateAll(): void;
   };
@@ -43,7 +43,7 @@ beforeEach(() => {
 describe('GraphLoader.load', () => {
   it('parses and returns graph from database', async () => {
     mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
-    const result = await graphLoader.load('agent-1');
+    const result = await graphLoader.load('agent-1', 't1');
     expect(result).toEqual(sampleGraph);
     expect(mockPrepare).toHaveBeenCalledTimes(1);
   });
@@ -51,15 +51,15 @@ describe('GraphLoader.load', () => {
   it('returns cached result on second call without hitting DB again', async () => {
     mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
 
-    await graphLoader.load('agent-cache');
-    await graphLoader.load('agent-cache');
+    await graphLoader.load('agent-cache', 't1');
+    await graphLoader.load('agent-cache', 't1');
 
     expect(mockGet).toHaveBeenCalledTimes(1);
   });
 
   it('throws AGENT_NOT_FOUND when row is not found', async () => {
     mockGet.mockReturnValue(undefined);
-    await expect(graphLoader.load('missing-agent')).rejects.toMatchObject({
+    await expect(graphLoader.load('missing-agent', 't1')).rejects.toMatchObject({
       code: 'AGENT_NOT_FOUND',
     });
   });
@@ -69,8 +69,8 @@ describe('GraphLoader.load', () => {
       .mockReturnValueOnce({ graph_json: JSON.stringify({ ...sampleGraph, entry: 'a' }) })
       .mockReturnValueOnce({ graph_json: JSON.stringify({ ...sampleGraph, entry: 'b' }) });
 
-    const r1 = await graphLoader.load('agent-a');
-    const r2 = await graphLoader.load('agent-b');
+    const r1 = await graphLoader.load('agent-a', 't1');
+    const r2 = await graphLoader.load('agent-b', 't1');
 
     expect(r1.entry).toBe('a');
     expect(r2.entry).toBe('b');
@@ -81,9 +81,9 @@ describe('GraphLoader.invalidate', () => {
   it('removes a single agent from cache, forcing re-fetch', async () => {
     mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
 
-    await graphLoader.load('agent-x');
+    await graphLoader.load('agent-x', 't1');
     graphLoader.invalidate('agent-x');
-    await graphLoader.load('agent-x');
+    await graphLoader.load('agent-x', 't1');
 
     expect(mockGet).toHaveBeenCalledTimes(2);
   });
@@ -91,10 +91,10 @@ describe('GraphLoader.invalidate', () => {
   it('does not affect other cached agents', async () => {
     mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
 
-    await graphLoader.load('agent-keep');
-    await graphLoader.load('agent-remove');
+    await graphLoader.load('agent-keep', 't1');
+    await graphLoader.load('agent-remove', 't1');
     graphLoader.invalidate('agent-remove');
-    await graphLoader.load('agent-keep'); // should use cache
+    await graphLoader.load('agent-keep', 't1'); // should use cache
 
     expect(mockGet).toHaveBeenCalledTimes(2); // agent-keep once, agent-remove once
   });
@@ -104,11 +104,11 @@ describe('GraphLoader.invalidateAll', () => {
   it('clears all entries from cache', async () => {
     mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
 
-    await graphLoader.load('a1');
-    await graphLoader.load('a2');
+    await graphLoader.load('a1', 't1');
+    await graphLoader.load('a2', 't1');
     graphLoader.invalidateAll();
-    await graphLoader.load('a1');
-    await graphLoader.load('a2');
+    await graphLoader.load('a1', 't1');
+    await graphLoader.load('a2', 't1');
 
     expect(mockGet).toHaveBeenCalledTimes(4);
   });

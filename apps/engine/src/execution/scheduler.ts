@@ -26,7 +26,7 @@ export function startScheduler(): void {
     async (job) => {
       const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId } = job.data;
 
-      let graph = await graphLoader.load(agentId);
+      let graph = await graphLoader.load(agentId, tenantId);
 
       const graphDefaultRouter =
         graph.config?.defaultRouter && typeof graph.config.defaultRouter === 'object'
@@ -49,7 +49,8 @@ export function startScheduler(): void {
             for (const [key, value] of loaded.contextEntries) {
               ctx.set(key, value);
             }
-            await sessionManager.recordRunLink(sessionId, runId);
+            const isChildRun = triggerType === 'sub-graph' || triggerType === 'handoff';
+            await sessionManager.recordRunLink(sessionId, runId, isChildRun);
           } catch (err) {
             const code = (err as { code?: string }).code;
             if (code === 'SESSION_EXPIRED') throw err;

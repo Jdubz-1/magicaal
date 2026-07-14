@@ -110,7 +110,7 @@ export class SessionManager {
     }
   }
 
-  async recordRunLink(sessionId: string, runId: string): Promise<void> {
+  async recordRunLink(sessionId: string, runId: string, isChildRun = false): Promise<void> {
     const url = `${this.baseUrl}/internal/sessions/${encodeURIComponent(sessionId)}/run-link`;
     await fetch(url, {
       method: 'POST',
@@ -118,7 +118,7 @@ export class SessionManager {
         'Content-Type': 'application/json',
         'X-Internal-Auth': config.masterKey,
       },
-      body: JSON.stringify({ runId }),
+      body: JSON.stringify({ runId, isChildRun }),
     }).catch((err: unknown) => {
       logger.warn({ sessionId, runId, err }, 'Failed to record session run link');
     });

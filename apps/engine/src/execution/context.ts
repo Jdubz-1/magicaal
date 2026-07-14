@@ -131,6 +131,10 @@ export class ExecutionContextImpl implements ExecutionContext {
         triggerType: 'sub-graph',
         input,
         parentRunId: this.runId,
+        // §14.3/§14.6: the session propagates through the invocation tree —
+        // the child run loads the same session and accumulates back into it
+        // (when its own session config is enabled).
+        ...(this.sessionId && { sessionId: this.sessionId }),
         caller: { kind: 'platform', strategy: 'sub-graph' },
       }),
     });

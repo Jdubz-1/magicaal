@@ -319,7 +319,7 @@ export const internalSaveSession: RequestHandler = async (req, res, next) => {
 export const internalRecordRunLink: RequestHandler = async (req, res, next) => {
   try {
     const { sessionId } = req.params;
-    const { runId } = req.body as { runId: string };
+    const { runId, isChildRun = false } = req.body as { runId: string; isChildRun?: boolean };
 
     const links = await db
       .select({ position: sessionRunLinks.position })
@@ -334,6 +334,7 @@ export const internalRecordRunLink: RequestHandler = async (req, res, next) => {
       sessionId,
       runId,
       position: nextPosition,
+      isChildRun,
       createdAt: new Date(),
     });
 

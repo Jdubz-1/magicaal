@@ -15,6 +15,13 @@ jest.mock('@/queue/client', () => ({
   redis: { incr: jest.fn(), expire: jest.fn() },
 }));
 
+// Tenant ownership is asserted against the primary DB (ALIGN-006) — covered by
+// tenant-isolation.test.ts; here the caller contract is under test.
+jest.mock('@/graph/graph-loader', () => ({
+  graphLoader: { invalidate: jest.fn() },
+  assertAgentInTenant: jest.fn(),
+}));
+
 import { dispatchRun } from '@/controllers/runs.controller';
 
 /**

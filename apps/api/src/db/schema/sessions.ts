@@ -45,5 +45,6 @@ export const sessionRunLinks = sqliteTable('session_run_links', {
     .references(() => sessions.id),
   runId: text('run_id').notNull(),
   position: integer('position').notNull(),
+  isChildRun: integer('is_child_run', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });

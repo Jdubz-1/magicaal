@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
-import { graphLoader } from '../graph/graph-loader';
+import { graphLoader, assertAgentInTenant } from '../graph/graph-loader';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
 
@@ -53,6 +53,10 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
         { status: 400, code: 'CALLER_REQUIRED' },
       );
     }
+
+    // §14.3: sub-graph/handoff agentIds come from graph-author-controlled node
+    // config — never dispatch an agent into a tenant that does not own it.
+    assertAgentInTenant(agentId, tenantId);
 
     const runId = newRunId();
     const now = new Date();
@@ -235,6 +239,8 @@ export const webhookDispatch: RequestHandler = async (req, res, next) => {
         { status: 400, code: 'MISSING_TENANT_ID' },
       );
     }
+
+    assertAgentInTenant(agentId, tenantId);
 
     await telemetryDb.insert(telemetryRuns).values({
       id: runId,
