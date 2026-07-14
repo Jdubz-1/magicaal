@@ -77,6 +77,28 @@ export const lifecycle = {
     void mcpRegistry.releaseForRun(runId);
   },
 
+  async markRunCancelled(runId: string, ctx?: ExecutionContextImpl): Promise<void> {
+    const usage = ctx?.tokenUsage;
+    await telemetryDb
+      .update(telemetryRuns)
+      .set({
+        status: 'cancelled',
+        completedAt: new Date(),
+        ...(usage && {
+          totalPromptTokens: usage.promptTokens,
+          totalCompletionTokens: usage.completionTokens,
+          estimatedCostUsd: usage.estimatedCostUsd,
+        }),
+      })
+      .where(eq(telemetryRuns.id, runId));
+    sseManager.broadcast(runId, 'run.cancelled', {
+      runId,
+      timestamp: new Date().toISOString(),
+    });
+    sseManager.close(runId);
+    void mcpRegistry.releaseForRun(runId);
+  },
+
   async markRunSuspended(
     runId: string,
     reviewId: string,

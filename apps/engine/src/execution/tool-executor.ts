@@ -14,6 +14,7 @@ import type { ExecutionContextImpl } from './context';
 import { resolveEdges } from './graph-utils';
 import { mcpRegistry } from '../mcp/mcp-registry';
 import { logger } from '../lib/logger';
+import { checkAbort, abortError } from './run-control';
 
 // ── Config shapes ─────────────────────────────────────────────────────────────
 
@@ -126,6 +127,11 @@ export async function runAgentLoop(
   let lastRoutingMeta: NodeOutput['routingMeta'];
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    // Cooperative abort — long agentic loops honour cancellation/timeout
+    // between LLM iterations, not just at graph-node boundaries.
+    const abort = await checkAbort(ctx.runId);
+    if (abort) throw abortError(abort);
+
     const request: CanonicalLLMRequest = {
       system: config.systemPrompt,
       messages: conversation,

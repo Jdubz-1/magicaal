@@ -8,6 +8,7 @@ import { executeGraph } from './worker';
 import { resolveCredentials } from '../resolver/credential-resolver';
 import { logger } from '../lib/logger';
 import { sessionManager } from '../session/session-manager';
+import { checkAbort, clearAbort } from './run-control';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
 interface RunJobData {
@@ -25,6 +26,13 @@ export function startScheduler(): void {
     'runs.trigger',
     async (job) => {
       const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId } = job.data;
+
+      // Cancelled while still queued — the cancel endpoint already marked the
+      // run; consume the flag and never start executing.
+      if (await checkAbort(runId)) {
+        await clearAbort(runId);
+        return;
+      }
 
       let graph = await graphLoader.load(agentId, tenantId);
 
@@ -80,9 +88,25 @@ export function startScheduler(): void {
       } catch (err) {
         // Still attempt session save on non-session errors so partial progress is preserved
         const code = (err as { code?: string }).code;
-        if (sessionId && graph.config?.session && (err as { code?: string }).code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
+        if (sessionId && graph.config?.session && code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
           await sessionManager.saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig).catch(() => {});
         }
+
+        // Cooperative aborts are outcomes, not job failures — record the
+        // terminal state and swallow so BullMQ does not count a retry.
+        if (code === 'RUN_CANCELLED') {
+          await lifecycle.markRunCancelled(runId, ctx);
+          return;
+        }
+        if (code === 'RUN_TIMEOUT') {
+          await lifecycle.markRunFailed(
+            runId,
+            { code: 'RUN_TIMEOUT', message: 'Run exceeded its configured timeout', retryable: false },
+            ctx,
+          );
+          return;
+        }
+
         const error = {
           code: 'EXECUTION_ERROR',
           message: err instanceof Error ? err.message : String(err),
@@ -90,6 +114,8 @@ export function startScheduler(): void {
         };
         await lifecycle.markRunFailed(runId, error, ctx);
         throw err;
+      } finally {
+        await clearAbort(runId).catch(() => {});
       }
     },
     { connection: redis, concurrency: 10 },

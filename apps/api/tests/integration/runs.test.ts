@@ -7,16 +7,18 @@ jest.mock('../../src/lib/engine-client', () => ({
   engineClient: {
     post: jest.fn(),
     get: jest.fn(),
+    delete: jest.fn(),
   },
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { engineClient } = require('../../src/lib/engine-client') as {
-  engineClient: { post: jest.Mock; get: jest.Mock };
+  engineClient: { post: jest.Mock; get: jest.Mock; delete: jest.Mock };
 };
 
 const mockEnginePost = engineClient.post;
 const mockEngineGet = engineClient.get;
+const mockEngineDelete = engineClient.delete;
 
 const app = createApp();
 
@@ -206,5 +208,41 @@ describe('run access is scoped to the caller (ISS-049)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.id).toBe('mine');
+  });
+});
+
+describe('DELETE /v1/agents/:id/runs/:runId (ALIGN-001)', () => {
+  it('cancels a tenant-owned run via the engine', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAndPublishAgent(token, `cancel-agent-${Date.now()}`);
+
+    mockEngineGet.mockResolvedValue({
+      data: { id: 'run-1', tenantId, agentId, status: 'running' },
+    });
+    mockEngineDelete.mockResolvedValue({ status: 202, data: { runId: 'run-1', cancelling: true } });
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}/runs/run-1`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(202);
+    expect(res.body.cancelling).toBe(true);
+    expect(mockEngineDelete).toHaveBeenCalledWith('/internal/runs/run-1');
+  });
+
+  it("404s cancelling another tenant's run", async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAndPublishAgent(token, `cancel-x-${Date.now()}`);
+
+    mockEngineGet.mockResolvedValue({
+      data: { id: 'run-2', tenantId: 'someone-else', agentId, status: 'running' },
+    });
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}/runs/run-2`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+    expect(mockEngineDelete).not.toHaveBeenCalled();
   });
 });

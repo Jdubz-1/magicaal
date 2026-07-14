@@ -7,6 +7,8 @@ import { runTriggerQueue } from '../queue/client';
 import { graphLoader, assertAgentInTenant } from '../graph/graph-loader';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
+import { lifecycle } from '../execution/lifecycle';
+import { requestAbort } from '../execution/run-control';
 
 function newRunId(): string {
   return `run_${crypto.randomUUID()}`;
@@ -210,8 +212,39 @@ export const reviewRun: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const cancelRun: RequestHandler = (_req, _res, next) => {
-  next(Object.assign(new Error('Run cancellation not implemented'), { status: 501, code: 'NOT_IMPLEMENTED' }));
+export const cancelRun: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: runId } = req.params;
+    const rows = await telemetryDb.select().from(telemetryRuns).where(eq(telemetryRuns.id, runId));
+    const run = rows[0];
+    if (!run) {
+      throw Object.assign(new Error(`Run ${runId} not found`), { status: 404, code: 'RUN_NOT_FOUND' });
+    }
+
+    if (['completed', 'failed', 'cancelled'].includes(run.status)) {
+      throw Object.assign(
+        new Error(`Run ${runId} is already terminal (status: ${run.status})`),
+        { status: 409, code: 'RUN_ALREADY_TERMINAL' },
+      );
+    }
+
+    // The abort flag is set for every state: a pending run's job consumes it
+    // instead of executing, and a running run's worker sees it at the next
+    // node boundary.
+    await requestAbort(runId, 'cancelled');
+
+    if (run.status === 'running') {
+      // The executing worker records the terminal state when it observes the flag
+      res.status(202).json({ runId, cancelling: true });
+      return;
+    }
+
+    // pending / suspended — no worker owns the run; record the state now
+    await lifecycle.markRunCancelled(runId);
+    res.json({ runId, status: 'cancelled' });
+  } catch (err) {
+    next(err);
+  }
 };
 
 export const deployAgent: RequestHandler = (req, res, next) => {

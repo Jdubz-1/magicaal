@@ -83,7 +83,8 @@ export type RunStreamEvent =
   | NodeFailedEvent
   | RunCompletedEvent
   | RunFailedEvent
-  | RunSuspendedEvent;
+  | RunSuspendedEvent
+  | RunCancelledEvent;
 
 export interface RunStartedEvent {
   type: 'run.started';
@@ -136,6 +137,12 @@ export interface RunSuspendedEvent {
   type: 'run.suspended';
   runId: string;
   reviewId: string;
+  timestamp: string;
+}
+
+export interface RunCancelledEvent {
+  type: 'run.cancelled';
+  runId: string;
   timestamp: string;
 }
 

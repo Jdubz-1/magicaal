@@ -5,6 +5,15 @@ jest.mock('@/execution/lifecycle');
 jest.mock('@/lib/logger', () => ({
   logger: { info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
+// The worker checks the Redis-backed abort flag at node boundaries — stub it
+// so these tests need no Redis (covered in run-abort.test.ts).
+jest.mock('@/execution/run-control', () => ({
+  checkAbort: jest.fn().mockResolvedValue(null),
+  clearAbort: jest.fn().mockResolvedValue(undefined),
+  requestAbort: jest.fn().mockResolvedValue(undefined),
+  abortError: jest.fn(),
+  isAbortErrorCode: (code: unknown) => code === 'RUN_TIMEOUT' || code === 'RUN_CANCELLED',
+}));
 
 // Entitlements come from the primary DB; drive them directly here so the test
 // exercises the gate rather than SQLite.

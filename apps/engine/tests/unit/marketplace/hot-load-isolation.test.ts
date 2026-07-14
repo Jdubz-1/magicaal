@@ -13,6 +13,15 @@ jest.mock('@/registry/entitlements', () => ({
   ...jest.requireActual('@/registry/entitlements'),
   loadEntitledPackages: () => new Set(['test/pkg']),
 }));
+// The worker checks the Redis-backed abort flag at node boundaries — stub it
+// so these tests need no Redis (covered in run-abort.test.ts).
+jest.mock('@/execution/run-control', () => ({
+  checkAbort: jest.fn().mockResolvedValue(null),
+  clearAbort: jest.fn().mockResolvedValue(undefined),
+  requestAbort: jest.fn().mockResolvedValue(undefined),
+  abortError: jest.fn(),
+  isAbortErrorCode: (code: unknown) => code === 'RUN_TIMEOUT' || code === 'RUN_CANCELLED',
+}));
 
 import { executeGraph } from '@/execution/worker';
 import { registry } from '@/registry/node-registry';

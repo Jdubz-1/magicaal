@@ -6,6 +6,7 @@ import {
   getRunSteps,
   streamRun,
   reviewRun,
+  cancelRun,
 } from '../controllers/runs.controller';
 
 /**
@@ -27,3 +28,4 @@ runsRouter.get('/:runId', getRun);
 runsRouter.get('/:runId/steps', getRunSteps);
 runsRouter.get('/:runId/stream', streamRun);
 runsRouter.post('/:runId/review', reviewRun);
+runsRouter.delete('/:runId', cancelRun);

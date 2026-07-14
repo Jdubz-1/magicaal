@@ -231,6 +231,20 @@ export const reviewRun: RequestHandler = async (req, res, next) => {
   }
 };
 
+export const cancelRun: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: agentId, runId } = req.params;
+    const { tenantId } = req.user!;
+
+    await fetchRunScoped(runId, tenantId, agentId);
+
+    const response = await engineClient.delete(`/internal/runs/${runId}`);
+    res.status(response.status).json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const streamRun: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId, runId } = req.params;

@@ -8,6 +8,7 @@ import { logger } from '../lib/logger';
 import { runAgentLoop, registerExecuteNodeOnce } from './tool-executor';
 import type { NodeOutput } from '@magicaal/sdk-node';
 import { resolveEdges } from './graph-utils';
+import { checkAbort, abortError } from './run-control';
 
 export { resolveEdges };
 
@@ -170,6 +171,10 @@ export async function executeGraph(
   const loopIterations = new Map<string, number>(); // nodeId → iteration count
 
   while (queue.length > 0) {
+    // Cooperative abort — cancellation or timeout lands at node boundaries
+    const abort = await checkAbort(runId);
+    if (abort) throw abortError(abort);
+
     const nodeId = queue.shift()!;
     if (visited.has(nodeId)) continue;
     visited.add(nodeId);
