@@ -25,6 +25,68 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-14 - Session system: summarize overflow, schema migration chain, child-run propagation (ALIGN-007/008/009)
+
+**Type:** Bugfix
+
+**Description:**
+Three Phase 4 session claims did not survive the doc–code alignment review: the `summarize` overflow branch silently returned the unbounded array, the schema migration system never compared versions or set `stale_schema` (its "migrate" endpoint just flipped status), and `dispatchSubRun` never forwarded the session — so sub-graph/handoff children ran sessionless. All three now match ARCHITECTURE §14.
+
+**Changes:**
+- `apps/api/src/lib/session-migration.ts` (new) — contiguous `fromVersion→toVersion` chain resolution, timeboxed JSONata transforms via `evaluate()`, context-row rewrite, `stale_schema` marking when no path exists
+- `apps/api/src/controllers/sessions.controller.ts` — new `internalLoadSession` (`POST /internal/sessions/:id/load`) carrying the agent's `SessionConfig`, asserting session↔agent↔tenant ownership (§14.7) and migrating before returning context; real `migrateAgentSessions` reading the config from the agent's current published version; async accumulation with the summarize-overflow path (`evict_oldest` fallback on any failure); `internalRecordRunLink` persists `is_child_run`
+- `apps/engine/src/controllers/llm.controller.ts` (new) — `POST /internal/llm/summarize` wraps `routedLLMCall` for the API's session manager (`summarizeWith.model` overrides target models; prompt refs resolve from `prompt_versions`)
+- `apps/engine/src/resolver/credential-resolver.ts` — `collectConnectionIds` now includes graph-level `defaultRouter` and `routerPolicies` targets (latent bug: graph-default routers had no credentials injected)
+- `apps/engine/src/execution/context.ts` — `dispatchSubRun` forwards the parent `sessionId`
+- `apps/api/drizzle/migrations/0007_session_child_runs.sql` — `session_run_links.is_child_run` (ARCHITECTURE §14.9)
+
+**Impact:**
+Conversational agents with `summarize` overflow no longer grow session keys without bound; schema version bumps migrate existing sessions instead of silently mismatching; multi-agent compositions share one session across the invocation tree as designed.
+
+---
+
+### 2026-07-14 - Engine run control: cancellation, timeout, retry, concurrency admission (ALIGN-001/002/003/004)
+
+**Type:** Feature
+
+**Description:**
+The Phase 1 run-control surface was never finished: `DELETE /internal/runs/:id` returned 501 (and the API route behind `RunHandle.cancel()` did not exist), `AgentConfig.timeout`, `RetryConfig`, and `ConcurrencyConfig` were dead config, and the `runs.retry` queue had no producer or consumer. One shared cooperative-abort mechanism now underpins cancellation and timeout, with retry and admission built alongside.
+
+**Changes:**
+- `apps/engine/src/execution/run-control.ts` (new) — Redis abort flag (`requestAbort`/`checkAbort`/`clearAbort`), `startRunDeadline`, `planRetry`, occupancy slots (`acquireRunSlot`/`releaseRunSlot`) and `admissionDecision`
+- `apps/engine/src/execution/worker.ts` + `tool-executor.ts` — abort checks at every node boundary and between agent-loop LLM iterations; failure throw sites carry `failedNodeId` + `retryable`
+- `apps/engine/src/execution/scheduler.ts` — pre-start abort consumption, per-run deadline (`AgentConfig.timeout` else `RUN_TIMEOUT_DEFAULT_MS`), retry requeue through `runs.retry` with fixed/exponential backoff resuming from the failed node, admission check (tenant cap `MAX_CONCURRENT_RUNS_PER_TENANT`, agent `maxParallel`, `queueTimeout` → `QUEUE_TIMEOUT`), `WORKER_CONCURRENCY`
+- `apps/engine/src/execution/lifecycle.ts` — `markRunCancelled` (SSE `run.cancelled`), `markRunRetrying` (SSE `run.retrying`)
+- `apps/engine/src/controllers/runs.controller.ts` — real `cancelRun` (pending/suspended marked directly; running flagged, 202 `{ cancelling }`)
+- `apps/api/src/routes/runs.ts` + `controllers/runs.controller.ts` — `DELETE /v1/agents/:id/runs/:runId` behind `fetchRunScoped`
+- `packages/sdk-client/src/types.ts` — `run.cancelled` and `run.retrying` in `RunStreamEvent`
+
+**Impact:**
+Runs can be stopped, time out instead of holding worker slots forever, retry transient node failures per their config, and no tenant can starve the shared worker pool. `RunHandle.cancel()` works for the first time.
+
+**Notes:**
+Aborts land at yield points (node boundaries, agent-loop iterations) — a single non-yielding native call still runs to its own completion first.
+
+---
+
+### 2026-07-14 - Boot-sync override semantics and cross-tenant dispatch fixes (ALIGN-005/006)
+
+**Type:** Bugfix
+
+**Description:**
+Two design violations from the alignment review. `syncConfig` had ARCHITECTURE §5.4 inverted — locked fields kept stale DB values while admin-set overridable fields were clobbered on every deploy — and the override map itself was never derived from anywhere (the compiler dropped `@Agent` `overridable`; boot-sync always wrote `{}`). Separately, the engine dispatched any agentId under any caller-supplied tenantId, so a sub-graph/handoff node config could execute another tenant's agent with that tenant's decrypted integration credentials (§14.3 violation).
+
+**Changes:**
+- `apps/api/src/sync/boot-sync.ts` — corrected `keepStored` semantics; new `resolveOverrideMap()` re-derives the per-field map from the definition on every sync (default: locked — code wins)
+- `packages/compiler/src/decorators.ts` + `compile.ts`, `packages/core/src/graph.ts` — `AgentMeta.overridable` compiles into `AgentGraphDefinition.overridable`
+- `apps/engine/src/graph/graph-loader.ts` — `assertAgentInTenant()`; `graphLoader.load(agentId, tenantId)` tenant predicate, enforced on cache hits too
+- `apps/engine/src/controllers/runs.controller.ts` — ownership asserted in `dispatchRun` and `webhookDispatch` (404 either way, IDs stay non-enumerable)
+
+**Impact:**
+Admin config overrides survive redeploys and locked fields stay in sync with code; the cross-tenant execution path through sub-graph/handoff is closed.
+
+---
+
 ### 2026-07-13 - Fix run invocation auth: separate the platform and invocation planes (ISS-063)
 
 **Type:** Bugfix
