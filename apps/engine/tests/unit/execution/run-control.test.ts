@@ -9,6 +9,17 @@ jest.mock('@/queue/client', () => ({
     del: jest.fn(async (key: string) => {
       redisStore.delete(key);
     }),
+    incr: jest.fn(async (key: string) => {
+      const next = Number(redisStore.get(key) ?? '0') + 1;
+      redisStore.set(key, String(next));
+      return next;
+    }),
+    decr: jest.fn(async (key: string) => {
+      const next = Number(redisStore.get(key) ?? '0') - 1;
+      redisStore.set(key, String(next));
+      return next;
+    }),
+    expire: jest.fn(async () => 1),
   },
   runTriggerQueue: { add: jest.fn() },
   runScheduledQueue: { add: jest.fn() },
@@ -22,6 +33,9 @@ import {
   abortError,
   startRunDeadline,
   planRetry,
+  acquireRunSlot,
+  releaseRunSlot,
+  admissionDecision,
 } from '@/execution/run-control';
 
 beforeEach(() => {
@@ -116,5 +130,68 @@ describe('planRetry (ALIGN-004)', () => {
       attemptsMade: 1,
       delayMs: 50,
     });
+  });
+});
+
+describe('concurrency slots + admission (ALIGN-003)', () => {
+  it('counts tenant and agent occupancy across acquire/release', async () => {
+    expect(await acquireRunSlot('t1', 'a1')).toEqual({ tenant: 1, agent: 1 });
+    expect(await acquireRunSlot('t1', 'a2')).toEqual({ tenant: 2, agent: 1 });
+    expect(await acquireRunSlot('t1', 'a1')).toEqual({ tenant: 3, agent: 2 });
+
+    await releaseRunSlot('t1', 'a1');
+    expect(await acquireRunSlot('t1', 'a1')).toEqual({ tenant: 3, agent: 2 });
+  });
+
+  it('admits runs under both limits', () => {
+    expect(
+      admissionDecision({
+        slots: { tenant: 3, agent: 1 },
+        tenantCap: 10,
+        maxParallel: 2,
+        enqueuedAt: Date.now(),
+      }),
+    ).toBe('run');
+  });
+
+  it('defers when over the tenant cap or agent maxParallel', () => {
+    expect(
+      admissionDecision({
+        slots: { tenant: 11, agent: 1 },
+        tenantCap: 10,
+        enqueuedAt: Date.now(),
+      }),
+    ).toBe('defer');
+    expect(
+      admissionDecision({
+        slots: { tenant: 2, agent: 3 },
+        tenantCap: 10,
+        maxParallel: 2,
+        enqueuedAt: Date.now(),
+      }),
+    ).toBe('defer');
+  });
+
+  it('fails with queue_timeout once the wait exceeds queueTimeout', () => {
+    const now = Date.now();
+    expect(
+      admissionDecision({
+        slots: { tenant: 11, agent: 1 },
+        tenantCap: 10,
+        enqueuedAt: now - 31_000,
+        queueTimeoutMs: 30_000,
+        now,
+      }),
+    ).toBe('queue_timeout');
+    // Still within the allowed wait — keep deferring
+    expect(
+      admissionDecision({
+        slots: { tenant: 11, agent: 1 },
+        tenantCap: 10,
+        enqueuedAt: now - 10_000,
+        queueTimeoutMs: 30_000,
+        now,
+      }),
+    ).toBe('defer');
   });
 });

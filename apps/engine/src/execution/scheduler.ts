@@ -8,7 +8,15 @@ import { executeGraph } from './worker';
 import { resolveCredentials } from '../resolver/credential-resolver';
 import { logger } from '../lib/logger';
 import { sessionManager } from '../session/session-manager';
-import { checkAbort, clearAbort, startRunDeadline, planRetry } from './run-control';
+import {
+  checkAbort,
+  clearAbort,
+  startRunDeadline,
+  planRetry,
+  acquireRunSlot,
+  releaseRunSlot,
+  admissionDecision,
+} from './run-control';
 import { config } from '../config';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
@@ -22,6 +30,8 @@ interface RunJobData {
   sessionId?: string;
   /** Per-node execution counts, carried across retry re-enqueues (ALIGN-004). */
   nodeAttempts?: Record<string, number>;
+  /** First-dispatch timestamp, preserved across admission deferrals (ALIGN-003). */
+  enqueuedAt?: number;
 }
 
 export function startScheduler(): void {
@@ -45,6 +55,38 @@ export function startScheduler(): void {
           : null;
 
       const ctx = new ExecutionContextImpl({ runId, agentId, tenantId, triggerType, input, graphDefaultRouter, sessionId });
+
+      // Concurrency admission (ALIGN-003): per-tenant cap (env, until tenant
+      // DB limits are enforced) and per-agent ConcurrencyConfig.maxParallel.
+      // Over-limit jobs are re-queued with a short jittered delay; jobs that
+      // out-wait ConcurrencyConfig.queueTimeout fail with QUEUE_TIMEOUT.
+      const concurrency = graph.config?.concurrency;
+      const enqueuedAt = job.data.enqueuedAt ?? job.timestamp;
+      const slots = await acquireRunSlot(tenantId, agentId);
+      const decision = admissionDecision({
+        slots,
+        tenantCap: config.maxConcurrentRunsPerTenant,
+        maxParallel: concurrency?.maxParallel,
+        enqueuedAt,
+        queueTimeoutMs: concurrency?.queueTimeout,
+      });
+      if (decision !== 'run') {
+        await releaseRunSlot(tenantId, agentId);
+        if (decision === 'queue_timeout') {
+          await lifecycle.markRunFailed(
+            runId,
+            { code: 'QUEUE_TIMEOUT', message: 'Run exceeded its concurrency queue timeout', retryable: false },
+            ctx,
+          );
+          return;
+        }
+        await runTriggerQueue.add(
+          'run-defer',
+          { ...job.data, enqueuedAt },
+          { delay: 1_000 + Math.floor(Math.random() * 500) },
+        );
+        return;
+      }
 
       await lifecycle.markRunStarted(runId, agentId);
 
@@ -159,10 +201,11 @@ export function startScheduler(): void {
         throw err;
       } finally {
         disarmDeadline();
+        await releaseRunSlot(tenantId, agentId).catch(() => {});
         await clearAbort(runId).catch(() => {});
       }
     },
-    { connection: redis, concurrency: 10 },
+    { connection: redis, concurrency: config.workerConcurrency },
   );
 
   worker.on('failed', (job, err) => {

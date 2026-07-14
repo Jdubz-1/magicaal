@@ -19,6 +19,11 @@ export const config = Object.freeze({
   packagesDir: process.env.PACKAGES_DIR ?? '/data/packages',
   // Deadline applied to runs whose AgentConfig declares no timeout (10 min).
   defaultRunTimeoutMs: parseInt(process.env.RUN_TIMEOUT_DEFAULT_MS ?? '600000', 10),
+  // Per-tenant simultaneous-run cap (§14.2). Platform-wide until tenant-level
+  // resource limits are enforced from the DB (ALIGN-018).
+  maxConcurrentRunsPerTenant: parseInt(process.env.MAX_CONCURRENT_RUNS_PER_TENANT ?? '10', 10),
+  // BullMQ process-level worker concurrency for the runs.trigger queue.
+  workerConcurrency: parseInt(process.env.WORKER_CONCURRENCY ?? '10', 10),
   // Installing a package runs its code (require) in the engine process. Only
   // MagiCaal-countersigned ('verified') packages install by default. Unverified
   // (self-signed community) packages must be sandboxed before they can run —

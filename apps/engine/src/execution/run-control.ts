@@ -60,6 +60,75 @@ export function isAbortErrorCode(code: unknown): code is 'RUN_TIMEOUT' | 'RUN_CA
   return code === 'RUN_TIMEOUT' || code === 'RUN_CANCELLED';
 }
 
+// ── Concurrency admission (ALIGN-003) ────────────────────────────────────────
+
+// Counters expire after an hour so a crashed worker's leaked increments
+// self-heal instead of throttling the tenant forever.
+const SLOT_TTL_SECONDS = 3_600;
+
+function tenantSlotKey(tenantId: string): string {
+  return `concurrency:tenant:${tenantId}`;
+}
+
+function agentSlotKey(agentId: string): string {
+  return `concurrency:agent:${agentId}`;
+}
+
+/** Claim a run slot; returns the occupancy counts including this run. */
+export async function acquireRunSlot(
+  tenantId: string,
+  agentId: string,
+): Promise<{ tenant: number; agent: number }> {
+  const [tenant, agent] = await Promise.all([
+    redis.incr(tenantSlotKey(tenantId)),
+    redis.incr(agentSlotKey(agentId)),
+  ]);
+  await Promise.all([
+    redis.expire(tenantSlotKey(tenantId), SLOT_TTL_SECONDS),
+    redis.expire(agentSlotKey(agentId), SLOT_TTL_SECONDS),
+  ]);
+  return { tenant, agent };
+}
+
+export async function releaseRunSlot(tenantId: string, agentId: string): Promise<void> {
+  const [tenant, agent] = await Promise.all([
+    redis.decr(tenantSlotKey(tenantId)),
+    redis.decr(agentSlotKey(agentId)),
+  ]);
+  // Guard against underflow from TTL-expired counters
+  if (tenant < 0) await redis.set(tenantSlotKey(tenantId), '0', 'EX', SLOT_TTL_SECONDS);
+  if (agent < 0) await redis.set(agentSlotKey(agentId), '0', 'EX', SLOT_TTL_SECONDS);
+}
+
+export type AdmissionDecision = 'run' | 'defer' | 'queue_timeout';
+
+/**
+ * Decide whether a job may execute now. `slots` is the occupancy including
+ * this run (from acquireRunSlot). Over either limit the job is deferred —
+ * unless it has already waited past ConcurrencyConfig.queueTimeout, in which
+ * case it fails with QUEUE_TIMEOUT.
+ */
+export function admissionDecision(args: {
+  slots: { tenant: number; agent: number };
+  tenantCap: number;
+  maxParallel?: number;
+  enqueuedAt: number;
+  queueTimeoutMs?: number;
+  now?: number;
+}): AdmissionDecision {
+  const { slots, tenantCap, maxParallel, enqueuedAt, queueTimeoutMs } = args;
+  const now = args.now ?? Date.now();
+
+  const overTenant = slots.tenant > tenantCap;
+  const overAgent = typeof maxParallel === 'number' && maxParallel > 0 && slots.agent > maxParallel;
+  if (!overTenant && !overAgent) return 'run';
+
+  if (typeof queueTimeoutMs === 'number' && queueTimeoutMs > 0 && now - enqueuedAt > queueTimeoutMs) {
+    return 'queue_timeout';
+  }
+  return 'defer';
+}
+
 // ── Retry planning (ALIGN-004) ────────────────────────────────────────────────
 
 export interface RetryPlan {
