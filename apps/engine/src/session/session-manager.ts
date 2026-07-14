@@ -24,13 +24,17 @@ export class SessionManager {
     tenantId: string,
     sessionConfig: SessionConfig,
   ): Promise<LoadedSession> {
-    const url = `${this.baseUrl}/internal/sessions/${encodeURIComponent(sessionId)}`;
+    // POST rather than GET: the API applies the schema migration chain
+    // (ARCHITECTURE §14.5) against the agent's current SessionConfig and
+    // asserts session↔agent↔tenant ownership before returning context.
+    const url = `${this.baseUrl}/internal/sessions/${encodeURIComponent(sessionId)}/load`;
     const res = await fetch(url, {
-      method: 'GET',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Auth': config.masterKey,
       },
+      body: JSON.stringify({ agentId, tenantId, sessionConfig }),
     });
 
     if (res.status === 404) {

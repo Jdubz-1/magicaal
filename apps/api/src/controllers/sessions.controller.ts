@@ -1,9 +1,10 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq, and, desc, lte } from 'drizzle-orm';
-import type { SessionConfig, ContextSchemaEntry } from '@magicaal/core';
+import type { SessionConfig, ContextSchemaEntry, AgentGraphDefinition } from '@magicaal/core';
 import { db } from '../db/client';
-import { sessions, sessionContext, sessionRunLinks, agents } from '../db/schema';
+import { sessions, sessionContext, sessionRunLinks, agents, agentVersions } from '../db/schema';
+import { migrateSessionToCurrent } from '../lib/session-migration';
 
 function newId(): string {
   return crypto.randomUUID();
@@ -134,6 +135,19 @@ export const resetSession: RequestHandler = async (req, res, next) => {
   }
 };
 
+/** Read the agent's current SessionConfig from its published graph definition. */
+async function loadAgentSessionConfig(agentId: string): Promise<SessionConfig | null> {
+  const rows = await db
+    .select({ graphJson: agentVersions.graphJson })
+    .from(agents)
+    .innerJoin(agentVersions, eq(agentVersions.id, agents.currentVersionId))
+    .where(eq(agents.id, agentId));
+
+  if (!rows[0]) return null;
+  const definition = JSON.parse(rows[0].graphJson) as AgentGraphDefinition;
+  return (definition.config?.session as SessionConfig | undefined) ?? null;
+}
+
 export const migrateAgentSessions: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
@@ -148,20 +162,40 @@ export const migrateAgentSessions: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('Agent not found'), { status: 404 });
     }
 
-    const staleSessions = await db
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(and(eq(sessions.agentId, agentId), eq(sessions.status, 'stale_schema')));
-
-    // For Phase 4, mark stale sessions as active with a fresh schema version
-    // Full migration chain logic would be in the engine session manager
-    let migrated = 0;
-    for (const session of staleSessions) {
-      await db.update(sessions).set({ status: 'active' }).where(eq(sessions.id, session.id));
-      migrated++;
+    const sessionConfig = await loadAgentSessionConfig(agentId);
+    if (!sessionConfig?.enabled) {
+      throw Object.assign(
+        new Error('Agent has no session configuration on its current version'),
+        { status: 400, code: 'NO_SESSION_CONFIG' },
+      );
     }
 
-    res.json({ migrated, skipped: 0, failed: 0 });
+    // Batch-apply the migration chain (§14.5) to every non-expired session
+    // that is behind the current schema version — including previously
+    // stale-marked sessions, for which a path may exist now.
+    const candidates = await db
+      .select({ id: sessions.id, schemaVersion: sessions.schemaVersion, status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.agentId, agentId));
+
+    let migrated = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const session of candidates) {
+      if (session.status === 'expired') {
+        skipped++;
+        continue;
+      }
+      try {
+        const outcome = await migrateSessionToCurrent(session.id, session.schemaVersion, sessionConfig);
+        if (outcome === 'migrated') migrated++;
+        else skipped++;
+      } catch {
+        failed++;
+      }
+    }
+
+    res.json({ migrated, skipped, failed });
   } catch (err) {
     next(err);
   }
@@ -184,6 +218,44 @@ export const internalGetSession: RequestHandler = async (req, res, next) => {
 
     res.json({
       session,
+      contextEntries: Object.fromEntries(
+        contextRows.map((r) => [r.key, JSON.parse(r.valueJson)]),
+      ),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Engine load path (ALIGN-008). Unlike the plain GET, this receives the
+ * agent's current SessionConfig, asserts session↔agent↔tenant ownership
+ * (§14.7), and applies the schema migration chain before returning context.
+ */
+export const internalLoadSession: RequestHandler = async (req, res, next) => {
+  try {
+    const { sessionId } = req.params;
+    const { agentId, tenantId, sessionConfig } = req.body as {
+      agentId: string;
+      tenantId: string;
+      sessionConfig: SessionConfig;
+    };
+
+    const sessionRows = await db.select().from(sessions).where(eq(sessions.id, sessionId));
+    const session = sessionRows[0];
+    if (!session || session.agentId !== agentId || session.tenantId !== tenantId) {
+      throw Object.assign(new Error('Session not found'), { status: 404 });
+    }
+
+    if (session.status !== 'expired' && sessionConfig) {
+      await migrateSessionToCurrent(sessionId, session.schemaVersion, sessionConfig);
+    }
+
+    const freshRows = await db.select().from(sessions).where(eq(sessions.id, sessionId));
+    const contextRows = await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sessionId));
+
+    res.json({
+      session: freshRows[0],
       contextEntries: Object.fromEntries(
         contextRows.map((r) => [r.key, JSON.parse(r.valueJson)]),
       ),

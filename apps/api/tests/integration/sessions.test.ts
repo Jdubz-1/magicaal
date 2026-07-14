@@ -9,7 +9,10 @@ import { sessions, sessionContext, sessionRunLinks } from '@/db/schema';
 import { config } from '@/config';
 
 jest.mock('../../src/lib/engine-client', () => ({
-  engineClient: { post: jest.fn(), get: jest.fn() },
+  engineClient: {
+    post: jest.fn().mockResolvedValue({ data: {} }),
+    get: jest.fn().mockResolvedValue({ data: {} }),
+  },
 }));
 
 const app = createApp();
@@ -257,12 +260,57 @@ describe('POST /v1/agents/:id/sessions/:sid/reset', () => {
   });
 });
 
-describe('POST /v1/agents/:id/sessions/migrate', () => {
-  it('promotes stale_schema sessions back to active', async () => {
+// Session config declaring schema v2 with a v1→v2 rename (messages → history)
+const V2_SESSION_CONFIG = {
+  enabled: true,
+  ttlSeconds: 3600,
+  schemaVersion: 2,
+  contextSchema: { history: { type: 'append' } },
+  migrations: [{ fromVersion: 1, toVersion: 2, transform: { history: '$.messages' } }],
+};
+
+async function publishAgentWithSessionConfig(token: string, agentId: string): Promise<void> {
+  const graphJson = JSON.stringify({
+    version: '1.0',
+    name: 'Session Migration Agent',
+    entry: 'start',
+    nodes: {
+      start: { id: 'start', type: 'core:start', config: {} },
+      end: { id: 'end', type: 'core:end', config: {} },
+    },
+    edges: [{ id: 'e1', from: 'start', to: 'end', type: 'unconditional' }],
+    toolEdges: [],
+    workspaceEdges: [],
+    config: { trigger: { type: 'rest', mode: 'async' }, session: V2_SESSION_CONFIG },
+  });
+  const res = await request(app)
+    .post(`/v1/agents/${agentId}/publish`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({ graphJson });
+  if (res.status >= 300) throw new Error(`publish failed: ${res.status} ${JSON.stringify(res.body)}`);
+}
+
+async function seedContextRow(sid: string, key: string, value: unknown): Promise<void> {
+  await db.insert(sessionContext).values({
+    id: crypto.randomUUID(),
+    sessionId: sid,
+    key,
+    valueJson: JSON.stringify(value),
+    accumulatedCount: Array.isArray(value) ? value.length : 1,
+    accumulationType: 'append',
+    schemaVersion: 1,
+    updatedAt: new Date(),
+  });
+}
+
+describe('POST /v1/agents/:id/sessions/migrate (ALIGN-008)', () => {
+  it('applies the migration chain to behind-schema sessions', async () => {
     const { token, tenantId } = await createUserAndLogin(app, 'developer');
     const agentId = await createAgent(token, `sess-mig-${Date.now()}`);
-    const stale = await seedSession(agentId, tenantId, { status: 'stale_schema' });
-    const active = await seedSession(agentId, tenantId);
+    await publishAgentWithSessionConfig(token, agentId);
+
+    const v1Session = await seedSession(agentId, tenantId, { status: 'stale_schema' });
+    await seedContextRow(v1Session, 'messages', [{ role: 'user', content: 'hi' }]);
 
     const res = await request(app)
       .post(`/v1/agents/${agentId}/sessions/migrate`)
@@ -271,11 +319,21 @@ describe('POST /v1/agents/:id/sessions/migrate', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ migrated: 1, skipped: 0, failed: 0 });
 
-    const rows = await db.select().from(sessions).where(eq(sessions.id, stale));
+    const rows = await db.select().from(sessions).where(eq(sessions.id, v1Session));
     expect(rows[0].status).toBe('active');
-    // the already-active one is untouched
-    const other = await db.select().from(sessions).where(eq(sessions.id, active));
-    expect(other[0].status).toBe('active');
+    expect(rows[0].schemaVersion).toBe(2);
+    expect(await contextOf(v1Session, 'history')).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+
+  it('400s when the agent has no session configuration', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-mig-nocfg-${Date.now()}`);
+
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/sessions/migrate`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(400);
   });
 
   it("404s for an agent in another tenant", async () => {
@@ -483,6 +541,77 @@ describe('internal session endpoints (engine → API)', () => {
     const alive = await db.select().from(sessions).where(eq(sessions.id, future));
     expect(expired[0].status).toBe('expired');
     expect(alive[0].status).toBe('active');
+  });
+});
+
+describe('POST /internal/sessions/:sid/load (ALIGN-008)', () => {
+  it('migrates a behind-schema session on load and returns the new context', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-load-${Date.now()}`);
+    const sid = await seedSession(agentId, tenantId); // schemaVersion 1
+    await seedContextRow(sid, 'messages', [{ role: 'user', content: 'v1 message' }]);
+
+    const res = await request(app)
+      .post(`/internal/sessions/${sid}/load`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({ agentId, tenantId, sessionConfig: V2_SESSION_CONFIG });
+
+    expect(res.status).toBe(200);
+    expect(res.body.session.schemaVersion).toBe(2);
+    expect(res.body.session.status).toBe('active');
+    expect(res.body.contextEntries.history).toEqual([{ role: 'user', content: 'v1 message' }]);
+  });
+
+  it('marks the session stale_schema when no migration path exists', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-stale-${Date.now()}`);
+    const sid = await seedSession(agentId, tenantId); // schemaVersion 1
+    await seedContextRow(sid, 'messages', ['unchanged']);
+
+    const res = await request(app)
+      .post(`/internal/sessions/${sid}/load`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({
+        agentId,
+        tenantId,
+        sessionConfig: { ...V2_SESSION_CONFIG, schemaVersion: 3, migrations: [] },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.session.status).toBe('stale_schema');
+    expect(res.body.session.schemaVersion).toBe(1);
+    // context is returned as-is so the session keeps functioning (§14.5)
+    expect(res.body.contextEntries.messages).toEqual(['unchanged']);
+  });
+
+  it('404s when agent or tenant do not own the session (§14.7)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-own-${Date.now()}`);
+    const sid = await seedSession(agentId, tenantId);
+
+    const res = await request(app)
+      .post(`/internal/sessions/${sid}/load`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({ agentId: 'someone-elses-agent', tenantId, sessionConfig: V2_SESSION_CONFIG });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('does not re-migrate an up-to-date session', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-utd-${Date.now()}`);
+    const sid = await seedSession(agentId, tenantId);
+    await db.update(sessions).set({ schemaVersion: 2 }).where(eq(sessions.id, sid));
+    await seedContextRow(sid, 'history', ['already v2']);
+
+    const res = await request(app)
+      .post(`/internal/sessions/${sid}/load`)
+      .set('X-Internal-Auth', INTERNAL)
+      .send({ agentId, tenantId, sessionConfig: V2_SESSION_CONFIG });
+
+    expect(res.status).toBe(200);
+    expect(res.body.session.schemaVersion).toBe(2);
+    expect(res.body.contextEntries.history).toEqual(['already v2']);
   });
 });
 
