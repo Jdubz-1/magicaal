@@ -25,6 +25,7 @@ import {
   oauthCallback,
 } from '../controllers/integrations.controller';
 import { requireInternalAuth, authenticateRunCaller } from '../middleware/auth';
+import { internalRecordUsage } from '../controllers/marketplace-usage.controller';
 
 export const router: RouterType = Router();
 
@@ -69,6 +70,8 @@ router.post(
   requireInternalAuth,
   internalUpdateCredentials,
 );
+// Internal engine→API per-package usage flush (ALIGN-019)
+router.post('/internal/marketplace/usage', requireInternalAuth, internalRecordUsage);
 // Public integration trigger receiver — no auth middleware; authenticity is
 // established by the service's webhook signature, verified in the engine
 router.post('/v1/triggers/integrations/:service/:tenantSlug', receiveIntegrationEvent);

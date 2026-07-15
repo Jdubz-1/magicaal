@@ -9,6 +9,7 @@ import { runAgentLoop, registerExecuteNodeOnce } from './tool-executor';
 import type { NodeOutput } from '@magicaal/sdk-node';
 import { resolveEdges } from './graph-utils';
 import { checkAbort, abortError } from './run-control';
+import { recordPackageNodeExecution } from './usage-tally';
 
 export { resolveEdges };
 
@@ -71,6 +72,10 @@ async function executeNodeOnce(
       ),
       { status: 403, code: 'PACKAGE_NOT_ENTITLED', retryable: false },
     );
+  }
+  // §8.2 (ALIGN-019): meter package-node executions for usage-licensed assets
+  if (packageId) {
+    recordPackageNodeExecution(runId, packageId);
   }
 
   const stepId = await lifecycle.writeStepStart(runId, nodeDef.id, nodeDef.type, ctx);

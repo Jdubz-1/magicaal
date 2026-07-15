@@ -20,6 +20,8 @@ import {
 } from './run-control';
 import { config } from '../config';
 import { loadTenantLimits } from '../auth/tenant-limits';
+import { drainRunTally } from './usage-tally';
+import { reportPackageUsage } from '../marketplace/usage-flush';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
 interface RunJobData {
@@ -49,6 +51,7 @@ export function startScheduler(): void {
       if (await checkAbort(runId)) {
         await clearAbort(runId);
         if (sessionId) await releaseSessionLock(sessionId, runId).catch(() => {});
+        drainRunTally(runId); // nothing executed — discard any stale tally
         return;
       }
 
@@ -232,6 +235,10 @@ export function startScheduler(): void {
         if (sessionId && !holdSessionLock) {
           await releaseSessionLock(sessionId, runId).catch(() => {});
         }
+        // Flush per-package usage counts (ALIGN-019) — every outcome,
+        // fire-and-forget so metering never affects the run.
+        const usageCounts = drainRunTally(runId);
+        if (usageCounts) void reportPackageUsage(tenantId, usageCounts);
       }
     },
     { connection: redis, concurrency: config.workerConcurrency },
