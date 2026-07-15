@@ -868,6 +868,9 @@ adminRouter.get('/integrations', async (req, res, next) => {
         <td><span style="color:${statusColor(c.status)}">${escHtml(c.status)}</span></td>
         <td style="color:#94a3b8;font-size:0.75rem">${c.createdAt ? new Date(c.createdAt).toLocaleString() : '—'}</td>
         <td>
+          ${c.authType === 'oauth2' ? `<form method="POST" action="/admin/integrations/${escHtml(c.id)}/reconnect" style="display:inline;margin-right:0.5rem">
+            <button class="btn btn-ghost" style="font-size:0.75rem">Reconnect</button>
+          </form>` : ''}
           <form method="POST" action="/admin/integrations/${escHtml(c.id)}/delete" style="display:inline">
             <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
           </form>
@@ -1007,6 +1010,30 @@ adminRouter.post('/integrations/:id/delete', async (req, res, next) => {
     const api = createApiClient(req.accessToken);
     await api.delete(`/v1/integrations/connections/${req.params.id}`);
     res.redirect('/admin/integrations');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * OAuth reconnect (ALIGN-016). The API's initiate step binds the flow to the
+ * user's browser with a nonce cookie set on its own response — so this
+ * handler relays that Set-Cookie header to the browser before redirecting to
+ * the provider. This works under the deployment assumption the OAuth
+ * callback already makes: web and API are served behind one PUBLIC_BASE_URL
+ * origin, so a cookie set here is presented to the API's callback route.
+ */
+adminRouter.post('/integrations/:id/reconnect', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const response = await api.post<{ authorizationUrl: string }>(
+      `/v1/integrations/connections/${req.params.id}/reconnect`,
+      { redirectUri: '/admin/integrations' },
+    );
+
+    const setCookie = response.headers['set-cookie'];
+    if (setCookie) res.setHeader('Set-Cookie', setCookie);
+    res.redirect(response.data.authorizationUrl);
   } catch (err) {
     next(err);
   }

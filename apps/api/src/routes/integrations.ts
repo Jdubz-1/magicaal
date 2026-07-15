@@ -7,6 +7,7 @@ import {
   updateConnection,
   deleteConnection,
   initiateOAuth,
+  reconnectConnection,
 } from '../controllers/integrations.controller';
 import {
   listOAuthApps,
@@ -38,6 +39,8 @@ integrationsRouter.get('/connections/:id', getConnection);
 integrationsRouter.post('/connections', requireMinRole('tenant_admin'), createConnection);
 integrationsRouter.patch('/connections/:id', requireMinRole('tenant_admin'), updateConnection);
 integrationsRouter.delete('/connections/:id', requireMinRole('tenant_admin'), deleteConnection);
+// OAuth reconnect for an existing connection (ALIGN-016)
+integrationsRouter.post('/connections/:id/reconnect', requireMinRole('tenant_admin'), reconnectConnection);
 
 // OAuth client applications (per tenant + service)
 integrationsRouter.get('/oauth-apps', requireMinRole('tenant_admin'), listOAuthApps);

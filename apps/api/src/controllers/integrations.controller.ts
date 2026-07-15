@@ -277,6 +277,72 @@ async function serviceOAuthConfig(service: string): Promise<IntegrationOAuthConf
 }
 
 /**
+ * Shared authorization-code flow starter: mints the state (+ PKCE verifier),
+ * binds it to the caller's browser via the nonce cookie, and returns the
+ * provider authorization URL. `connectionId` marks a reconnect flow — the
+ * callback then updates that connection in place (ALIGN-016).
+ */
+async function beginOAuthFlow(
+  res: Parameters<RequestHandler>[1],
+  opts: { tenantId: string; service: string; redirectUri: string; connectionId?: string },
+): Promise<void> {
+  const { tenantId, service, connectionId } = opts;
+  const safeRedirect = assertSafeRedirect(opts.redirectUri);
+
+  const app = await loadOAuthApp(tenantId, service);
+  if (!app) {
+    throw Object.assign(
+      new Error(`No OAuth app configured for "${service}" — add one in Admin → Integrations`),
+      { status: 400, code: 'OAUTH_APP_NOT_CONFIGURED' },
+    );
+  }
+
+  const oauth = await serviceOAuthConfig(service);
+
+  const stateToken = crypto.randomBytes(32).toString('hex');
+  // PKCE (RFC 7636) — providers that ignore it are unaffected
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+  const nonce = crypto.randomBytes(32).toString('hex');
+
+  const now = new Date();
+  await db.insert(integrationOauthStates).values({
+    id: crypto.randomUUID(),
+    tenantId,
+    service,
+    stateToken,
+    redirectUri: safeRedirect,
+    codeVerifier,
+    nonceHash: sha256hex(nonce),
+    connectionId: connectionId ?? null,
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + OAUTH_STATE_TTL_MS),
+  });
+
+  // Bound to the initiating browser: the callback rejects a request that
+  // cannot present this nonce, so a victim cannot be walked through a flow
+  // whose state was minted by someone else.
+  res.cookie(OAUTH_NONCE_COOKIE, nonce, {
+    httpOnly: true,
+    secure: config.nodeEnv === 'production',
+    sameSite: 'lax',
+    maxAge: OAUTH_STATE_TTL_MS,
+    path: '/v1/integrations/oauth',
+  });
+
+  const authUrl = new URL(oauth.authorizationUrl);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', app.clientId);
+  authUrl.searchParams.set('redirect_uri', callbackUrl(service));
+  authUrl.searchParams.set('scope', (app.scopes ?? oauth.scopes).join(' '));
+  authUrl.searchParams.set('state', stateToken);
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+
+  res.json({ authorizationUrl: authUrl.toString(), stateToken });
+}
+
+/**
  * POST /v1/integrations/oauth/initiate — start the authorization-code flow.
  * Returns the provider authorization URL for the browser to visit, and binds
  * the flow to this browser with a nonce cookie.
@@ -290,58 +356,45 @@ export const initiateOAuth: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('service and redirectUri are required'), { status: 400 });
     }
 
-    const safeRedirect = assertSafeRedirect(redirectUri);
+    await beginOAuthFlow(res, { tenantId, service, redirectUri });
+  } catch (err) {
+    next(err);
+  }
+};
 
-    const app = await loadOAuthApp(tenantId, service);
-    if (!app) {
+/**
+ * POST /v1/integrations/connections/:id/reconnect (§6.4 / ALIGN-016) —
+ * restart the OAuth flow for an existing connection. The callback replaces
+ * its credentials in place, preserving the connection id every node config
+ * references (delete + re-create would silently break them all).
+ */
+export const reconnectConnection: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const { id } = req.params;
+    const { redirectUri = '/admin/integrations' } = req.body as { redirectUri?: string };
+
+    const rows = await db
+      .select()
+      .from(integrationConnections)
+      .where(and(eq(integrationConnections.id, id), eq(integrationConnections.tenantId, tenantId)));
+    const connection = rows[0];
+    if (!connection) {
+      throw Object.assign(new Error('Connection not found'), { status: 404 });
+    }
+    if (connection.authType !== 'oauth2') {
       throw Object.assign(
-        new Error(`No OAuth app configured for "${service}" — add one in Admin → Integrations`),
-        { status: 400, code: 'OAUTH_APP_NOT_CONFIGURED' },
+        new Error('Only OAuth connections can be reconnected — update api_key credentials directly'),
+        { status: 400, code: 'NOT_OAUTH_CONNECTION' },
       );
     }
 
-    const oauth = await serviceOAuthConfig(service);
-
-    const stateToken = crypto.randomBytes(32).toString('hex');
-    // PKCE (RFC 7636) — providers that ignore it are unaffected
-    const codeVerifier = crypto.randomBytes(32).toString('base64url');
-    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-    const nonce = crypto.randomBytes(32).toString('hex');
-
-    const now = new Date();
-    await db.insert(integrationOauthStates).values({
-      id: crypto.randomUUID(),
+    await beginOAuthFlow(res, {
       tenantId,
-      service,
-      stateToken,
-      redirectUri: safeRedirect,
-      codeVerifier,
-      nonceHash: sha256hex(nonce),
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + OAUTH_STATE_TTL_MS),
+      service: connection.service,
+      redirectUri,
+      connectionId: connection.id,
     });
-
-    // Bound to the initiating browser: the callback rejects a request that
-    // cannot present this nonce, so a victim cannot be walked through a flow
-    // whose state was minted by someone else.
-    res.cookie(OAUTH_NONCE_COOKIE, nonce, {
-      httpOnly: true,
-      secure: config.nodeEnv === 'production',
-      sameSite: 'lax',
-      maxAge: OAUTH_STATE_TTL_MS,
-      path: '/v1/integrations/oauth',
-    });
-
-    const authUrl = new URL(oauth.authorizationUrl);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('client_id', app.clientId);
-    authUrl.searchParams.set('redirect_uri', callbackUrl(service));
-    authUrl.searchParams.set('scope', (app.scopes ?? oauth.scopes).join(' '));
-    authUrl.searchParams.set('state', stateToken);
-    authUrl.searchParams.set('code_challenge', codeChallenge);
-    authUrl.searchParams.set('code_challenge_method', 'S256');
-
-    res.json({ authorizationUrl: authUrl.toString(), stateToken });
   } catch (err) {
     next(err);
   }
@@ -438,6 +491,38 @@ export const oauthCallback: RequestHandler = async (req, res, next) => {
         client_secret: app.clientSecret,
       }),
     );
+
+    // Reconnect flow (ALIGN-016): replace the existing connection's
+    // credentials in place — a new row would change the connection id and
+    // silently break every node config referencing it.
+    if (stateRecord.connectionId) {
+      const [updated] = await db
+        .update(integrationConnections)
+        .set({
+          credentialsEnc,
+          status: 'active',
+          expiresAt: token.expiresAt ? new Date(token.expiresAt) : null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(integrationConnections.id, stateRecord.connectionId),
+            eq(integrationConnections.tenantId, stateRecord.tenantId),
+            eq(integrationConnections.service, service),
+          ),
+        )
+        .returning({ id: integrationConnections.id });
+
+      if (!updated) {
+        // Connection was deleted mid-flow — surface it rather than silently creating a new one
+        redirect.searchParams.set('error', 'connection_no_longer_exists');
+        return res.redirect(redirect.toString());
+      }
+
+      redirect.searchParams.set('reconnected', 'true');
+      redirect.searchParams.set('connectionId', updated.id);
+      return res.redirect(redirect.toString());
+    }
 
     const [created] = await db
       .insert(integrationConnections)

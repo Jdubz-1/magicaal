@@ -77,6 +77,12 @@ export const integrationOauthStates = sqliteTable('integration_oauth_states', {
    * be redeemed by a browser other than the one that started the flow.
    */
   nonceHash: text('nonce_hash'),
+  /**
+   * Set when the flow reconnects an existing connection (ALIGN-016): the
+   * callback updates this row's credentials in place instead of inserting a
+   * new connection (which would change the id and break node configs).
+   */
+  connectionId: text('connection_id'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
 });

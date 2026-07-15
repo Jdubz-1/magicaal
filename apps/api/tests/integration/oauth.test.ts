@@ -191,6 +191,124 @@ describe('GET /v1/integrations/oauth/:service/callback', () => {
     expect(creds.client_secret).toBe('shhh');
   });
 
+  describe('reconnect flow (ALIGN-016)', () => {
+    async function seedOAuthConnection(
+      tenantId: string,
+      status: 'active' | 'expired' | 'error' = 'expired',
+    ): Promise<string> {
+      const id = `conn-${Math.random().toString(36).slice(2)}`;
+      const now = new Date();
+      await db.insert(integrationConnections).values({
+        id,
+        tenantId,
+        service: 'slack',
+        displayName: 'My Slack',
+        authType: 'oauth2',
+        credentialsEnc: 'old-creds',
+        status,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return id;
+    }
+
+    async function startReconnect(
+      token: string,
+      connectionId: string,
+    ): Promise<{ state: string; cookie: string; res: request.Response }> {
+      const res = await request(app)
+        .post(`/v1/integrations/connections/${connectionId}/reconnect`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ redirectUri: 'http://localhost:3000/admin/integrations' });
+
+      const cookies = (res.headers['set-cookie'] as unknown as string[]) ?? [];
+      const nonceCookie = cookies.find((c) => c.startsWith('magicaal_oauth_nonce='))?.split(';')[0] ?? '';
+      return { state: res.body.stateToken as string, cookie: nonceCookie, res };
+    }
+
+    it('binds the flow to the connection and updates it in place at callback', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
+      await addOAuthApp(token);
+      const connectionId = await seedOAuthConnection(tenantId, 'expired');
+
+      const { state, cookie, res: initiated } = await startReconnect(token, connectionId);
+      expect(initiated.status).toBe(200);
+      expect(initiated.body.authorizationUrl).toContain('https://slack.com/oauth/v2/authorize');
+
+      const stateRows = await db
+        .select()
+        .from(integrationOauthStates)
+        .where(eq(integrationOauthStates.stateToken, state));
+      expect(stateRows[0].connectionId).toBe(connectionId);
+
+      global.fetch = jest.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ access_token: 'fresh-token', refresh_token: 'fresh-refresh', expires_in: 3600 }),
+          { status: 200 },
+        ),
+      ) as unknown as typeof fetch;
+
+      const cb = await request(app)
+        .get('/v1/integrations/oauth/slack/callback')
+        .query({ code: 'auth-code-r', state })
+        .set('Cookie', cookie);
+
+      expect(cb.status).toBe(302);
+      expect(cb.headers.location).toContain('reconnected=true');
+      expect(cb.headers.location).toContain(`connectionId=${connectionId}`);
+
+      // Updated in place — same row count, same id, fresh credentials, active
+      const rows = await db
+        .select()
+        .from(integrationConnections)
+        .where(eq(integrationConnections.tenantId, tenantId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(connectionId);
+      expect(rows[0].status).toBe('active');
+      expect(rows[0].displayName).toBe('My Slack');
+      const creds = JSON.parse(decryptCredentials(rows[0].credentialsEnc)) as Record<string, string>;
+      expect(creds.access_token).toBe('fresh-token');
+    });
+
+    it("404s another tenant's connection", async () => {
+      const alice = await createUserAndLogin(app, 'tenant_admin');
+      const bob = await createUserAndLogin(app, 'tenant_admin');
+      const connectionId = await seedOAuthConnection(alice.tenantId);
+
+      const res = await request(app)
+        .post(`/v1/integrations/connections/${connectionId}/reconnect`)
+        .set('Authorization', `Bearer ${bob.token}`)
+        .send({});
+
+      expect(res.status).toBe(404);
+    });
+
+    it('400s an api_key connection', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
+      const now = new Date();
+      const id = `conn-apikey-${Date.now()}`;
+      await db.insert(integrationConnections).values({
+        id,
+        tenantId,
+        service: 'openai',
+        displayName: 'Key Conn',
+        authType: 'api_key',
+        credentialsEnc: 'enc',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const res = await request(app)
+        .post(`/v1/integrations/connections/${id}/reconnect`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('NOT_OAUTH_CONNECTION');
+    });
+  });
+
   it('rejects a callback from a different browser (ISS-052 nonce binding)', async () => {
     const { token } = await createUserAndLogin(app, 'tenant_admin');
     await addOAuthApp(token);
