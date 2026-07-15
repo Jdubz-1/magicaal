@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
-import { eq, and, desc, lte, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, lte, inArray } from 'drizzle-orm';
 import type { SessionConfig, ContextSchemaEntry, ModelRouterConfig } from '@magicaal/core';
 import { db } from '../db/client';
 import { sessions, sessionContext, sessionRunLinks, agents, promptVersions } from '../db/schema';
@@ -214,16 +214,19 @@ export const resetSession: RequestHandler = async (req, res, next) => {
 export const migrateAgentSessions: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
-    const { id: agentId } = req.params;
+    const { id: agentRef } = req.params;
 
+    // The CLI's documented interface is --agent <handle> (ALIGN-013); accept
+    // either the id or the handle, tenant-scoped.
     const agentRows = await db
       .select({ id: agents.id })
       .from(agents)
-      .where(and(eq(agents.id, agentId), eq(agents.tenantId, tenantId)));
+      .where(and(eq(agents.tenantId, tenantId), or(eq(agents.id, agentRef), eq(agents.handle, agentRef))));
 
     if (!agentRows[0]) {
       throw Object.assign(new Error('Agent not found'), { status: 404 });
     }
+    const agentId = agentRows[0].id;
 
     const sessionConfig = await loadAgentSessionConfig(agentId);
     if (!sessionConfig?.enabled) {

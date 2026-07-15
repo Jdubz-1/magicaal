@@ -62,10 +62,11 @@ const sessionsCmd = program.command('sessions').description('Manage persistent a
 sessionsCmd
   .command('migrate')
   .description('Trigger schema migration for sessions with stale schema versions')
-  .option('-a, --agent <handle>', 'Migrate only sessions for the given agent handle')
+  .option('-a, --agent <handle>', 'Migrate only sessions for the given agent handle or id')
   .option('--api-url <url>', 'MagiCaal API base URL', 'http://localhost:3000')
-  .action(async (opts: { agent?: string; apiUrl: string }) => {
-    await sessionsCommand('migrate', opts.agent, opts.apiUrl);
+  .option('--token <token>', 'API token (defaults to MAGICAAL_API_TOKEN)')
+  .action(async (opts: { agent?: string; apiUrl: string; token?: string }) => {
+    await sessionsCommand('migrate', opts.agent, opts.apiUrl, opts.token);
   });
 
 program.parse(process.argv);

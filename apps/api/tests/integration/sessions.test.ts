@@ -352,6 +352,36 @@ describe('POST /v1/agents/:id/sessions/migrate (ALIGN-008)', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('resolves the agent by handle — the CLI interface (ALIGN-013)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const handle = `sess-mig-handle-${Date.now()}`;
+    const agentId = await createAgent(token, handle);
+    await publishAgentWithSessionConfig(token, agentId);
+
+    const v1Session = await seedSession(agentId, tenantId, { status: 'stale_schema' });
+    await seedContextRow(v1Session, 'messages', [{ role: 'user', content: 'hi' }]);
+
+    const res = await request(app)
+      .post(`/v1/agents/${handle}/sessions/migrate`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ migrated: 1, skipped: 0, failed: 0 });
+  });
+
+  it("404s another tenant's handle", async () => {
+    const alice = await createUserAndLogin(app, 'developer');
+    const bob = await createUserAndLogin(app, 'developer');
+    const handle = `sess-migxth-${Date.now()}`;
+    await createAgent(alice.token, handle);
+
+    const res = await request(app)
+      .post(`/v1/agents/${handle}/sessions/migrate`)
+      .set('Authorization', `Bearer ${bob.token}`);
+
+    expect(res.status).toBe(404);
+  });
 });
 
 describe('internal session endpoints (engine → API)', () => {
