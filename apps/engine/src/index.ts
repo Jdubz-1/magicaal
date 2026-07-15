@@ -7,6 +7,7 @@ import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
 import { sessionManager } from './session/session-manager';
 import { startHotLoadSubscriber, reloadInstalledPackages } from './marketplace/hot-load';
+import { sweepTelemetry } from './db/telemetry-retention';
 import { redis } from './queue/client';
 
 const SESSION_EXPIRY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -31,6 +32,14 @@ async function main(): Promise<void> {
   setInterval(() => {
     void sessionManager.expireSessions();
   }, SESSION_EXPIRY_INTERVAL_MS);
+
+  // Hourly telemetry retention sweep (ALIGN-032) — disabled when
+  // TELEMETRY_RETENTION_DAYS <= 0
+  if (config.telemetryRetentionDays > 0) {
+    setInterval(() => {
+      void sweepTelemetry().catch((err) => logger.warn({ err }, 'Telemetry retention sweep failed'));
+    }, SESSION_EXPIRY_INTERVAL_MS).unref();
+  }
 
   const app = createApp();
   app.listen(config.port, () => {

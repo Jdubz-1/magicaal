@@ -24,6 +24,9 @@ export const config = Object.freeze({
   maxConcurrentRunsPerTenant: parseInt(process.env.MAX_CONCURRENT_RUNS_PER_TENANT ?? '10', 10),
   // BullMQ process-level worker concurrency for the runs.trigger queue.
   workerConcurrency: parseInt(process.env.WORKER_CONCURRENCY ?? '10', 10),
+  // Telemetry rows (full run/step payloads, §9.2) older than this are swept
+  // hourly. <= 0 disables retention entirely.
+  telemetryRetentionDays: parseInt(process.env.TELEMETRY_RETENTION_DAYS ?? '90', 10),
   // Installing a package runs its code (require) in the engine process. Only
   // MagiCaal-countersigned ('verified') packages install by default. Unverified
   // (self-signed community) packages must be sandboxed before they can run —
