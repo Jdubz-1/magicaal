@@ -11,7 +11,14 @@ export function createApp(): Application {
 
   app.use(helmet());
   app.use(cors());
-  app.use(express.json());
+  app.use(
+    express.json({
+      // /internal/packages/install receives base64-encoded .mpack bundles —
+      // must match (or exceed) the API's own upload limit (apps/api/src/app.ts),
+      // since it forwards the same body here verbatim.
+      limit: '25mb',
+    }),
+  );
   app.use(requestLogger);
 
   app.use(router);
