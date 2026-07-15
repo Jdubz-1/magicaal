@@ -72,7 +72,9 @@ export async function resumeRun(
     .set({ status: 'pending' })
     .where(eq(telemetryRuns.id, runId));
 
-  // Re-enqueue with restored checkpoint
+  // Re-enqueue with restored checkpoint. sessionId comes from the telemetry
+  // row (ALIGN-010) — without it the resumed run would lose its session and
+  // never release the session lock.
   await runTriggerQueue.add('run-resume', {
     runId,
     agentId: run.agentId,
@@ -80,6 +82,7 @@ export async function resumeRun(
     triggerType: run.triggerType,
     input: checkpointData,
     resumeFromNodeId: run.suspendedNodeId ?? undefined,
+    sessionId: run.sessionId ?? undefined,
   });
 
   logger.info({ runId, suspendedNodeId: run.suspendedNodeId }, 'Run queued for resume');

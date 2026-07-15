@@ -140,6 +140,69 @@ describe('/internal/runs', () => {
     });
   });
 
+  describe('POST /internal/runs — session conflict (ALIGN-010)', () => {
+    const caller = { kind: 'platform', strategy: 'platform' };
+
+    function dispatch(agentId: string, sessionId: string, triggerType = 'api') {
+      return request(app)
+        .post('/internal/runs')
+        .set(internalAuthHeader())
+        .send({ agentId, tenantId: 'tenant-a', triggerType, input: {}, caller, sessionId });
+    }
+
+    it('409s a second top-level dispatch while the first run is active', async () => {
+      const agentId = seedAgent(db, { tenantId: 'tenant-a' });
+      const sessionId = `tenant-a:${agentId}:conflict-1`;
+
+      const first = await dispatch(agentId, sessionId);
+      expect(first.status).toBe(202);
+
+      const second = await dispatch(agentId, sessionId);
+      expect(second.status).toBe(409);
+      expect(second.body.code).toBe('SESSION_CONFLICT');
+      expect(queueMocks.runTriggerQueue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('child runs (sub-graph/handoff) share the session without contending', async () => {
+      const agentId = seedAgent(db, { tenantId: 'tenant-a' });
+      const sessionId = `tenant-a:${agentId}:parent-child`;
+
+      expect((await dispatch(agentId, sessionId)).status).toBe(202);
+      expect((await dispatch(agentId, sessionId, 'sub-graph')).status).toBe(202);
+      expect((await dispatch(agentId, sessionId, 'handoff')).status).toBe(202);
+    });
+
+    it('steals a stale lock when the holding run is terminal', async () => {
+      const agentId = seedAgent(db, { tenantId: 'tenant-a' });
+      const sessionId = `tenant-a:${agentId}:stale`;
+
+      const first = await dispatch(agentId, sessionId);
+      expect(first.status).toBe(202);
+
+      // The holder finished but crashed before releasing (e.g. suspended run
+      // cancelled with no worker) — its telemetry status is terminal.
+      await telemetryDb
+        .update(telemetryRuns)
+        .set({ status: 'completed' })
+        .where(eq(telemetryRuns.id, first.body.runId as string));
+
+      const second = await dispatch(agentId, sessionId);
+      expect(second.status).toBe(202);
+    });
+
+    it('persists the sessionId on the telemetry run row', async () => {
+      const agentId = seedAgent(db, { tenantId: 'tenant-a' });
+      const sessionId = `tenant-a:${agentId}:persisted`;
+
+      const res = await dispatch(agentId, sessionId);
+      const [row] = await telemetryDb
+        .select()
+        .from(telemetryRuns)
+        .where(eq(telemetryRuns.id, res.body.runId as string));
+      expect(row.sessionId).toBe(sessionId);
+    });
+  });
+
   describe('GET /internal/runs/:id', () => {
     it('returns the run in the shape apps/api/src/controllers/runs.controller.ts expects', async () => {
       const runId = await seedRun({ status: 'completed', outputJson: JSON.stringify({ ok: true }) });
@@ -190,6 +253,23 @@ describe('/internal/runs', () => {
       expect(queueMocks.runTriggerQueue.add).toHaveBeenCalledTimes(1);
       const [, job] = queueMocks.runTriggerQueue.add.mock.calls[0];
       expect(job).toMatchObject({ runId, resumeFromNodeId: 'human-review-1' });
+    });
+
+    it('approve threads the sessionId back into the resumed job (ALIGN-010)', async () => {
+      const runId = await seedRun({
+        status: 'suspended',
+        suspendedNodeId: 'review-1',
+        sessionId: 'tenant-a:agent-a:sess-resume',
+      });
+
+      const res = await request(app)
+        .post(`/internal/runs/${runId}/review`)
+        .set(internalAuthHeader())
+        .send({ action: 'approve' });
+
+      expect(res.status).toBe(200);
+      const [, job] = queueMocks.runTriggerQueue.add.mock.calls[0];
+      expect(job).toMatchObject({ runId, sessionId: 'tenant-a:agent-a:sess-resume' });
     });
 
     it('reject fails the run immediately without re-enqueuing', async () => {

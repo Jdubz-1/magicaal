@@ -16,6 +16,7 @@ import {
   acquireRunSlot,
   releaseRunSlot,
   admissionDecision,
+  releaseSessionLock,
 } from './run-control';
 import { config } from '../config';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
@@ -44,6 +45,7 @@ export function startScheduler(): void {
       // run; consume the flag and never start executing.
       if (await checkAbort(runId)) {
         await clearAbort(runId);
+        if (sessionId) await releaseSessionLock(sessionId, runId).catch(() => {});
         return;
       }
 
@@ -78,8 +80,10 @@ export function startScheduler(): void {
             { code: 'QUEUE_TIMEOUT', message: 'Run exceeded its concurrency queue timeout', retryable: false },
             ctx,
           );
+          if (sessionId) await releaseSessionLock(sessionId, runId).catch(() => {});
           return;
         }
+        // Deferred jobs stay logically queued — the session lock is kept.
         await runTriggerQueue.add(
           'run-defer',
           { ...job.data, enqueuedAt },
@@ -98,6 +102,12 @@ export function startScheduler(): void {
           ? graph.config.timeout
           : config.defaultRunTimeoutMs;
       const disarmDeadline = startRunDeadline(runId, timeoutMs);
+
+      // ALIGN-010: the session lock (acquired at dispatch) is released when
+      // the run terminates here. Suspension and retry re-enqueues keep it —
+      // the run is still logically active on the session, and a concurrent
+      // dispatch during either window must still 409.
+      let holdSessionLock = false;
 
       try {
         // Resolve integration credentials inside the error-handled block
@@ -135,6 +145,7 @@ export function startScheduler(): void {
         }
 
         if (ctx.isSuspended) {
+          holdSessionLock = true;
           await lifecycle.markRunSuspended(runId, ctx.suspendReviewId ?? '', ctx, ctx.suspendedNodeId);
         } else {
           await lifecycle.markRunComplete(runId, ctx.data, ctx);
@@ -154,6 +165,7 @@ export function startScheduler(): void {
           nodeAttempts,
         );
         if (plan) {
+          holdSessionLock = true;
           await lifecycle.markRunRetrying(runId, plan.failedNodeId, plan.attemptsMade + 1, plan.delayMs);
           await runRetryQueue.add(
             'run-retry',
@@ -205,6 +217,11 @@ export function startScheduler(): void {
         disarmDeadline();
         await releaseRunSlot(tenantId, agentId).catch(() => {});
         await clearAbort(runId).catch(() => {});
+        // Child runs never hold the lock — release is value-checked, so this
+        // is a no-op for them.
+        if (sessionId && !holdSessionLock) {
+          await releaseSessionLock(sessionId, runId).catch(() => {});
+        }
       }
     },
     { connection: redis, concurrency: config.workerConcurrency },

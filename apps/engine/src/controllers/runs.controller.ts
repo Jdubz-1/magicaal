@@ -8,7 +8,41 @@ import { graphLoader, assertAgentInTenant } from '../graph/graph-loader';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
 import { lifecycle } from '../execution/lifecycle';
-import { requestAbort } from '../execution/run-control';
+import {
+  requestAbort,
+  acquireSessionLock,
+  stealSessionLock,
+  releaseSessionLock,
+} from '../execution/run-control';
+
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+/**
+ * §14.3 (ALIGN-010): a session accepts one concurrent top-level run. Child
+ * runs (sub-graph/handoff) share the parent's session by design and never
+ * contend for the lock. If the recorded holder is terminal (or unknown), the
+ * lock is stale — e.g. a suspended run cancelled with no worker to release —
+ * and this dispatch takes it over.
+ */
+async function assertSessionAvailable(sessionId: string, runId: string): Promise<void> {
+  const lock = await acquireSessionLock(sessionId, runId);
+  if (lock.acquired) return;
+
+  const rows = await telemetryDb
+    .select({ status: telemetryRuns.status })
+    .from(telemetryRuns)
+    .where(eq(telemetryRuns.id, lock.holderRunId));
+  const holderStatus = rows[0]?.status;
+  if (!holderStatus || TERMINAL_RUN_STATUSES.has(holderStatus)) {
+    await stealSessionLock(sessionId, runId);
+    return;
+  }
+
+  throw Object.assign(
+    new Error(`Session is in use by an active run (${lock.holderRunId})`),
+    { status: 409, code: 'SESSION_CONFLICT', holderRunId: lock.holderRunId },
+  );
+}
 
 function newRunId(): string {
   return `run_${crypto.randomUUID()}`;
@@ -63,20 +97,32 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
     const runId = newRunId();
     const now = new Date();
 
-    await telemetryDb.insert(telemetryRuns).values({
-      id: runId,
-      tenantId,
-      agentId,
-      triggerType,
-      status: 'pending',
-      startedAt: now,
-      inputJson: JSON.stringify(input),
-      totalPromptTokens: 0,
-      totalCompletionTokens: 0,
-      estimatedCostUsd: 0,
-    });
+    const isChildRun = triggerType === 'sub-graph' || triggerType === 'handoff';
+    if (sessionId && !isChildRun) {
+      await assertSessionAvailable(sessionId, runId);
+    }
 
-    await runTriggerQueue.add('run', { runId, agentId, tenantId, triggerType, input, sessionId });
+    try {
+      await telemetryDb.insert(telemetryRuns).values({
+        id: runId,
+        tenantId,
+        agentId,
+        triggerType,
+        status: 'pending',
+        startedAt: now,
+        inputJson: JSON.stringify(input),
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
+        estimatedCostUsd: 0,
+        sessionId,
+      });
+
+      await runTriggerQueue.add('run', { runId, agentId, tenantId, triggerType, input, sessionId });
+    } catch (err) {
+      // The run never made it into the queue — don't leave the session locked.
+      if (sessionId && !isChildRun) await releaseSessionLock(sessionId, runId).catch(() => {});
+      throw err;
+    }
 
     res.status(202).json({ runId, ...(sessionId && { sessionId }) });
   } catch (err) {
@@ -275,6 +321,9 @@ export const webhookDispatch: RequestHandler = async (req, res, next) => {
 
     assertAgentInTenant(agentId, tenantId);
 
+    // Webhook runs are sessionless (per-agent HMAC URLs carry no session_id),
+    // so the ALIGN-010 session lock does not apply here. If webhook session
+    // support is ever added, dispatch must go through assertSessionAvailable.
     await telemetryDb.insert(telemetryRuns).values({
       id: runId,
       tenantId,

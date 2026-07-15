@@ -48,14 +48,33 @@ jest.mock('@/config', () => {
  * leave open handles. Every route the queue backs (dispatch, schedule,
  * cancel, install) asserts against these fakes instead of a live broker.
  */
+/**
+ * Map-backed so key semantics (SET NX, GET after SET) behave like ioredis —
+ * the ALIGN-010 session lock depends on them. Still jest.fn()s so route tests
+ * can assert on calls.
+ */
+export const redisStore = new Map<string, string>();
+
 export const queueMocks = {
   redis: {
-    incr: jest.fn().mockResolvedValue(1),
+    incr: jest.fn(async (key: string) => {
+      const next = Number(redisStore.get(key) ?? '0') + 1;
+      redisStore.set(key, String(next));
+      return next;
+    }),
     expire: jest.fn().mockResolvedValue(1),
-    decr: jest.fn().mockResolvedValue(0),
-    set: jest.fn().mockResolvedValue('OK'),
-    get: jest.fn().mockResolvedValue(null),
-    del: jest.fn().mockResolvedValue(1),
+    decr: jest.fn(async (key: string) => {
+      const next = Number(redisStore.get(key) ?? '0') - 1;
+      redisStore.set(key, String(next));
+      return next;
+    }),
+    set: jest.fn(async (key: string, value: string, ...args: unknown[]) => {
+      if (args.includes('NX') && redisStore.has(key)) return null;
+      redisStore.set(key, value);
+      return 'OK';
+    }),
+    get: jest.fn(async (key: string) => redisStore.get(key) ?? null),
+    del: jest.fn(async (key: string) => (redisStore.delete(key) ? 1 : 0)),
     publish: jest.fn().mockResolvedValue(1),
   },
   runTriggerQueue: { add: jest.fn().mockResolvedValue(undefined) },
@@ -99,6 +118,7 @@ export function internalAuthHeader(): Record<string, string> {
 }
 
 export function resetQueueMocks(): void {
+  redisStore.clear();
   Object.values(queueMocks.redis).forEach((fn) => (fn as jest.Mock).mockClear());
   queueMocks.runTriggerQueue.add.mockClear();
   queueMocks.runScheduledQueue.add.mockClear();

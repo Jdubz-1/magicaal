@@ -19,6 +19,7 @@ export const telemetryRuns = sqliteTable('runs', {
   reviewId: text('review_id'),
   suspendedNodeId: text('suspended_node_id'),
   checkpointJson: text('checkpoint_json'),
+  sessionId: text('session_id'),
 });
 
 export const telemetrySteps = sqliteTable('steps', {

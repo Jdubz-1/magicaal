@@ -2,8 +2,12 @@ const redisStore = new Map<string, string>();
 
 jest.mock('@/queue/client', () => ({
   redis: {
-    set: jest.fn(async (key: string, value: string) => {
+    set: jest.fn(async (key: string, value: string, ...args: unknown[]) => {
+      // Mirror ioredis semantics for the NX flag: no-op returning null when
+      // the key already exists.
+      if (args.includes('NX') && redisStore.has(key)) return null;
       redisStore.set(key, value);
+      return 'OK';
     }),
     get: jest.fn(async (key: string) => redisStore.get(key) ?? null),
     del: jest.fn(async (key: string) => {
@@ -36,6 +40,9 @@ import {
   acquireRunSlot,
   releaseRunSlot,
   admissionDecision,
+  acquireSessionLock,
+  stealSessionLock,
+  releaseSessionLock,
 } from '@/execution/run-control';
 
 beforeEach(() => {
@@ -130,6 +137,47 @@ describe('planRetry (ALIGN-004)', () => {
       attemptsMade: 1,
       delayMs: 50,
     });
+  });
+});
+
+describe('session lock (ALIGN-010)', () => {
+  it('grants the lock to the first run and reports the holder on conflict', async () => {
+    expect(await acquireSessionLock('s1', 'run-a')).toEqual({ acquired: true });
+    expect(await acquireSessionLock('s1', 'run-b')).toEqual({
+      acquired: false,
+      holderRunId: 'run-a',
+    });
+  });
+
+  it('re-acquires for the same run (resume re-dispatch)', async () => {
+    await acquireSessionLock('s1', 'run-a');
+    expect(await acquireSessionLock('s1', 'run-a')).toEqual({ acquired: true });
+  });
+
+  it('release is value-checked — another run cannot free the holder', async () => {
+    await acquireSessionLock('s1', 'run-a');
+    await releaseSessionLock('s1', 'run-b');
+    expect(await acquireSessionLock('s1', 'run-c')).toEqual({
+      acquired: false,
+      holderRunId: 'run-a',
+    });
+
+    await releaseSessionLock('s1', 'run-a');
+    expect(await acquireSessionLock('s1', 'run-c')).toEqual({ acquired: true });
+  });
+
+  it('steal overwrites a stale holder', async () => {
+    await acquireSessionLock('s1', 'run-dead');
+    await stealSessionLock('s1', 'run-new');
+    expect(await acquireSessionLock('s1', 'run-other')).toEqual({
+      acquired: false,
+      holderRunId: 'run-new',
+    });
+  });
+
+  it('locks are per-session', async () => {
+    await acquireSessionLock('s1', 'run-a');
+    expect(await acquireSessionLock('s2', 'run-b')).toEqual({ acquired: true });
   });
 });
 

@@ -60,6 +60,53 @@ export function isAbortErrorCode(code: unknown): code is 'RUN_TIMEOUT' | 'RUN_CA
   return code === 'RUN_TIMEOUT' || code === 'RUN_CANCELLED';
 }
 
+// ── Session lock (ALIGN-010) ─────────────────────────────────────────────────
+
+// A session may be driven by at most one top-level run at a time (ARCHITECTURE
+// §14.3). The lock value is the holding runId; TTL bounds leaks from crashed
+// workers and from suspended runs that are cancelled without a worker owning
+// them (no release point — the staleness guard at acquire time recovers).
+const SESSION_LOCK_TTL_SECONDS = 86_400;
+
+function sessionLockKey(sessionId: string): string {
+  return `session:lock:${sessionId}`;
+}
+
+export type SessionLockResult =
+  | { acquired: true }
+  | { acquired: false; holderRunId: string };
+
+export async function acquireSessionLock(
+  sessionId: string,
+  runId: string,
+): Promise<SessionLockResult> {
+  const set = await redis.set(sessionLockKey(sessionId), runId, 'EX', SESSION_LOCK_TTL_SECONDS, 'NX');
+  if (set === 'OK') return { acquired: true };
+  const holder = await redis.get(sessionLockKey(sessionId));
+  // Holder vanished between SET NX and GET, or the same run re-dispatched
+  // (resume path) — either way this run may proceed.
+  if (holder === null || holder === runId) {
+    await redis.set(sessionLockKey(sessionId), runId, 'EX', SESSION_LOCK_TTL_SECONDS);
+    return { acquired: true };
+  }
+  return { acquired: false, holderRunId: holder };
+}
+
+/**
+ * Take over a lock whose holder was found terminal (or missing) in telemetry.
+ * Two dispatches racing this can both "win" — last SET wins and one run
+ * proceeds unlocked, which matches pre-lock behaviour; not worth a Lua script.
+ */
+export async function stealSessionLock(sessionId: string, runId: string): Promise<void> {
+  await redis.set(sessionLockKey(sessionId), runId, 'EX', SESSION_LOCK_TTL_SECONDS);
+}
+
+/** Release only if this run still holds the lock (check-then-del; benign race). */
+export async function releaseSessionLock(sessionId: string, runId: string): Promise<void> {
+  const holder = await redis.get(sessionLockKey(sessionId));
+  if (holder === runId) await redis.del(sessionLockKey(sessionId));
+}
+
 // ── Concurrency admission (ALIGN-003) ────────────────────────────────────────
 
 // Counters expire after an hour so a crashed worker's leaked increments
