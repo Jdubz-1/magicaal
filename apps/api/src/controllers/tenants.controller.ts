@@ -1,8 +1,66 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
+import type { TenantResourceLimits } from '@magicaal/core';
 import { db } from '../db/client';
 import { tenants } from '../db/schema';
+
+const RESOURCE_LIMIT_KEYS = ['maxConcurrentRuns', 'maxAgents', 'defaultInvocationStrategy'];
+
+/**
+ * Validate resource_limits against TenantResourceLimits (§14.2 / ALIGN-018).
+ * Unknown keys are rejected rather than stored — a typo like `maxAgent`
+ * would otherwise sit in the column silently enforcing nothing.
+ */
+function validateResourceLimits(raw: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error('resourceLimits must be valid JSON'), { status: 400 });
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw Object.assign(new Error('resourceLimits must be a JSON object'), { status: 400 });
+  }
+
+  const limits = parsed as Record<string, unknown>;
+  const unknown = Object.keys(limits).filter((k) => !RESOURCE_LIMIT_KEYS.includes(k));
+  if (unknown.length > 0) {
+    throw Object.assign(
+      new Error(`Unknown resource limit keys: ${unknown.join(', ')} (supported: ${RESOURCE_LIMIT_KEYS.join(', ')})`),
+      { status: 422, code: 'INVALID_RESOURCE_LIMITS' },
+    );
+  }
+  for (const key of ['maxConcurrentRuns', 'maxAgents'] as const) {
+    const v = limits[key];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 1)) {
+      throw Object.assign(
+        new Error(`${key} must be a positive integer`),
+        { status: 422, code: 'INVALID_RESOURCE_LIMITS' },
+      );
+    }
+  }
+  const strategy = limits.defaultInvocationStrategy;
+  if (strategy !== undefined && strategy !== 'api-key' && strategy !== 'public') {
+    throw Object.assign(
+      new Error("defaultInvocationStrategy must be 'api-key' or 'public'"),
+      { status: 422, code: 'INVALID_RESOURCE_LIMITS' },
+    );
+  }
+}
+
+/** Parse a tenant's resource_limits column, tolerating legacy/blank values. */
+export function parseResourceLimits(raw: string | null | undefined): TenantResourceLimits {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as TenantResourceLimits)
+      : {};
+  } catch {
+    return {};
+  }
+}
 
 export const listTenants: RequestHandler = async (_req, res, next) => {
   try {
@@ -58,9 +116,7 @@ export const updateTenant: RequestHandler = async (req, res, next) => {
     };
 
     if (resourceLimits !== undefined) {
-      try { JSON.parse(resourceLimits); } catch {
-        throw Object.assign(new Error('resourceLimits must be valid JSON'), { status: 400 });
-      }
+      validateResourceLimits(resourceLimits);
     }
 
     const [updated] = await db

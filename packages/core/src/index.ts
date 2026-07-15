@@ -5,4 +5,5 @@ export * from './graph';
 export * from './llm';
 export * from './run';
 export * from './session';
+export * from './tenant';
 export * from './workspace';

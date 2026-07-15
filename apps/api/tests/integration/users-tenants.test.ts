@@ -171,6 +171,69 @@ describe('tenants', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('resource limits (ALIGN-018)', () => {
+    async function makeTenant(token: string): Promise<string> {
+      const created = await request(app)
+        .post('/v1/tenants')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Limits Co', slug: `limits-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
+      return created.body.id as string;
+    }
+
+    it('accepts the supported keys', async () => {
+      const { token } = await createUserAndLogin(app, 'platform_admin');
+      const id = await makeTenant(token);
+
+      const res = await request(app)
+        .patch(`/v1/tenants/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          resourceLimits: JSON.stringify({
+            maxConcurrentRuns: 5,
+            maxAgents: 3,
+            defaultInvocationStrategy: 'public',
+          }),
+        });
+
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body.resourceLimits)).toEqual({
+        maxConcurrentRuns: 5,
+        maxAgents: 3,
+        defaultInvocationStrategy: 'public',
+      });
+    });
+
+    it('422s unknown keys (typos must not be stored silently)', async () => {
+      const { token } = await createUserAndLogin(app, 'platform_admin');
+      const id = await makeTenant(token);
+
+      const res = await request(app)
+        .patch(`/v1/tenants/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ resourceLimits: JSON.stringify({ maxAgent: 3 }) });
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('INVALID_RESOURCE_LIMITS');
+    });
+
+    it('422s bad value types and an invalid strategy', async () => {
+      const { token } = await createUserAndLogin(app, 'platform_admin');
+      const id = await makeTenant(token);
+
+      const badNumber = await request(app)
+        .patch(`/v1/tenants/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ resourceLimits: JSON.stringify({ maxAgents: 0 }) });
+      expect(badNumber.status).toBe(422);
+
+      const badStrategy = await request(app)
+        .patch(`/v1/tenants/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ resourceLimits: JSON.stringify({ defaultInvocationStrategy: 'jwt' }) });
+      expect(badStrategy.status).toBe(422);
+    });
+  });
+
   it('404s for an unknown tenant', async () => {
     const { token } = await createUserAndLogin(app, 'platform_admin');
     const res = await request(app)

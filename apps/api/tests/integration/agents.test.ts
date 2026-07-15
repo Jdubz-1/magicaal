@@ -1,7 +1,10 @@
 import request from 'supertest';
+import { eq } from 'drizzle-orm';
 import { createApp } from '../../src/app';
 import { runMigrations } from '../../src/db/migrate';
 import { createUserAndLogin } from '../helpers/auth-helpers';
+import { db } from '@/db/client';
+import { tenants } from '@/db/schema';
 
 // engineClient.post is called non-fatally on publish/deploy — mock it to avoid real HTTP
 jest.mock('../../src/lib/engine-client', () => ({
@@ -270,6 +273,30 @@ function graphWithSchemas(): string {
     edges: [{ id: 'e1', from: 'start', to: 'end', type: 'unconditional' }],
   });
 }
+
+describe('tenant maxAgents cap (ALIGN-018)', () => {
+  it('422s agent creation once the tenant limit is reached', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+
+    await db
+      .update(tenants)
+      .set({ resourceLimits: JSON.stringify({ maxAgents: 1 }) })
+      .where(eq(tenants.id, tenantId));
+
+    const first = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'One', handle: `cap-one-${Date.now()}` });
+    expect(first.status).toBe(201);
+
+    const second = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Two', handle: `cap-two-${Date.now()}` });
+    expect(second.status).toBe(422);
+    expect(second.body.code).toBe('TENANT_LIMIT_EXCEEDED');
+  });
+});
 
 describe('agent config', () => {
   let token: string;

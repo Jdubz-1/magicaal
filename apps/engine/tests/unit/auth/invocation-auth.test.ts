@@ -59,8 +59,18 @@ function seed(): Database.Database {
       rate_limit TEXT
     );
   `);
+  db.exec(`
+    CREATE TABLE tenants (id TEXT PRIMARY KEY, resource_limits TEXT);
+  `);
   db.prepare('INSERT INTO agents (id, tenant_id, enabled) VALUES (?, ?, 1)').run(AGENT, TENANT);
   db.prepare('INSERT INTO agents (id, tenant_id, enabled) VALUES (?, ?, 1)').run('agent-2', TENANT);
+  db.prepare('INSERT INTO tenants (id, resource_limits) VALUES (?, ?)').run(TENANT, '{}');
+  // A tenant whose default invocation strategy is public (ALIGN-018)
+  db.prepare('INSERT INTO tenants (id, resource_limits) VALUES (?, ?)').run(
+    'tenant-pub',
+    JSON.stringify({ defaultInvocationStrategy: 'public' }),
+  );
+  db.prepare('INSERT INTO agents (id, tenant_id, enabled) VALUES (?, ?, 1)').run('agent-pub', 'tenant-pub');
   return db;
 }
 
@@ -222,6 +232,38 @@ describe('public strategy', () => {
     });
 
     db.prepare('UPDATE agents SET enabled = 1 WHERE id = ?').run(AGENT);
+  });
+});
+
+describe('tenant default strategy (ALIGN-018)', () => {
+  it("uses the tenant's defaultInvocationStrategy when the agent has no policy", async () => {
+    const { clearTenantLimitsCache } = await import('@/auth/tenant-limits');
+    clearTenantLimitsCache();
+
+    // agent-pub has no invocation_policies row; its tenant defaults to public
+    const result = await validateInvocationRequest('agent-pub', undefined);
+
+    expect(result).toEqual({
+      keyId: 'public',
+      agentId: 'agent-pub',
+      tenantId: 'tenant-pub',
+      strategy: 'public',
+    });
+  });
+
+  it('an explicit agent policy overrides the tenant default', async () => {
+    const { clearTenantLimitsCache } = await import('@/auth/tenant-limits');
+    clearTenantLimitsCache();
+    db.prepare(
+      'INSERT OR REPLACE INTO invocation_policies (agent_id, strategy) VALUES (?, ?)',
+    ).run('agent-pub', 'api-key');
+
+    await expect(validateInvocationRequest('agent-pub', undefined)).rejects.toMatchObject({
+      status: 401,
+      code: 'MISSING_AUTH',
+    });
+
+    db.prepare('DELETE FROM invocation_policies WHERE agent_id = ?').run('agent-pub');
   });
 });
 

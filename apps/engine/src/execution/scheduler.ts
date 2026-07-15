@@ -19,6 +19,7 @@ import {
   releaseSessionLock,
 } from './run-control';
 import { config } from '../config';
+import { loadTenantLimits } from '../auth/tenant-limits';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
 interface RunJobData {
@@ -60,8 +61,9 @@ export function startScheduler(): void {
 
       const ctx = new ExecutionContextImpl({ runId, agentId, tenantId, triggerType, input, graphDefaultRouter, sessionId });
 
-      // Concurrency admission (ALIGN-003): per-tenant cap (env, until tenant
-      // DB limits are enforced) and per-agent ConcurrencyConfig.maxParallel.
+      // Concurrency admission (ALIGN-003): per-tenant cap — the tenant's own
+      // resource_limits.maxConcurrentRuns (§14.2 / ALIGN-018), else the
+      // platform env default — and per-agent ConcurrencyConfig.maxParallel.
       // Over-limit jobs are re-queued with a short jittered delay; jobs that
       // out-wait ConcurrencyConfig.queueTimeout fail with QUEUE_TIMEOUT.
       const concurrency = graph.config?.concurrency;
@@ -69,7 +71,7 @@ export function startScheduler(): void {
       const slots = await acquireRunSlot(tenantId, agentId);
       const decision = admissionDecision({
         slots,
-        tenantCap: config.maxConcurrentRunsPerTenant,
+        tenantCap: loadTenantLimits(tenantId).maxConcurrentRuns ?? config.maxConcurrentRunsPerTenant,
         maxParallel: concurrency?.maxParallel,
         enqueuedAt,
         queueTimeoutMs: concurrency?.queueTimeout,

@@ -4,6 +4,7 @@ import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from 'jose';
 import { config } from '../config';
 import { redis } from '../queue/client';
 import { logger } from '../lib/logger';
+import { loadTenantLimits } from './tenant-limits';
 
 let sqlite: Database.Database | null = null;
 
@@ -183,7 +184,15 @@ export async function validateInvocationRequest(
     .prepare('SELECT agent_id, strategy, jwt_config, rate_limit FROM invocation_policies WHERE agent_id = ?')
     .get(agentId) as InvocationPolicyRow | undefined;
 
-  const strategy = policy?.strategy ?? 'api-key';
+  // §11.1 resolution tiers (ALIGN-018): agent policy → tenant default
+  // (resource_limits.defaultInvocationStrategy) → platform default 'api-key'.
+  let strategy = policy?.strategy;
+  if (!strategy) {
+    const owner = db
+      .prepare('SELECT tenant_id FROM agents WHERE id = ?')
+      .get(agentId) as { tenant_id: string } | undefined;
+    strategy = (owner && loadTenantLimits(owner.tenant_id).defaultInvocationStrategy) ?? 'api-key';
+  }
 
   if (strategy === 'public') {
     const agentRow = db

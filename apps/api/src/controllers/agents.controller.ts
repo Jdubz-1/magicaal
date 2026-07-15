@@ -1,8 +1,9 @@
 import type { RequestHandler } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
 import { db } from '../db/client';
-import { agents, agentVersions, agentConfig } from '../db/schema';
+import { agents, agentVersions, agentConfig, tenants } from '../db/schema';
+import { parseResourceLimits } from './tenants.controller';
 import { engineClient } from '../lib/engine-client';
 import { parseAndValidateGraph } from '../lib/graph-validator';
 import { config } from '../config';
@@ -58,6 +59,22 @@ export const createAgent: RequestHandler = async (req, res, next) => {
 
     if (!name || !handle) {
       throw Object.assign(new Error('name and handle are required'), { status: 400 });
+    }
+
+    // §14.2 (ALIGN-018): tenants.resource_limits.maxAgents caps agent creation
+    const tenantRows = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    const limits = parseResourceLimits(tenantRows[0]?.resourceLimits);
+    if (limits.maxAgents !== undefined) {
+      const [{ value: agentCount }] = await db
+        .select({ value: count() })
+        .from(agents)
+        .where(eq(agents.tenantId, tenantId));
+      if (agentCount >= limits.maxAgents) {
+        throw Object.assign(
+          new Error(`Tenant agent limit reached (${limits.maxAgents})`),
+          { status: 422, code: 'TENANT_LIMIT_EXCEEDED' },
+        );
+      }
     }
 
     const now = new Date();
