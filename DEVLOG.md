@@ -25,6 +25,32 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-14 - Engine route tests: close the API↔engine contract gap
+
+**Type:** Feature
+
+**Description:**
+Every `apps/api` test mocked `engineClient` and `apps/engine` had zero HTTP-level tests (118 tests, all calling functions directly, no `supertest` dependency) — nothing in the repo had ever exercised the actual API↔engine boundary. That gap is not theoretical: it is exactly how ISS-063 (every run dispatch 401ing) and the unreachable public webhook receiver both survived a fully green suite. Added a full `supertest` fixture that boots the real engine app against a real (temp-file, WAL-mode) primary DB migrated with `apps/api`'s actual Drizzle SQL, plus route tests for the whole `/internal/*` surface, one file per controller. Every request body mirrors the payload `apps/api`'s `engineClient` call sites actually send, copied from the call site rather than invented.
+
+**Changes:**
+- `apps/engine/tests/helpers/primary-db.ts` (new) — builds a primary DB by executing `apps/api/drizzle/migrations/*.sql` in `_journal.json` order against a temp file (WAL mode), plus `seedAgent`/`seedAgentVersion`/`seedInvocationKey`/`seedInvocationPolicy`/`seedInstalledPackage` helpers
+- `apps/engine/tests/helpers/app.ts` (new) — mocks `@/queue/client` (Redis + 3 BullMQ queues, which otherwise open real sockets at import), `@/config` (temp DB path + temp `packagesDir`), and `@/middleware/requestLogger` (pino-http can't run against a plain `jest.fn()` logger stub); replicates `src/index.ts`'s boot sequence (`runTelemetryMigrations`, `registerNodes`, `registerIntegrations`, `registerAdapters`) since `createApp()` alone only wires the HTTP layer
+- `apps/engine/tests/helpers/mpack.ts` (new) — Ed25519 signing + ustar bundle builders, lifted out of the duplicated copies in `tests/unit/marketplace/*.test.ts`
+- `apps/engine/tests/route/{health,internal-auth,invocation-auth,runs,agents,telemetry,nodes,integrations,packages}.test.ts` (new) — 79 new tests across the whole `/internal/*` surface
+- `apps/engine/tests/route/api-contract.test.ts` (new) — walks the engine's registered Express routes and diffs them against every `engineClient.(get|post|put|delete|patch)` call site scraped from `apps/api/src` (text-scanned, not imported — the two are separate workspaces), so an API call to a route the engine no longer serves fails immediately
+- `apps/engine/src/middleware/errorHandler.ts` — now surfaces the `code` field controllers already attach to thrown errors (matches the fix already applied to `apps/api`'s error handler); found because `invocation-auth.test.ts` asserted on it and every case came back `undefined`
+- `apps/engine/src/app.ts` — `express.json()` now takes `limit: '25mb'` (was the bare 100kb default); found because `packages.test.ts`'s decompression-cap test 413'd before reaching the controller — the engine's own package-install endpoint could never have accepted a realistic bundle, even though `apps/api`'s own upload endpoint already allows 25mb and forwards the same body here verbatim
+- `apps/engine/jest.config.ts` — `maxWorkers: 2`; each route test boots a real `better-sqlite3` DB + full `createApp()`, and running many of those in parallel under coverage instrumentation caused OOM/timeouts (a `test:cov` run went from 302s with 2 timeout failures to 8.5s clean)
+- `apps/engine/package.json` — added `supertest` + `@types/supertest` devDependencies
+
+**Impact:**
+The API↔engine boundary now has direct coverage: 76 new tests across 10 new route/contract files, bringing `apps/engine` to 32 test suites / 228 tests total, all green. `pnpm -r run test` and `pnpm -r run type-check` both clean across the monorepo. Sanity-checked that the fixture actually catches what it exists to catch: temporarily reintroduced the exact ISS-063 bug (unconditional `validateInvocationRequest` in `dispatchRun`) and confirmed `runs.test.ts` went red (`dispatches for a platform caller` → 401 instead of 202), then reverted. Found and fixed two real, previously-undetected bugs along the way (`errorHandler` dropping `code`; the engine's 100kb body limit silently capping package installs). Engine coverage is now 58.8% statements / 60.8% lines (up from ~0% route-level); no coverage gate added in this change — the number is reported for a follow-up decision, per plan.
+
+**Notes:**
+`GET /internal/telemetry/runs/:runId` (`getRunDetail`) has no `engineClient` caller anywhere in `apps/api` and does not tenant-scope its query (`WHERE id = runId` only) — the same class of gap as ISS-007, just currently unreachable. Left as-is (out of scope for this change; flagged for `.ai_docs/MAGICAAL_ISSUES.md`) rather than fixed opportunistically.
+
+---
+
 ### 2026-07-14 - Session system: summarize overflow, schema migration chain, child-run propagation (ALIGN-007/008/009)
 
 **Type:** Bugfix
