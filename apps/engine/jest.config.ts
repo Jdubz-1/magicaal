@@ -2,6 +2,11 @@ import type { Config } from 'jest';
 
 const config: Config = {
   testEnvironment: 'node',
+  // Each route test spins up a real better-sqlite3 primary DB (migrated from
+  // apps/api's SQL) plus a full createApp() boot. Under coverage
+  // instrumentation, running many of those in parallel exhausts memory —
+  // cap workers rather than letting Jest default to one per core.
+  maxWorkers: 2,
   setupFiles: ['<rootDir>/tests/setup.ts'],
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
