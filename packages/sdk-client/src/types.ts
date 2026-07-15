@@ -17,13 +17,22 @@ export interface MagiCaalClientConfig {
    */
   bearer?: string;
   timeout?: number;
+  /**
+   * Opt-in request retry. Omitted = exactly one attempt per request.
+   * Note that run dispatch (`POST /v1/agents/:id/runs`) is not idempotent:
+   * a retry after an ambiguous network failure may dispatch the run twice.
+   * Streaming requests are never retried.
+   */
   retry?: RetryConfig;
 }
 
 export interface RetryConfig {
+  /** Total attempts per request, including the first. */
   maxAttempts: number;
   backoff: 'fixed' | 'exponential';
+  /** Base delay between attempts; a server Retry-After header takes precedence. */
   delayMs: number;
+  /** Status codes to retry, as strings (e.g. '429', '503'), plus 'network'. Defaults to network + 429 + 5xx. */
   retryOn?: string[];
 }
 

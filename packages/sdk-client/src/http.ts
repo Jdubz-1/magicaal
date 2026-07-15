@@ -1,8 +1,36 @@
-import axios, { type AxiosInstance, type AxiosError } from 'axios';
+import axios, {
+  type AxiosInstance,
+  type AxiosError,
+  type AxiosAdapter,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import type { MagiCaalClientConfig } from './types.js';
 import { AuthError, RateLimitError, AgentNotFoundError, NetworkError } from './errors.js';
+import { computeRetryPlan, parseRetryAfterMs } from './retry.js';
 
-export function createHttpClient(config: MagiCaalClientConfig): AxiosInstance {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Build the shared axios client.
+ *
+ * Retry (ALIGN-023): when `config.retry` is set, failed requests are retried
+ * per RetryConfig — network errors, 429, and 5xx by default (override with
+ * `retryOn`), honouring Retry-After / x-ratelimit-reset on 429s. Without
+ * `retry`, behaviour is exactly one attempt per request.
+ *
+ * Caveats: `POST /v1/agents/:id/runs` is not idempotent — retrying after an
+ * ambiguous network failure may double-dispatch a run. Streaming
+ * (`stream-client.ts`, native fetch) is never retried here.
+ *
+ * `overrides.adapter` exists for tests: inject a scripted transport instead
+ * of mocking HTTP.
+ */
+export function createHttpClient(
+  config: MagiCaalClientConfig,
+  overrides?: { adapter?: AxiosAdapter },
+): AxiosInstance {
   const headers: Record<string, string> = {};
   if (config.apiKey) {
     headers['Authorization'] = `Bearer ${config.apiKey}`;
@@ -14,16 +42,40 @@ export function createHttpClient(config: MagiCaalClientConfig): AxiosInstance {
     baseURL: config.baseUrl,
     timeout: config.timeout ?? 30000,
     headers,
+    ...(overrides?.adapter && { adapter: overrides.adapter }),
   });
 
   instance.interceptors.response.use(
     (res) => res,
-    (err: AxiosError) => {
+    async (err: AxiosError) => {
+      const status = err.response?.status;
+
+      // Retry before the typed-error mapping so a recovered request never
+      // surfaces an error at all.
+      if (config.retry) {
+        const reqConfig = err.config as
+          | (InternalAxiosRequestConfig & { __retryCount?: number })
+          | undefined;
+        const attempt = (reqConfig?.__retryCount ?? 0) + 1;
+        const resHeaders = err.response?.headers as Record<string, string> | undefined;
+        const resetHeader = resHeaders?.['x-ratelimit-reset'];
+        const retryAfterMs =
+          parseRetryAfterMs(resHeaders?.['retry-after']) ??
+          (resetHeader ? Math.max(0, Number(resetHeader) * 1000 - Date.now()) : undefined);
+
+        const plan = computeRetryPlan({ status, attempt, config: config.retry, retryAfterMs });
+        if (plan.retry && reqConfig) {
+          reqConfig.__retryCount = attempt;
+          await sleep(plan.delayMs);
+          return instance.request(reqConfig);
+        }
+      }
+
       if (!err.response) {
         throw new NetworkError(err.message, err);
       }
 
-      const { status, headers: resHeaders } = err.response;
+      const { headers: resHeaders } = err.response;
 
       if (status === 401) {
         throw new AuthError();
