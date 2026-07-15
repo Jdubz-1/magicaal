@@ -152,6 +152,11 @@ describe('telemetry proxies', () => {
     expect(engineClient.get).toHaveBeenCalledWith('/internal/telemetry/routing-events', {
       params: { tenantId, limit: '100' },
     });
+
+    await request(app).get('/v1/telemetry/evaluate-scores').set('Authorization', `Bearer ${token}`);
+    expect(engineClient.get).toHaveBeenCalledWith('/internal/telemetry/evaluate-scores', {
+      params: { tenantId, limit: '100' },
+    });
   });
 
   it('passes through agentId and status filters', async () => {

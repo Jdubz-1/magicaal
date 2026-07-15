@@ -1668,9 +1668,10 @@ adminRouter.post('/mcp-servers/:id/delete', async (req, res, next) => {
 interface EvaluateScore {
   runId: string;
   nodeId: string;
+  agentId: string;
   scorerType: string;
   score: number;
-  createdAt: string;
+  timestamp: string;
 }
 
 interface RoutingEvent {
@@ -1688,7 +1689,9 @@ adminRouter.get('/telemetry/evaluate-scores', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
     const user = req.session!;
-    const { data } = await api.get<{ events: EvaluateScore[] }>('/v1/telemetry?type=evaluate-scores').catch(() => ({ data: { events: [] } }));
+    // Dedicated endpoint (ALIGN-014) — the old '?type=evaluate-scores' param
+    // was silently ignored by the telemetry proxy, so this page was always empty.
+    const { data } = await api.get<{ events: EvaluateScore[] }>('/v1/telemetry/evaluate-scores?limit=100').catch(() => ({ data: { events: [] } }));
 
     const rows = (data.events ?? []).map((s) => `
       <tr>
@@ -1702,7 +1705,7 @@ adminRouter.get('/telemetry/evaluate-scores', async (req, res, next) => {
             <span>${s.score.toFixed(2)}</span>
           </div>
         </td>
-        <td style="font-size:0.75rem;color:#94a3b8">${new Date(s.createdAt).toLocaleString()}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${s.timestamp ? new Date(s.timestamp).toLocaleString() : '—'}</td>
         <td><a href="/admin/runs/${escHtml(s.runId)}" style="color:#7c6af7;font-size:0.75rem">View run</a></td>
       </tr>`).join('');
 

@@ -16,6 +16,7 @@ import {
   getRunDetail,
   getTrajectory,
   getRoutingEvents,
+  getEvaluateScores,
   getUsageAggregate,
 } from '../controllers/telemetry.controller';
 import { listNodes } from '../controllers/nodes.controller';
@@ -52,6 +53,7 @@ internalRouter.get('/telemetry/tokens', getTokenUsage);
 internalRouter.get('/telemetry/runs/:runId', getRunDetail);
 internalRouter.get('/telemetry/trajectory/:runId', getTrajectory);
 internalRouter.get('/telemetry/routing-events', getRoutingEvents);
+internalRouter.get('/telemetry/evaluate-scores', getEvaluateScores);
 internalRouter.get('/telemetry/usage', getUsageAggregate);
 
 internalRouter.post('/mcp-servers/test', testMcpServerInternal);

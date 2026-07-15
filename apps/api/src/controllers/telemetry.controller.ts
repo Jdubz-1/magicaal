@@ -81,3 +81,17 @@ export const getRoutingEvents: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+
+/** Evaluate score history (ALIGN-014) — proxied like routing-events. */
+export const getEvaluateScores: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const { agentId, limit = '100' } = req.query as { agentId?: string; limit?: string };
+    const params: Record<string, string> = { tenantId, limit };
+    if (agentId) params.agentId = agentId;
+    const response = await engineClient.get('/internal/telemetry/evaluate-scores', { params });
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};

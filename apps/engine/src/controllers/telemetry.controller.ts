@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
 import { eq, and, desc, inArray, gte } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
-import { telemetryRuns, telemetrySteps, telemetryTrajectories } from '../db/telemetry-schema';
+import { telemetryRuns, telemetrySteps, telemetryTrajectories, telemetryEvaluateScores } from '../db/telemetry-schema';
 
 export const getTelemetry: RequestHandler = async (req, res, next) => {
   try {
@@ -175,6 +175,57 @@ export const getRoutingEvents: RequestHandler = async (req, res, next) => {
         triggerHistory: meta?.triggerHistory ?? [],
         timestamp: s.startedAt?.toISOString(),
       }));
+
+    res.json({ events, total: events.length });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Evaluate score history (§7.2 / ALIGN-014). evaluate_scores has no tenant
+ * column — scoping happens through the owning run.
+ */
+export const getEvaluateScores: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId, agentId, limit = '100' } = req.query as {
+      tenantId?: string;
+      agentId?: string;
+      limit?: string;
+    };
+
+    if (!tenantId) throw Object.assign(new Error('tenantId is required'), { status: 400 });
+
+    const limitNum = Math.min(parseInt(limit, 10) || 100, 500);
+
+    const conditions = [eq(telemetryRuns.tenantId, tenantId)];
+    if (agentId) conditions.push(eq(telemetryRuns.agentId, agentId));
+
+    const rows = await telemetryDb
+      .select({
+        runId: telemetryEvaluateScores.runId,
+        nodeId: telemetryEvaluateScores.nodeId,
+        scorerType: telemetryEvaluateScores.scorerType,
+        score: telemetryEvaluateScores.score,
+        rubricJson: telemetryEvaluateScores.rubricJson,
+        createdAt: telemetryEvaluateScores.createdAt,
+        agentId: telemetryRuns.agentId,
+      })
+      .from(telemetryEvaluateScores)
+      .innerJoin(telemetryRuns, eq(telemetryEvaluateScores.runId, telemetryRuns.id))
+      .where(and(...conditions))
+      .orderBy(desc(telemetryEvaluateScores.createdAt))
+      .limit(limitNum);
+
+    const events = rows.map((r) => ({
+      runId: r.runId,
+      nodeId: r.nodeId,
+      agentId: r.agentId,
+      scorerType: r.scorerType,
+      score: r.score,
+      rubric: r.rubricJson ? (JSON.parse(r.rubricJson) as unknown) : null,
+      timestamp: r.createdAt?.toISOString(),
+    }));
 
     res.json({ events, total: events.length });
   } catch (err) {

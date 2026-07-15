@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { Application } from 'express';
 import { buildTestApp, internalAuthHeader } from '../helpers/app';
 import { telemetryDb } from '@/db/telemetry-client';
-import { telemetryRuns, telemetrySteps, telemetryTrajectories } from '@/db/telemetry-schema';
+import { telemetryRuns, telemetrySteps, telemetryTrajectories, telemetryEvaluateScores } from '@/db/telemetry-schema';
 
 describe('/internal/telemetry', () => {
   let app: Application;
@@ -160,6 +160,66 @@ describe('/internal/telemetry', () => {
       expect(res.status).toBe(200);
       expect(res.body.events).toHaveLength(1);
       expect(res.body.events[0]).toMatchObject({ nodeId: 'llm-1', agentId: 'agent-r', attemptCount: 2 });
+    });
+  });
+
+  describe('GET /internal/telemetry/evaluate-scores (ALIGN-014)', () => {
+    async function seedScore(runId: string, overrides: Partial<typeof telemetryEvaluateScores.$inferInsert> = {}) {
+      await telemetryDb.insert(telemetryEvaluateScores).values({
+        id: `score_${Math.random().toString(36).slice(2)}`,
+        runId,
+        stepId: 'step-1',
+        nodeId: 'evaluate-1',
+        scorerType: 'llm-judge',
+        score: 0.8,
+        createdAt: new Date(),
+        ...overrides,
+      });
+    }
+
+    it('400s without a tenantId', async () => {
+      const res = await request(app)
+        .get('/internal/telemetry/evaluate-scores')
+        .set(internalAuthHeader());
+      expect(res.status).toBe(400);
+    });
+
+    it('scopes scores to the tenant via the owning run', async () => {
+      const mine = await seedRun({ tenantId: 'tenant-eval-a' });
+      const theirs = await seedRun({ tenantId: 'tenant-eval-b' });
+      await seedScore(mine, { score: 0.9 });
+      await seedScore(theirs, { score: 0.1 });
+
+      const res = await request(app)
+        .get('/internal/telemetry/evaluate-scores')
+        .query({ tenantId: 'tenant-eval-a' })
+        .set(internalAuthHeader());
+
+      expect(res.status).toBe(200);
+      expect(res.body.events).toHaveLength(1);
+      expect(res.body.events[0]).toMatchObject({
+        runId: mine,
+        nodeId: 'evaluate-1',
+        scorerType: 'llm-judge',
+        score: 0.9,
+        agentId: 'agent-a',
+      });
+    });
+
+    it('filters by agentId and parses the rubric', async () => {
+      const tenantId = 'tenant-eval-filter';
+      const runX = await seedRun({ tenantId, agentId: 'agent-x' });
+      const runY = await seedRun({ tenantId, agentId: 'agent-y' });
+      await seedScore(runX, { rubricJson: JSON.stringify({ criteria: ['clarity'] }) });
+      await seedScore(runY);
+
+      const res = await request(app)
+        .get('/internal/telemetry/evaluate-scores')
+        .query({ tenantId, agentId: 'agent-x' })
+        .set(internalAuthHeader());
+
+      expect(res.body.events).toHaveLength(1);
+      expect(res.body.events[0].rubric).toEqual({ criteria: ['clarity'] });
     });
   });
 
