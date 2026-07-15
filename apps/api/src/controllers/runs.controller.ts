@@ -48,6 +48,8 @@ const rateLimitCounters = new Map<string, { count: number; windowStart: number }
 async function checkRateLimit(
   agentId: string,
   tenantId: string,
+  caller: { strategy?: string; keyId?: string } | undefined,
+  ip: string | undefined,
 ): Promise<{ limited: boolean; limit: number; remaining: number; resetAt: number }> {
   const policyRows = await db
     .select()
@@ -62,9 +64,23 @@ async function checkRateLimit(
   const rateCfg = JSON.parse(policy.rateLimit) as {
     requestsPerWindow: number;
     windowSeconds: number;
+    limitBy?: 'tenant' | 'key' | 'ip';
   };
 
-  const key = `${tenantId}:${agentId}`;
+  // §11.3 (ALIGN-017): the counter dimension follows RateLimitConfig.limitBy.
+  // 'key' buckets per invocation key; callers without one (jwt, public,
+  // platform) share a per-strategy bucket rather than one global bucket.
+  let key: string;
+  switch (rateCfg.limitBy) {
+    case 'key':
+      key = `${tenantId}:${agentId}:key:${caller?.keyId ?? caller?.strategy ?? 'anonymous'}`;
+      break;
+    case 'ip':
+      key = `${tenantId}:${agentId}:ip:${ip ?? 'unknown'}`;
+      break;
+    default:
+      key = `${tenantId}:${agentId}`;
+  }
   const now = Date.now();
   const windowMs = (rateCfg.windowSeconds ?? 60) * 1000;
   const limit = rateCfg.requestsPerWindow ?? 100;
@@ -159,7 +175,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
 
     // Per-agent configured limit (§11.3). The engine's Redis limiter is a hard
     // backstop and was already incremented once, during invocation validation.
-    const rl = await checkRateLimit(agentId, tenantId);
+    const rl = await checkRateLimit(agentId, tenantId, req.caller, req.ip);
     res.setHeader('X-RateLimit-Limit', String(rl.limit === Infinity ? 9999 : rl.limit));
     res.setHeader('X-RateLimit-Remaining', String(rl.remaining === Infinity ? 9999 : rl.remaining));
     res.setHeader('X-RateLimit-Reset', String(Math.floor(rl.resetAt / 1000)));

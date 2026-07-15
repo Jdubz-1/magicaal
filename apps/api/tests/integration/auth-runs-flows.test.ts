@@ -396,6 +396,60 @@ describe('run dispatch: the two auth planes (ISS-063)', () => {
       expect(third.body.code).toBe('RATE_LIMIT_EXCEEDED');
     });
 
+    it('limitBy "key" buckets per invocation key (ALIGN-017)', async () => {
+      const { token, tenantId } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `rl-key-${Date.now()}`);
+      await issueKey(token, agentId);
+      await issueKey(token, agentId);
+
+      await request(app)
+        .patch(`/v1/agents/${agentId}/invocation-policy`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ rateLimit: { requestsPerWindow: 1, windowSeconds: 60, limitBy: 'key' } });
+
+      // Caller A exhausts its own bucket…
+      mockEngine({ validate: { keyId: 'key-A', tenantId, strategy: 'api-key' }, runId: 'run-1' });
+      const keyA = await issueKey(token, agentId);
+      expect(
+        (await request(app).post(`/v1/agents/${agentId}/runs`).set('Authorization', `Bearer ${keyA}`).send({ input: {} })).status,
+      ).toBe(202);
+      expect(
+        (await request(app).post(`/v1/agents/${agentId}/runs`).set('Authorization', `Bearer ${keyA}`).send({ input: {} })).status,
+      ).toBe(429);
+
+      // …while caller B's bucket is untouched
+      mockEngine({ validate: { keyId: 'key-B', tenantId, strategy: 'api-key' }, runId: 'run-2' });
+      const keyB = await issueKey(token, agentId);
+      expect(
+        (await request(app).post(`/v1/agents/${agentId}/runs`).set('Authorization', `Bearer ${keyB}`).send({ input: {} })).status,
+      ).toBe(202);
+    });
+
+    it('limitBy "ip" keys the counter by client address (ALIGN-017)', async () => {
+      const { token } = await createUserAndLogin(app, 'developer');
+      const agentId = await publishedAgent(token, `rl-ip-${Date.now()}`);
+
+      await request(app)
+        .patch(`/v1/agents/${agentId}/invocation-policy`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ rateLimit: { requestsPerWindow: 1, windowSeconds: 60, limitBy: 'ip' } });
+
+      mockEngine({ runId: 'run-ip' });
+
+      // Same client address — second request lands in the same bucket
+      const first = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(first.status).toBe(202);
+
+      const second = await request(app)
+        .post(`/v1/agents/${agentId}/runs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ input: {} });
+      expect(second.status).toBe(429);
+    });
+
     it('reports an unlimited quota when no rate limit is configured', async () => {
       const { token } = await createUserAndLogin(app, 'developer');
       const agentId = await publishedAgent(token, `norl-${Date.now()}`);
