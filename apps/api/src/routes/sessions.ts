@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { requireInternalAuth } from '../middleware/auth';
 import {
   listSessions,
+  listAllSessions,
   getSession,
   getSessionRuns,
   deleteSession,
@@ -25,6 +26,10 @@ sessionRouter.get('/:sid/runs', requireAuth, getSessionRuns);
 sessionRouter.delete('/:sid', requireAuth, deleteSession);
 sessionRouter.post('/:sid/reset', requireAuth, resetSession);
 sessionRouter.post('/migrate', requireAuth, migrateAgentSessions);
+
+// Tenant-wide session list (ALIGN-025) — mounted at /v1/sessions
+export const tenantSessionsRouter: RouterType = Router();
+tenantSessionsRouter.get('/', requireAuth, listAllSessions);
 
 // Internal session routes — called by engine, auth via X-Internal-Auth header
 export const internalSessionRouter: RouterType = Router();

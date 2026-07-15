@@ -134,7 +134,13 @@ describe('GET /v1/agents/:id/sessions/:sid', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.session.id).toBe(sid);
-    expect(res.body.contextEntries.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    // Rich entry shape (ALIGN-025) — what SessionContextPanel and the admin
+    // detail view render
+    expect(res.body.contextEntries.messages).toMatchObject({
+      value: [{ role: 'user', content: 'hi' }],
+      accumulationType: 'append',
+      accumulatedCount: 1,
+    });
   });
 
   it("404s on another tenant's session", async () => {
@@ -148,6 +154,49 @@ describe('GET /v1/agents/:id/sessions/:sid', () => {
       .set('Authorization', `Bearer ${bob.token}`);
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /v1/sessions — tenant-wide list (ALIGN-025)', () => {
+  it('lists all of the tenant sessions across agents, newest activity first', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentA = await createAgent(token, `sess-all-a-${Date.now()}`);
+    const agentB = await createAgent(token, `sess-all-b-${Date.now()}`);
+    const sidA = await seedSession(agentA, tenantId);
+    const sidB = await seedSession(agentB, tenantId);
+
+    const res = await request(app).get('/v1/sessions').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    const ids = (res.body.sessions as Array<{ id: string }>).map((s) => s.id);
+    expect(ids).toContain(sidA);
+    expect(ids).toContain(sidB);
+  });
+
+  it('filters by status and agentId, and never leaks other tenants', async () => {
+    const alice = await createUserAndLogin(app, 'developer');
+    const bob = await createUserAndLogin(app, 'developer');
+    const agentA = await createAgent(alice.token, `sess-flt-a-${Date.now()}`);
+    const agentB = await createAgent(alice.token, `sess-flt-b-${Date.now()}`);
+    const bobAgent = await createAgent(bob.token, `sess-flt-x-${Date.now()}`);
+
+    const stale = await seedSession(agentA, alice.tenantId, { status: 'stale_schema' });
+    await seedSession(agentA, alice.tenantId, { status: 'active' });
+    await seedSession(agentB, alice.tenantId, { status: 'stale_schema' });
+    const bobSession = await seedSession(bobAgent, bob.tenantId, { status: 'stale_schema' });
+
+    const res = await request(app)
+      .get(`/v1/sessions?status=stale_schema&agentId=${agentA}`)
+      .set('Authorization', `Bearer ${alice.token}`);
+
+    const ids = (res.body.sessions as Array<{ id: string }>).map((s) => s.id);
+    expect(ids).toEqual([stale]);
+    expect(ids).not.toContain(bobSession);
+  });
+
+  it('401s without auth', async () => {
+    const res = await request(app).get('/v1/sessions');
+    expect(res.status).toBe(401);
   });
 });
 

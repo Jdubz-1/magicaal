@@ -1923,7 +1923,9 @@ adminRouter.get('/sessions', async (req, res, next) => {
 
     const rows = sessions.map((s) => `
       <tr>
-        <td style="font-family:monospace;font-size:0.7rem;max-width:160px;overflow:hidden;text-overflow:ellipsis">${escHtml(s.id)}</td>
+        <td style="font-family:monospace;font-size:0.7rem;max-width:160px;overflow:hidden;text-overflow:ellipsis">
+          <a href="/admin/sessions/${encodeURIComponent(s.id)}?agentId=${encodeURIComponent(s.agentId)}" style="color:#7c6af7">${escHtml(s.id)}</a>
+        </td>
         <td style="font-family:monospace;font-size:0.75rem">${escHtml(s.agentId)}</td>
         <td><span style="color:${statusColor(s.status)}">${escHtml(s.status)}</span></td>
         <td style="font-size:0.75rem;color:#94a3b8">${s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}</td>
@@ -1972,6 +1974,101 @@ adminRouter.get('/sessions', async (req, res, next) => {
           </table>
         </div>
       </div>`, { title: 'Sessions — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+interface SessionDetailEntry {
+  value: unknown;
+  accumulationType: string;
+  accumulatedCount: number;
+  tokenEstimate: number | null;
+  expiresAt: string | null;
+}
+
+interface SessionRunLink {
+  runId: string;
+  position: number;
+  isChildRun: boolean;
+  createdAt: string;
+}
+
+/** Session detail (ALIGN-025): context snapshot + linked runs. */
+adminRouter.get('/sessions/:sid', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { sid } = req.params;
+    const agentId = (req.query.agentId as string) ?? '';
+    if (!agentId) return res.redirect('/admin/sessions');
+
+    const base = `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sid)}`;
+    const [{ data: detail }, { data: runLinks }] = await Promise.all([
+      api.get<{ session: SessionRow & { metadata: Record<string, unknown> | null }; contextEntries: Record<string, SessionDetailEntry> }>(base),
+      api.get<SessionRunLink[]>(`${base}/runs`).catch(() => ({ data: [] as SessionRunLink[] })),
+    ]);
+
+    const s = detail.session;
+    const statusColor = s.status === 'active' ? '#4ade80' : s.status === 'stale_schema' ? '#fcd34d' : '#f87171';
+
+    const preview = (v: unknown): string => {
+      const json = JSON.stringify(v) ?? 'null';
+      return json.length > 120 ? `${json.slice(0, 120)}…` : json;
+    };
+
+    const contextRows = Object.entries(detail.contextEntries ?? {}).map(([key, e]) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.8125rem">${escHtml(key)}</td>
+        <td><code style="font-size:0.7rem">${escHtml(e.accumulationType)}</code></td>
+        <td style="color:#94a3b8">${e.accumulatedCount}</td>
+        <td style="color:#94a3b8">${e.tokenEstimate ?? '—'}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${e.expiresAt ? new Date(e.expiresAt).toLocaleString() : '—'}</td>
+        <td style="font-family:monospace;font-size:0.7rem;max-width:340px;overflow:hidden;text-overflow:ellipsis">${escHtml(preview(e.value))}</td>
+      </tr>`).join('');
+
+    const runRows = runLinks.map((l) => `
+      <tr>
+        <td style="color:#94a3b8">${l.position}</td>
+        <td><a href="/admin/runs/${escHtml(l.runId)}" style="color:#7c6af7;font-family:monospace;font-size:0.75rem">${escHtml(l.runId)}</a></td>
+        <td>${l.isChildRun ? '<span style="color:#fbbf24;font-size:0.75rem">child</span>' : '<span style="color:#94a3b8;font-size:0.75rem">top-level</span>'}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${l.createdAt ? new Date(l.createdAt).toLocaleString() : '—'}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1100px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem;font-family:monospace">${escHtml(sid)}</h1>
+          <a href="/admin/sessions" style="color:#94a3b8;font-size:0.875rem">← Sessions</a>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem">
+            <div><div style="color:#94a3b8;font-size:0.75rem">Status</div><div style="color:${statusColor};font-weight:600">${escHtml(s.status)}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Agent</div><div style="font-family:monospace;font-size:0.8125rem">${escHtml(s.agentId)}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Schema Version</div><div>v${escHtml(String(s.schemaVersion))}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Last Active</div><div style="font-size:0.8125rem">${s.lastActiveAt ? new Date(s.lastActiveAt).toLocaleString() : '—'}</div></div>
+            <div><div style="color:#94a3b8;font-size:0.75rem">Expires</div><div style="font-size:0.8125rem">${s.expiresAt ? new Date(s.expiresAt).toLocaleString() : 'Never'}</div></div>
+          </div>
+          ${s.metadata ? `<div style="margin-top:1rem"><div style="color:#94a3b8;font-size:0.75rem;margin-bottom:0.25rem">Metadata</div><pre style="margin:0;font-size:0.75rem;background:#0f1117;padding:0.75rem;border-radius:6px;overflow-x:auto">${escHtml(JSON.stringify(s.metadata, null, 2))}</pre></div>` : ''}
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem">
+          <h2 style="font-size:1rem;margin:0 0 1rem">Context Snapshot</h2>
+          <table>
+            <thead><tr><th>Key</th><th>Type</th><th>Count</th><th>~Tokens</th><th>Key TTL</th><th>Value</th></tr></thead>
+            <tbody>${contextRows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:1.5rem">No context stored yet</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2 style="font-size:1rem;margin:0 0 1rem">Linked Runs</h2>
+          <table>
+            <thead><tr><th>#</th><th>Run</th><th>Kind</th><th>Linked At</th></tr></thead>
+            <tbody>${runRows || '<tr><td colspan="4" style="color:#475569;text-align:center;padding:1.5rem">No runs linked yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: `Session ${sid} — Admin`, user: { name: user.userId, role: user.role } }));
   } catch (err) {
     next(err);
   }

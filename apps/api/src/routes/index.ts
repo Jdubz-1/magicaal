@@ -15,7 +15,7 @@ import { promptsRouter } from './prompts';
 import { caalRouter } from './caal';
 import { marketplaceRouter } from './marketplace';
 import { buildOpenApiSpec } from '../openapi/spec';
-import { internalSessionRouter } from './sessions';
+import { internalSessionRouter, tenantSessionsRouter } from './sessions';
 import { handleWebhook } from '../controllers/webhook.controller';
 import { receiveIntegrationEvent } from '../controllers/integration-triggers.controller';
 import { getRunDirect } from '../controllers/runs.controller';
@@ -62,6 +62,8 @@ router.get('/v1/runs/:runId', authenticateRunCaller, getRunDirect);
 router.get('/v1/openapi.json', (_req, res) => {
   res.json(buildOpenApiSpec());
 });
+// Tenant-wide session list (ALIGN-025) — the admin panel's data source
+router.use('/v1/sessions', tenantSessionsRouter);
 // Internal engine→API session endpoints
 router.use('/internal/sessions', internalSessionRouter);
 // Internal engine→API credential refresh persistence

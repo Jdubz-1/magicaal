@@ -105,6 +105,41 @@ export const listSessions: RequestHandler = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /v1/sessions (ALIGN-025) — tenant-wide session list for the Admin
+ * panel; the per-agent list above stays for agent-scoped callers. The
+ * admin page has called this endpoint since Phase 4, but it never existed.
+ */
+export const listAllSessions: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user!;
+    const { status, agentId, limit = '100' } = req.query as {
+      status?: string;
+      agentId?: string;
+      limit?: string;
+    };
+
+    const conditions = [eq(sessions.tenantId, tenantId)];
+    if (status && ['active', 'stale_schema', 'expired'].includes(status)) {
+      conditions.push(eq(sessions.status, status as 'active' | 'stale_schema' | 'expired'));
+    }
+    if (agentId) conditions.push(eq(sessions.agentId, agentId));
+
+    const rows = await db
+      .select()
+      .from(sessions)
+      .where(and(...conditions))
+      .orderBy(desc(sessions.lastActiveAt))
+      .limit(Math.min(parseInt(limit, 10) || 100, 500));
+
+    // Wrapped (unlike the per-agent list) — the admin page has parsed
+    // { sessions } since Phase 4.
+    res.json({ sessions: rows });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getSession: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
@@ -129,8 +164,20 @@ export const getSession: RequestHandler = async (req, res, next) => {
         ...session,
         metadata: session.metadata ? (JSON.parse(session.metadata) as Record<string, unknown>) : null,
       },
+      // Rich per-entry shape (ALIGN-025) — what SessionContextPanel.svelte and
+      // the admin session detail view render. The engine's own load path
+      // (internalLoadSession) keeps the plain key→value shape.
       contextEntries: Object.fromEntries(
-        contextRows.map((r) => [r.key, JSON.parse(r.valueJson)]),
+        contextRows.map((r) => [
+          r.key,
+          {
+            value: JSON.parse(r.valueJson) as unknown,
+            accumulationType: r.accumulationType,
+            accumulatedCount: r.accumulatedCount,
+            tokenEstimate: r.tokenEstimate,
+            expiresAt: r.expiresAt,
+          },
+        ]),
       ),
     });
   } catch (err) {

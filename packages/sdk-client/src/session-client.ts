@@ -8,11 +8,22 @@ export interface SessionSummary {
   expiresAt?: string;
   schemaVersion: number;
   createdAt: string;
+  /** Caller-supplied session_metadata from creation, or null. */
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface SessionContextEntry {
+  value: unknown;
+  accumulationType: 'append' | 'replace' | 'merge';
+  accumulatedCount: number;
+  tokenEstimate: number | null;
+  /** Key-level TTL expiry, when ContextSchemaEntry.ttlSeconds is set. */
+  expiresAt: string | null;
 }
 
 export interface SessionContext {
   session: SessionSummary;
-  contextEntries: Record<string, unknown>;
+  contextEntries: Record<string, SessionContextEntry>;
 }
 
 export class SessionClient {
