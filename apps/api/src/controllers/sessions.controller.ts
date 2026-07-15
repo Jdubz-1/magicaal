@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
-import { eq, and, desc, lte } from 'drizzle-orm';
+import { eq, and, desc, lte, inArray } from 'drizzle-orm';
 import type { SessionConfig, ContextSchemaEntry, ModelRouterConfig } from '@magicaal/core';
 import { db } from '../db/client';
 import { sessions, sessionContext, sessionRunLinks, agents, promptVersions } from '../db/schema';
@@ -11,6 +11,73 @@ import { logger } from '../lib/logger';
 
 function newId(): string {
   return crypto.randomUUID();
+}
+
+// ── Accumulation helpers (ALIGN-012) — exported for unit tests ────────────────
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** §14.4: merge is deep — nested objects merge recursively; arrays and scalars replace. */
+export function deepMerge(
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const out = { ...current };
+  for (const [key, value] of Object.entries(incoming)) {
+    const prev = out[key];
+    out[key] = isPlainObject(prev) && isPlainObject(value) ? deepMerge(prev, value) : value;
+  }
+  return out;
+}
+
+/**
+ * Dedupe an append array by a field, keeping the NEWEST occurrence of each
+ * value and preserving the relative order of survivors. Items without the
+ * field are kept as-is.
+ */
+export function dedupeByField(arr: unknown[], field: string): unknown[] {
+  const seen = new Set<unknown>();
+  const out: unknown[] = [];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const item = arr[i];
+    const raw = isPlainObject(item) ? item[field] : undefined;
+    if (raw === undefined) {
+      out.push(item);
+      continue;
+    }
+    const key = typeof raw === 'object' ? JSON.stringify(raw) : raw;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out.reverse();
+}
+
+/**
+ * ~4 chars per token — the same heuristic used for cost estimation elsewhere.
+ * ContextSchemaEntry.maxTokens is a budget, not an exact contract; a cheap
+ * estimate at save time beats a tokenizer dependency.
+ */
+export function estimateTokens(json: string): number {
+  return Math.ceil(json.length / 4);
+}
+
+/**
+ * Filter out per-key-TTL-expired context rows (ALIGN-012), deleting them
+ * lazily. Every context read path goes through here so an expired key never
+ * reaches a run or an admin view.
+ */
+async function pruneExpiredContext<T extends { id: string; expiresAt: Date | null }>(
+  rows: T[],
+): Promise<T[]> {
+  const now = Date.now();
+  const expired = rows.filter((r) => r.expiresAt !== null && r.expiresAt.getTime() <= now);
+  if (expired.length > 0) {
+    await db.delete(sessionContext).where(inArray(sessionContext.id, expired.map((r) => r.id)));
+  }
+  return rows.filter((r) => !(r.expiresAt !== null && r.expiresAt.getTime() <= now));
 }
 
 // ── Public API handlers ────────────────────────────────────────────────────────
@@ -52,7 +119,9 @@ export const getSession: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('Session not found'), { status: 404 });
     }
 
-    const contextRows = await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sid));
+    const contextRows = await pruneExpiredContext(
+      await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sid)),
+    );
 
     const session = sessionRows[0];
     res.json({
@@ -208,7 +277,9 @@ export const internalGetSession: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('Session not found'), { status: 404 });
     }
 
-    const contextRows = await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sessionId));
+    const contextRows = await pruneExpiredContext(
+      await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sessionId)),
+    );
 
     res.json({
       session,
@@ -246,7 +317,9 @@ export const internalLoadSession: RequestHandler = async (req, res, next) => {
     }
 
     const freshRows = await db.select().from(sessions).where(eq(sessions.id, sessionId));
-    const contextRows = await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sessionId));
+    const contextRows = await pruneExpiredContext(
+      await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sessionId)),
+    );
 
     res.json({
       session: freshRows[0],
@@ -351,14 +424,24 @@ export const internalSaveSession: RequestHandler = async (req, res, next) => {
         finalValue = await accumulateValue(current, newValue, entry, tenantId, defaultRouter);
       }
 
+      // maxTokens budget applies after accumulation, whatever the type
+      finalValue = await enforceTokenBudget(finalValue, entry, tenantId, defaultRouter);
+
       const jsonValue = JSON.stringify(finalValue);
       const count = Array.isArray(finalValue) ? finalValue.length : 1;
+      const tokenEstimate = estimateTokens(jsonValue);
+      // Key-level TTL (§14.4) — refreshed on every write to the key
+      const keyExpiresAt = entry.ttlSeconds
+        ? new Date(now.getTime() + entry.ttlSeconds * 1000)
+        : null;
 
       if (existing) {
         await db.update(sessionContext).set({
           valueJson: jsonValue,
           accumulatedCount: count,
+          tokenEstimate,
           accumulationType: entry.type,
+          expiresAt: keyExpiresAt,
           updatedAt: now,
         }).where(eq(sessionContext.id, existing.id));
       } else {
@@ -368,8 +451,10 @@ export const internalSaveSession: RequestHandler = async (req, res, next) => {
           key,
           valueJson: jsonValue,
           accumulatedCount: count,
+          tokenEstimate,
           accumulationType: entry.type,
           schemaVersion: sessionConfig.schemaVersion ?? 1,
+          expiresAt: keyExpiresAt,
           updatedAt: now,
         });
       }
@@ -495,13 +580,16 @@ async function accumulateValue(
 ): Promise<unknown> {
   if (entry.type === 'replace') return newValue;
   if (entry.type === 'merge') {
-    if (typeof current === 'object' && current !== null && typeof newValue === 'object' && newValue !== null) {
-      return { ...(current as Record<string, unknown>), ...(newValue as Record<string, unknown>) };
+    if (isPlainObject(current) && isPlainObject(newValue)) {
+      return deepMerge(current, newValue);
     }
     return newValue;
   }
-  // append
-  const arr = Array.isArray(current) ? [...current, newValue] : [newValue];
+  // append: accumulate → dedupe → maxItems overflow (§14.4 order)
+  let arr = Array.isArray(current) ? [...current, newValue] : [newValue];
+  if (entry.deduplicateBy) {
+    arr = dedupeByField(arr, entry.deduplicateBy);
+  }
   if (entry.maxItems && arr.length > entry.maxItems) {
     if (!entry.overflow || entry.overflow === 'evict_oldest') {
       return arr.slice(-entry.maxItems);
@@ -514,4 +602,46 @@ async function accumulateValue(
     }
   }
   return arr;
+}
+
+/**
+ * ContextSchemaEntry.maxTokens as a save-time budget (ALIGN-012): shrink an
+ * over-budget array with the entry's own overflow strategy until it fits.
+ * `summarize` runs at most once per save — one LLM call, then degrade to
+ * evict_oldest — so a save can never fan out into unbounded summarization.
+ * Non-array values over budget are stored anyway with a warning; splitting a
+ * scalar or object is not meaningful.
+ */
+async function enforceTokenBudget(
+  value: unknown,
+  entry: ContextSchemaEntry,
+  tenantId: string,
+  defaultRouter: ModelRouterConfig | null | undefined,
+): Promise<unknown> {
+  if (!entry.maxTokens) return value;
+
+  let current = value;
+  let summarized = false;
+  while (
+    estimateTokens(JSON.stringify(current)) > entry.maxTokens &&
+    Array.isArray(current) &&
+    current.length > 1
+  ) {
+    if (entry.overflow === 'summarize' && !summarized) {
+      summarized = true;
+      current = await summarizeOverflow(current, entry, tenantId, defaultRouter);
+    } else if (entry.overflow === 'truncate') {
+      current = current.slice(0, -1);
+    } else {
+      current = current.slice(1);
+    }
+  }
+
+  if (estimateTokens(JSON.stringify(current)) > entry.maxTokens) {
+    logger.warn(
+      { tenantId, maxTokens: entry.maxTokens },
+      'Session context value exceeds its maxTokens budget and cannot be shrunk further — storing as-is',
+    );
+  }
+  return current;
 }

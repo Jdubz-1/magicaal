@@ -476,6 +476,84 @@ describe('internal session endpoints (engine → API)', () => {
       expect(await contextOf(sid, 'm')).toEqual(['a', 'b']);
     });
 
+    describe('accumulation fidelity (ALIGN-012)', () => {
+      it('append: deduplicateBy keeps the newest occurrence, preserving order', async () => {
+        const schema = { items: { type: 'append', deduplicateBy: 'id' } };
+        await save({ items: { id: 1, v: 'old' } }, schema);
+        await save({ items: { id: 2, v: 'two' } }, schema);
+        await save({ items: { id: 1, v: 'new' } }, schema);
+
+        expect(await contextOf(sid, 'items')).toEqual([
+          { id: 2, v: 'two' },
+          { id: 1, v: 'new' },
+        ]);
+      });
+
+      it('append: dedupe applies before the maxItems overflow check', async () => {
+        const schema = { items: { type: 'append', deduplicateBy: 'id', maxItems: 2 } };
+        await save({ items: { id: 1, v: 'a' } }, schema);
+        await save({ items: { id: 2, v: 'b' } }, schema);
+        // Re-appending id 1 dedupes down to 2 items — nothing should be evicted
+        await save({ items: { id: 1, v: 'c' } }, schema);
+
+        expect(await contextOf(sid, 'items')).toEqual([
+          { id: 2, v: 'b' },
+          { id: 1, v: 'c' },
+        ]);
+      });
+
+      it('merge: deep-merges nested objects instead of replacing them wholesale', async () => {
+        const schema = { profile: { type: 'merge' } };
+        await save({ profile: { prefs: { theme: 'dark', lang: 'en' }, name: 'A' } }, schema);
+        await save({ profile: { prefs: { lang: 'fr' } } }, schema);
+
+        expect(await contextOf(sid, 'profile')).toEqual({
+          prefs: { theme: 'dark', lang: 'fr' },
+          name: 'A',
+        });
+      });
+
+      it('per-key ttlSeconds: expired keys are dropped (and deleted) on load', async () => {
+        const schema = { ephemeral: { type: 'replace', ttlSeconds: 60 }, durable: { type: 'replace' } };
+        await save({ ephemeral: 'x', durable: 'y' }, schema);
+
+        // Force the key past its TTL
+        await db
+          .update(sessionContext)
+          .set({ expiresAt: new Date(Date.now() - 1000) })
+          .where(eq(sessionContext.key, 'ephemeral'));
+
+        const loaded = await request(app)
+          .post(`/internal/sessions/${sid}/load`)
+          .set('X-Internal-Auth', INTERNAL)
+          .send({ agentId, tenantId, sessionConfig: { contextSchema: schema } });
+
+        expect(loaded.status).toBe(200);
+        expect(loaded.body.contextEntries).toEqual({ durable: 'y' });
+        expect(await contextOf(sid, 'ephemeral')).toBeUndefined();
+      });
+
+      it('maxTokens: evicts oldest entries until the value fits the budget', async () => {
+        // ~25 tokens per 100-char entry; budget 60 tokens holds two entries
+        const big = 'x'.repeat(100);
+        const schema = { m: { type: 'append', maxTokens: 60 } };
+        await save({ m: `${big}1` }, schema);
+        await save({ m: `${big}2` }, schema);
+        await save({ m: `${big}3` }, schema);
+
+        expect(await contextOf(sid, 'm')).toEqual([`${big}2`, `${big}3`]);
+      });
+
+      it('records a token estimate on every write', async () => {
+        await save({ m: 'hello' }, { m: { type: 'append' } });
+        const rows = await db
+          .select()
+          .from(sessionContext)
+          .where(and(eq(sessionContext.sessionId, sid), eq(sessionContext.key, 'm')));
+        expect(rows[0].tokenEstimate).toBe(Math.ceil(JSON.stringify(['hello']).length / 4));
+      });
+    });
+
     describe('summarize overflow (ALIGN-007)', () => {
       const ROUTER = {
         strategy: 'priority',

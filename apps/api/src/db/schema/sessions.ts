@@ -36,6 +36,8 @@ export const sessionContext = sqliteTable('session_context', {
     .default('append'),
   schemaVersion: integer('schema_version').notNull().default(1),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  /** Key-level expiry from ContextSchemaEntry.ttlSeconds — independent of the session TTL. */
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
 });
 
 export const sessionRunLinks = sqliteTable('session_run_links', {
