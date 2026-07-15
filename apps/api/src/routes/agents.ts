@@ -17,6 +17,7 @@ import {
 } from '../controllers/agents.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
+import { getInvocationLog } from '../controllers/invocation-log.controller';
 import { sessionRouter } from './sessions';
 import { testCasesRouter } from './test-cases';
 
@@ -47,6 +48,7 @@ agentsRouter.patch('/:id/invocation-policy', updateInvocationPolicy);
 agentsRouter.post('/:id/invocation-keys', createInvocationKey);
 agentsRouter.get('/:id/invocation-keys', listInvocationKeys);
 agentsRouter.delete('/:id/invocation-keys/:keyId', revokeInvocationKey);
+agentsRouter.get('/:id/invocation-log', getInvocationLog);
 
 // Phase 4 sub-routers
 agentsRouter.use('/:id/sessions', sessionRouter);

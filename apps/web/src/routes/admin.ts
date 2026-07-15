@@ -1258,6 +1258,7 @@ adminRouter.post('/datasources/:id/delete', async (req, res, next) => {
 interface AgentSummary { id: string; name: string; enabled: boolean }
 interface InvocationKey { id: string; label: string; lastUsedAt: string | null; expiresAt: string | null; revoked: boolean; createdAt: string }
 interface InvocationPolicy { agentId: string; strategy: string; rateLimit: unknown; jwtConfig: unknown }
+interface InvocationLogEntry { id: string; strategy: string; invocationKeyId: string | null; requestIp: string; runId: string | null; status: string; createdAt: string }
 
 adminRouter.get('/invocation-auth', async (req, res, next) => {
   try {
@@ -1311,10 +1312,13 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
     const user = req.session!;
     const { agentId } = req.params;
 
-    const [{ data: agent }, { data: policy }, { data: keys }] = await Promise.all([
+    const [{ data: agent }, { data: policy }, { data: keys }, { data: log }] = await Promise.all([
       api.get<AgentSummary>(`/v1/agents/${encodeURIComponent(agentId)}`),
       api.get<InvocationPolicy>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-policy`),
       api.get<InvocationKey[]>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys`),
+      api
+        .get<{ entries: InvocationLogEntry[] }>(`/v1/agents/${encodeURIComponent(agentId)}/invocation-log?limit=25`)
+        .catch(() => ({ data: { entries: [] as InvocationLogEntry[] } })),
     ]);
 
     const strategyOptions = ['api-key', 'jwt', 'public'].map((s) =>
@@ -1332,6 +1336,18 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
             <button type="submit" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:inherit;padding:0">Revoke</button>
           </form>` : ''}
         </td>
+      </tr>`).join('');
+
+    const logRows = log.entries.map((e) => `
+      <tr>
+        <td style="font-size:0.75rem;color:#94a3b8">${new Date(e.createdAt).toLocaleString()}</td>
+        <td><code style="font-size:0.7rem">${escHtml(e.strategy)}</code></td>
+        <td style="font-size:0.75rem;font-family:monospace">${e.invocationKeyId ? escHtml(e.invocationKeyId.slice(0, 8)) : '—'}</td>
+        <td style="font-size:0.75rem">${escHtml(e.requestIp)}</td>
+        <td>${e.runId ? `<a href="/admin/runs/${escHtml(e.runId)}" style="color:#7c6af7;font-size:0.75rem">${escHtml(e.runId.slice(0, 12))}…</a>` : '—'}</td>
+        <td>${e.status === 'dispatched'
+          ? '<span style="color:#34d399">dispatched</span>'
+          : '<span style="color:#f87171">rejected</span>'}</td>
       </tr>`).join('');
 
     const newKeyHtml = (res.locals as { newKey?: string }).newKey
@@ -1391,6 +1407,14 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
           <table>
             <thead><tr><th>Label</th><th>Last Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
             <tbody>${keyRows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No keys created yet</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <div class="card" style="margin-top:1.5rem">
+          <h2 style="font-size:1rem;margin:0 0 1rem">Recent Invocations</h2>
+          <table>
+            <thead><tr><th>Time</th><th>Strategy</th><th>Key</th><th>IP</th><th>Run</th><th>Outcome</th></tr></thead>
+            <tbody>${logRows || '<tr><td colspan="6" style="color:#475569;text-align:center;padding:1.5rem">No invocations recorded yet</td></tr>'}</tbody>
           </table>
         </div>
       </div>`, { title: `Invocation Auth — ${agent.name}`, user: { name: user.userId, role: user.role } }));

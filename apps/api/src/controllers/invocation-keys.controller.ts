@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
 import { db } from '../db/client';
 import { invocationKeys } from '../db/schema';
+import { assertAgentOwnedByTenant } from './invocation-policy.controller';
 
 /**
  * Invocation keys carry an `ik_` prefix to keep them distinct from platform
@@ -23,6 +24,10 @@ export const createInvocationKey: RequestHandler = async (req, res, next) => {
     const { id: agentId } = req.params;
     const { tenantId } = req.user!;
     const { label, expiresAt } = req.body as { label: string; expiresAt?: string };
+
+    // Without this an authenticated developer could mint a working invocation
+    // key for another tenant's agent.
+    await assertAgentOwnedByTenant(agentId, tenantId);
 
     if (!label) throw Object.assign(new Error('label is required'), { status: 400 });
 
@@ -59,6 +64,7 @@ export const createInvocationKey: RequestHandler = async (req, res, next) => {
 export const listInvocationKeys: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId } = req.params;
+    await assertAgentOwnedByTenant(agentId, req.user!.tenantId);
     const keys = await db
       .select({
         id: invocationKeys.id,
@@ -82,6 +88,7 @@ export const listInvocationKeys: RequestHandler = async (req, res, next) => {
 export const revokeInvocationKey: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId, keyId } = req.params;
+    await assertAgentOwnedByTenant(agentId, req.user!.tenantId);
     const [updated] = await db
       .update(invocationKeys)
       .set({ revoked: true })
