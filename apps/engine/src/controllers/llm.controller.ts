@@ -4,6 +4,37 @@ import type { AgentGraphDefinition, CanonicalLLMRequest, ModelRouterConfig } fro
 import { routedLLMCall } from '../router/router-engine';
 import { resolveCredentials } from '../resolver/credential-resolver';
 import { ExecutionContextImpl } from '../execution/context';
+import { healthTracker } from '../router/health-tracker';
+import { circuitBreaker } from '../router/circuit-breaker';
+
+/**
+ * GET /internal/llm/provider-health (ALIGN-024). Per-target router health:
+ * circuit state, rolling P50 latency, error rate, and sample count — sourced
+ * from the Health Tracker's in-memory rings and the circuit breaker. Targets
+ * appear once they have routed at least one call (or tripped the breaker)
+ * since engine start.
+ */
+export const getProviderHealth: RequestHandler = (_req, res, next) => {
+  try {
+    const breakerStates = circuitBreaker.snapshot();
+    const targetIds = new Set([...healthTracker.trackedTargets(), ...Object.keys(breakerStates)]);
+
+    const targets = [...targetIds].map((targetId) => {
+      const stats = healthTracker.getStats(targetId);
+      return {
+        targetId,
+        circuitState: breakerStates[targetId] ?? 'CLOSED',
+        p50Ms: stats.p50,
+        errorRate: stats.errorRate,
+        sampleCount: stats.sampleCount,
+      };
+    });
+
+    res.json({ targets, timestamp: new Date().toISOString() });
+  } catch (err) {
+    next(err);
+  }
+};
 
 const DEFAULT_SUMMARIZE_PROMPT =
   'Summarize the following conversation/context entries into one concise record that preserves ' +

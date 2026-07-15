@@ -11,7 +11,9 @@ function newId(): string {
 
 export const getProviderHealth: RequestHandler = async (_req, res, next) => {
   try {
-    const engineResponse = await engineClient.get('/health');
+    // Real per-target router health (ALIGN-024) — the engine's bare /health
+    // is a liveness stub with no provider data.
+    const engineResponse = await engineClient.get('/internal/llm/provider-health');
     res.json(engineResponse.data);
   } catch (err) {
     next(err);

@@ -93,6 +93,11 @@ class CircuitBreaker {
   getState(targetId: string): CircuitState {
     return this.entry(targetId).state;
   }
+
+  /** All known targets' states — the provider health dashboard's view (ALIGN-024). */
+  snapshot(): Record<string, CircuitState> {
+    return Object.fromEntries([...this.states].map(([id, e]) => [id, e.state]));
+  }
 }
 
 export const circuitBreaker = new CircuitBreaker();

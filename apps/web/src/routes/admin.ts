@@ -51,6 +51,10 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">Router Policies</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Named LLM router configs</div>
           </a>
+          <a class="card" href="/admin/llm-health" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Provider Health</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Circuit state, latency &amp; error rates</div>
+          </a>
           <a class="card" href="/admin/pricing" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">Provider Pricing</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Token cost configuration</div>
@@ -1815,6 +1819,72 @@ adminRouter.get('/telemetry/routing-events', async (req, res, next) => {
           </table>
         </div>
       </div>`, { title: 'Routing Event Log', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Provider Health (ALIGN-024) ──────────────────────────────────────────────
+
+interface ProviderHealthTarget {
+  targetId: string;
+  circuitState: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  p50Ms: number | null;
+  errorRate: number;
+  sampleCount: number;
+}
+
+adminRouter.get('/llm-health', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data } = await api
+      .get<{ targets: ProviderHealthTarget[] }>('/v1/llm/health')
+      .catch(() => ({ data: { targets: [] as ProviderHealthTarget[] } }));
+
+    const targets = data.targets ?? [];
+    const openCircuits = targets.filter((t) => t.circuitState !== 'CLOSED').length;
+
+    const circuitBadge = (state: ProviderHealthTarget['circuitState']): string => {
+      const color = state === 'CLOSED' ? '#34d399' : state === 'HALF_OPEN' ? '#fbbf24' : '#f87171';
+      return `<span style="color:${color};font-weight:600">${state}</span>`;
+    };
+
+    const rows = targets.map((t) => `
+      <tr>
+        <td style="font-family:monospace;font-size:0.8125rem">${escHtml(t.targetId)}</td>
+        <td>${circuitBadge(t.circuitState)}</td>
+        <td>${t.p50Ms !== null ? `${Math.round(t.p50Ms)} ms` : '—'}</td>
+        <td style="color:${t.errorRate > 0.2 ? '#f87171' : '#94a3b8'}">${(t.errorRate * 100).toFixed(1)}%</td>
+        <td style="color:#94a3b8">${t.sampleCount}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:1000px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">Provider Health</h1>
+          <a href="/admin" style="color:#94a3b8;font-size:0.875rem">← Dashboard</a>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem">
+          <div class="card">
+            <div style="color:#94a3b8;font-size:0.8125rem">Tracked Targets</div>
+            <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem">${targets.length}</div>
+          </div>
+          <div class="card">
+            <div style="color:#94a3b8;font-size:0.8125rem">Open / Half-Open Circuits</div>
+            <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;color:${openCircuits > 0 ? '#f87171' : '#34d399'}">${openCircuits}</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p style="font-size:0.875rem;color:#94a3b8;margin:0 0 1rem">Rolling in-memory stats per router target since engine start. Targets appear after routing their first call.</p>
+          <table>
+            <thead><tr><th>Target</th><th>Circuit</th><th>P50 Latency</th><th>Error Rate</th><th>Samples</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No routed LLM calls yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Provider Health — Admin', user: { name: user.userId, role: user.role } }));
   } catch (err) {
     next(err);
   }

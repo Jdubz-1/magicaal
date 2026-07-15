@@ -50,6 +50,11 @@ class HealthTracker {
   reset(targetId: string): void {
     this.rings.delete(targetId);
   }
+
+  /** Every target that has recorded at least one sample (ALIGN-024). */
+  trackedTargets(): string[] {
+    return [...this.rings.keys()];
+  }
 }
 
 export const healthTracker = new HealthTracker();

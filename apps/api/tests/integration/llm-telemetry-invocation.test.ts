@@ -116,13 +116,19 @@ describe('named router policies', () => {
     expect(res.status).toBe(403);
   });
 
-  it('proxies provider health from the engine', async () => {
+  it('proxies per-target provider health from the engine router (ALIGN-024)', async () => {
     const { token } = await createUserAndLogin(app, 'developer');
-    engineClient.get.mockResolvedValue({ data: { providers: [{ id: 'openai', healthy: true }] } });
+    engineClient.get.mockResolvedValue({
+      data: {
+        targets: [{ targetId: 't1', circuitState: 'CLOSED', p50Ms: 120, errorRate: 0, sampleCount: 4 }],
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     const res = await request(app).get('/v1/llm/health').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.providers[0].id).toBe('openai');
+    expect(engineClient.get).toHaveBeenCalledWith('/internal/llm/provider-health');
+    expect(res.body.targets[0]).toMatchObject({ targetId: 't1', circuitState: 'CLOSED' });
   });
 });
 
