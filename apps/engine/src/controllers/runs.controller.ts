@@ -68,12 +68,13 @@ interface RunCaller {
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, caller } = req.body as {
+    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, sessionMetadata, caller } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
       input?: Record<string, unknown>;
       sessionId?: string;
+      sessionMetadata?: Record<string, unknown>;
       caller?: RunCaller;
     };
 
@@ -117,7 +118,15 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
         sessionId,
       });
 
-      await runTriggerQueue.add('run', { runId, agentId, tenantId, triggerType, input, sessionId });
+      await runTriggerQueue.add('run', {
+        runId,
+        agentId,
+        tenantId,
+        triggerType,
+        input,
+        sessionId,
+        ...(sessionMetadata && { sessionMetadata }),
+      });
     } catch (err) {
       // The run never made it into the queue — don't leave the session locked.
       if (sessionId && !isChildRun) await releaseSessionLock(sessionId, runId).catch(() => {});

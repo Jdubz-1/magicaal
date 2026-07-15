@@ -394,6 +394,30 @@ describe('internal session endpoints (engine → API)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('persists session_metadata at creation and returns it parsed (ALIGN-011)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    const agentId = await createAgent(token, `sess-meta-${Date.now()}`);
+    const sessionId = `sess-meta-${Date.now()}`;
+
+    const created = await request(app)
+      .post('/internal/sessions')
+      .set('X-Internal-Auth', INTERNAL)
+      .send({
+        sessionId,
+        agentId,
+        tenantId,
+        sessionConfig: { ttlSeconds: 60 },
+        metadata: { customer: 'acme', channel: 'web' },
+      });
+    expect(created.status).toBe(201);
+
+    const got = await request(app)
+      .get(`/v1/agents/${agentId}/sessions/${sessionId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(got.status).toBe(200);
+    expect(got.body.session.metadata).toEqual({ customer: 'acme', channel: 'web' });
+  });
+
   it('404s saving to an unknown session', async () => {
     const res = await request(app)
       .post('/internal/sessions/does-not-exist/save')

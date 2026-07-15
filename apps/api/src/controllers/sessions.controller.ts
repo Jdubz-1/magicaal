@@ -1,10 +1,11 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
 import { eq, and, desc, lte } from 'drizzle-orm';
-import type { SessionConfig, ContextSchemaEntry, AgentGraphDefinition, ModelRouterConfig } from '@magicaal/core';
+import type { SessionConfig, ContextSchemaEntry, ModelRouterConfig } from '@magicaal/core';
 import { db } from '../db/client';
-import { sessions, sessionContext, sessionRunLinks, agents, agentVersions, promptVersions } from '../db/schema';
+import { sessions, sessionContext, sessionRunLinks, agents, promptVersions } from '../db/schema';
 import { migrateSessionToCurrent } from '../lib/session-migration';
+import { loadAgentSessionConfig } from '../lib/agent-session-config';
 import { engineClient } from '../lib/engine-client';
 import { logger } from '../lib/logger';
 
@@ -53,8 +54,12 @@ export const getSession: RequestHandler = async (req, res, next) => {
 
     const contextRows = await db.select().from(sessionContext).where(eq(sessionContext.sessionId, sid));
 
+    const session = sessionRows[0];
     res.json({
-      session: sessionRows[0],
+      session: {
+        ...session,
+        metadata: session.metadata ? (JSON.parse(session.metadata) as Record<string, unknown>) : null,
+      },
       contextEntries: Object.fromEntries(
         contextRows.map((r) => [r.key, JSON.parse(r.valueJson)]),
       ),
@@ -136,19 +141,6 @@ export const resetSession: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
-
-/** Read the agent's current SessionConfig from its published graph definition. */
-async function loadAgentSessionConfig(agentId: string): Promise<SessionConfig | null> {
-  const rows = await db
-    .select({ graphJson: agentVersions.graphJson })
-    .from(agents)
-    .innerJoin(agentVersions, eq(agentVersions.id, agents.currentVersionId))
-    .where(eq(agents.id, agentId));
-
-  if (!rows[0]) return null;
-  const definition = JSON.parse(rows[0].graphJson) as AgentGraphDefinition;
-  return (definition.config?.session as SessionConfig | undefined) ?? null;
-}
 
 export const migrateAgentSessions: RequestHandler = async (req, res, next) => {
   try {
@@ -269,11 +261,12 @@ export const internalLoadSession: RequestHandler = async (req, res, next) => {
 
 export const internalCreateSession: RequestHandler = async (req, res, next) => {
   try {
-    const { sessionId, agentId, tenantId, sessionConfig } = req.body as {
+    const { sessionId, agentId, tenantId, sessionConfig, metadata } = req.body as {
       sessionId: string;
       agentId: string;
       tenantId: string;
       sessionConfig: SessionConfig;
+      metadata?: Record<string, unknown>;
     };
 
     // Check if already exists (idempotent)
@@ -291,6 +284,8 @@ export const internalCreateSession: RequestHandler = async (req, res, next) => {
       tenantId,
       schemaVersion: sessionConfig.schemaVersion ?? 1,
       status: 'active',
+      // §14.8: caller-supplied session_metadata rides along at creation
+      metadata: metadata ? JSON.stringify(metadata) : null,
       lastActiveAt: now,
       expiresAt: new Date(now.getTime() + ttlMs),
       createdAt: now,

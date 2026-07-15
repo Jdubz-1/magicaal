@@ -23,6 +23,7 @@ export class SessionManager {
     agentId: string,
     tenantId: string,
     sessionConfig: SessionConfig,
+    metadata?: Record<string, unknown>,
   ): Promise<LoadedSession> {
     // POST rather than GET: the API applies the schema migration chain
     // (ARCHITECTURE §14.5) against the agent's current SessionConfig and
@@ -38,8 +39,10 @@ export class SessionManager {
     });
 
     if (res.status === 404) {
-      // Session not found — create it and return empty entries
-      await this.createSession(sessionId, agentId, tenantId, sessionConfig);
+      // Session not found — create it and return empty entries. Caller
+      // metadata only applies at creation (§14.8); existing sessions keep
+      // the metadata they were created with.
+      await this.createSession(sessionId, agentId, tenantId, sessionConfig, metadata);
       return { contextEntries: new Map() };
     }
 
@@ -69,6 +72,7 @@ export class SessionManager {
     agentId: string,
     tenantId: string,
     sessionConfig: SessionConfig,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
     const url = `${this.baseUrl}/internal/sessions`;
     const res = await fetch(url, {
@@ -77,7 +81,7 @@ export class SessionManager {
         'Content-Type': 'application/json',
         'X-Internal-Auth': config.masterKey,
       },
-      body: JSON.stringify({ sessionId, agentId, tenantId, sessionConfig }),
+      body: JSON.stringify({ sessionId, agentId, tenantId, sessionConfig, ...(metadata && { metadata }) }),
     });
 
     if (!res.ok && res.status !== 409) {

@@ -29,6 +29,8 @@ interface RunJobData {
   input: Record<string, unknown>;
   resumeFromNodeId?: string;
   sessionId?: string;
+  /** Caller-supplied session_metadata, stored when the session is created (ALIGN-011). */
+  sessionMetadata?: Record<string, unknown>;
   /** Per-node execution counts, carried across retry re-enqueues (ALIGN-004). */
   nodeAttempts?: Record<string, number>;
   /** First-dispatch timestamp, preserved across admission deferrals (ALIGN-003). */
@@ -117,7 +119,13 @@ export function startScheduler(): void {
         const sessionConfig = graph.config?.session as SessionConfig | undefined;
         if (sessionId && sessionConfig?.enabled) {
           try {
-            const loaded = await sessionManager.loadSession(sessionId, agentId, tenantId, sessionConfig);
+            const loaded = await sessionManager.loadSession(
+              sessionId,
+              agentId,
+              tenantId,
+              sessionConfig,
+              job.data.sessionMetadata,
+            );
             for (const [key, value] of loaded.contextEntries) {
               ctx.set(key, value);
             }

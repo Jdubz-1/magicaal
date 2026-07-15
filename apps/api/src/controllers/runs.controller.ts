@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { agents, invocationPolicies, invocationLog } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
+import { loadAgentSessionConfig } from '../lib/agent-session-config';
 
 function newId(): string {
   return crypto.randomUUID();
@@ -123,7 +124,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
 
   try {
     const { userId } = req.user!;
-    const { input = {}, mode = 'async', session_id } = req.body as {
+    const { input = {}, mode = 'async', session_id, session_metadata } = req.body as {
       input?: Record<string, unknown>;
       mode?: 'sync' | 'async';
       session_id?: string;
@@ -131,9 +132,18 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
     };
 
     // Namespace session ID to prevent cross-tenant collisions
-    const sessionId = session_id
+    let sessionId = session_id
       ? `${tenantId}:${agentId}:${session_id}`
       : undefined;
+
+    // §14.2 (ALIGN-011): a session-enabled agent invoked without a session_id
+    // gets a platform-generated one, echoed back in the response.
+    if (!sessionId) {
+      const sessionConfig = await loadAgentSessionConfig(agentId);
+      if (sessionConfig?.enabled) {
+        sessionId = `${tenantId}:${agentId}:${crypto.randomUUID()}`;
+      }
+    }
 
     const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
     const agent = agentRows[0];
@@ -164,6 +174,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       input,
       caller: req.caller,
       sessionId,
+      ...(session_metadata && { sessionMetadata: session_metadata }),
     });
 
     const { runId } = response.data as { runId: string };
@@ -180,7 +191,9 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
         run = poll.data as { status: string; output: unknown; error: unknown };
         if (['completed', 'failed', 'suspended', 'cancelled'].includes(run.status)) break;
       }
-      return res.json(run);
+      // The generated/namespaced sessionId must be echoed here too — a sync
+      // caller has no other way to learn it (ALIGN-011).
+      return res.json({ ...(run ?? {}), ...(sessionId && { sessionId }) });
     }
 
     res.status(202).json({ runId, ...(sessionId && { sessionId }) });

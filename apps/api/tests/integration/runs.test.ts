@@ -30,13 +30,22 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-async function createAndPublishAgent(token: string, handle: string) {
+async function createAndPublishAgent(
+  token: string,
+  handle: string,
+  config: Record<string, unknown> = {},
+) {
   const create = await request(app)
     .post('/v1/agents')
     .set('Authorization', `Bearer ${token}`)
     .send({ name: 'Run Agent', handle });
 
-  const graphJson = JSON.stringify({ entry: 'start', nodes: { start: { id: 'start', type: 'core:start', config: {} } }, edges: [] });
+  const graphJson = JSON.stringify({
+    entry: 'start',
+    nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+    edges: [],
+    ...(Object.keys(config).length > 0 && { config }),
+  });
   await request(app)
     .post(`/v1/agents/${create.body.id}/publish`)
     .set('Authorization', `Bearer ${token}`)
@@ -85,6 +94,67 @@ describe('POST /v1/agents/:id/runs (async mode)', () => {
       .send({ input: {} });
 
     expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /v1/agents/:id/runs — sessions (ALIGN-011)', () => {
+  let token: string;
+  let tenantId: string;
+
+  beforeAll(async () => {
+    ({ token, tenantId } = await createUserAndLogin(app, 'developer'));
+  });
+
+  const SESSION_CONFIG = { session: { enabled: true, contextSchema: {} } };
+
+  it('generates a namespaced session id for a session-enabled agent when none is supplied', async () => {
+    mockEnginePost.mockResolvedValue({ data: { runId: 'run-gen' } });
+
+    const agentId = await createAndPublishAgent(token, `sess-gen-${Date.now()}`, SESSION_CONFIG);
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/runs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ input: {} });
+
+    expect(res.status).toBe(202);
+    expect(res.body.sessionId).toMatch(
+      new RegExp(`^${tenantId}:${agentId}:[0-9a-f-]{36}$`),
+    );
+
+    const dispatch = mockEnginePost.mock.calls.find(([url]) => url === '/internal/runs');
+    expect(dispatch?.[1]).toMatchObject({ sessionId: res.body.sessionId });
+  });
+
+  it('does not invent a session for agents without session config', async () => {
+    mockEnginePost.mockResolvedValue({ data: { runId: 'run-nosess' } });
+
+    const agentId = await createAndPublishAgent(token, `sess-none-${Date.now()}`);
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/runs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ input: {} });
+
+    expect(res.status).toBe(202);
+    expect(res.body.sessionId).toBeUndefined();
+  });
+
+  it('forwards session_metadata to the engine dispatch', async () => {
+    mockEnginePost.mockResolvedValue({ data: { runId: 'run-meta' } });
+
+    const agentId = await createAndPublishAgent(token, `sess-fwd-${Date.now()}`, SESSION_CONFIG);
+    const res = await request(app)
+      .post(`/v1/agents/${agentId}/runs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ input: {}, session_id: 'conv-1', session_metadata: { customer: 'acme' } });
+
+    expect(res.status).toBe(202);
+    expect(res.body.sessionId).toBe(`${tenantId}:${agentId}:conv-1`);
+
+    const dispatch = mockEnginePost.mock.calls.find(([url]) => url === '/internal/runs');
+    expect(dispatch?.[1]).toMatchObject({
+      sessionId: `${tenantId}:${agentId}:conv-1`,
+      sessionMetadata: { customer: 'acme' },
+    });
   });
 });
 
