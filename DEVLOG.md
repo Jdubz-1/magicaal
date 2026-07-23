@@ -25,6 +25,39 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-16 - Doc–code alignment: all fifteen medium-severity issues (ALIGN-010..019, 023-025, 032-033)
+
+**Type:** Bugfix
+
+**Description:**
+Followed the 2026-07-14 high-severity alignment fixes with the remaining `medium` tier from the same review: session-system fidelity gaps, several write-only features finally given read paths, two unenforced config surfaces, a missing OAuth recovery flow, a dead SDK retry option, a missing provider-health dashboard, and a telemetry-retention decision. Ten `low`-severity issues remain open (UI/lint polish, tracked separately).
+
+**Changes:**
+- `apps/engine/src/execution/run-control.ts`, `controllers/runs.controller.ts`, `execution/scheduler.ts` — session conflict lock (`session:lock:{id}`, Redis `SET NX`, 24h TTL): a second top-level dispatch on an active session 409s `SESSION_CONFLICT`; stale (terminal-holder) locks are stolen; child sub-graph/handoff dispatches never contend (ALIGN-010). Telemetry `runs` gained a `session_id` column so `resumeRun` can thread it back into the re-enqueue (previously dropped, silently desessioning resumed runs)
+- `apps/api/src/lib/engine-client.ts` — response interceptor normalizing proxied engine 4xx bodies to `{message, status, code}` (previously every engine error surfaced as axios's generic status text)
+- `apps/api/src/controllers/runs.controller.ts`, `lib/agent-session-config.ts` (new) — platform-generated namespaced session IDs when a session-enabled agent gets no `session_id`; `session_metadata` threaded to the `sessions.metadata` column (ALIGN-011)
+- `apps/api/drizzle/migrations/0008_session_context_expiry.sql`, `controllers/sessions.controller.ts` — `deduplicateBy` (newest-wins), real recursive `deepMerge`, per-key `ttlSeconds` (stamped + lazily pruned), and a `maxTokens` save-time budget shrinking via the entry's own overflow strategy, summarizing at most once per save (ALIGN-012)
+- `packages/cli/src/commands/sessions.ts`, `apps/api/src/controllers/sessions.controller.ts` — `sessions migrate` gained `--token`/`MAGICAAL_API_TOKEN` auth (it sent none before) and the API resolves its parameter as an agent id or handle, tenant-scoped, matching the CLI's own `--agent <handle>` (ALIGN-013)
+- `apps/api/src/controllers/runs.controller.ts` — rate-limit `limitBy` (`tenant`/`key`/`ip`) now selects the counter key; every caller previously shared one bucket regardless of config (ALIGN-017)
+- `apps/engine/src/controllers/telemetry.controller.ts`, `routes/internal.ts`, `apps/api/src/controllers/telemetry.controller.ts`, `apps/web/src/routes/admin.ts` — `GET /internal/telemetry/evaluate-scores` (joined to `runs` for tenant scope) mirrors the routing-events pattern; the admin page's `?type=evaluate-scores` param had always been ignored (ALIGN-014)
+- `apps/api/src/controllers/invocation-log.controller.ts` (new), `routes/agents.ts`, `apps/web/src/routes/admin.ts` — `GET /v1/agents/:id/invocation-log`; found and fixed in the same area: `invocation-policy.controller.ts` and every `invocation-keys.controller.ts` handler had **no** agent↔tenant ownership check (ALIGN-015)
+- `packages/core/src/tenant.ts` (new), `apps/api/src/controllers/{tenants,agents}.controller.ts`, `apps/engine/src/auth/tenant-limits.ts` (new), `execution/scheduler.ts`, `auth/invocation-auth.ts` — typed, validated `TenantResourceLimits`; `maxAgents` (create-time cap), `maxConcurrentRuns` (overrides the engine's env admission cap), `defaultInvocationStrategy` (`api-key`|`public`, the §11.1 tenant-default tier) (ALIGN-018)
+- `apps/engine/src/execution/usage-tally.ts` (new), `execution/worker.ts`, `execution/scheduler.ts`, `marketplace/usage-flush.ts` (new), `apps/api/src/controllers/marketplace-usage.controller.ts` (new), `marketplace/usage-reporter.ts` — per-run package-node execution tally (module-level, so fork/fan-out and agent-loop tool calls all count) flushed to a new internal endpoint that upserts `usage_counters`; the daily marketplace report gained per-asset `assetUsage` summed across tenants (ALIGN-019)
+- `apps/api/drizzle/migrations/0009_oauth_state_connection.sql`, `controllers/integrations.controller.ts`, `routes/integrations.ts`, `apps/web/src/routes/admin.ts` — `POST /v1/integrations/connections/:id/reconnect`; the callback updates the existing connection's credentials in place instead of inserting a new row (which previously would have orphaned every node config referencing the old id) (ALIGN-016)
+- `packages/sdk-client/src/retry.ts` (new), `http.ts`, `types.ts` — opt-in `RetryConfig` support: network/429/5xx retried by default (`retryOn` overrides), fixed/exponential backoff, server `Retry-After`/`x-ratelimit-reset` takes precedence; no config = unchanged single-attempt behavior; streaming path explicitly excluded (ALIGN-023)
+- `apps/engine/src/router/{health-tracker,circuit-breaker}.ts`, `controllers/llm.controller.ts`, `apps/api/src/controllers/llm.controller.ts`, `apps/web/src/routes/admin.ts` — `GET /internal/llm/provider-health` (per-target circuit state, P50, error rate, samples) replaces the bare liveness stub as the `/v1/llm/health` data source; new `/admin/llm-health` page (ALIGN-024)
+- `apps/api/src/controllers/sessions.controller.ts`, `routes/sessions.ts`, `routes/index.ts`, `apps/web/src/routes/admin.ts` — `GET /v1/sessions` (the admin list page has called this since Phase 4; it never existed), `GET .../sessions/:sid` `contextEntries` enriched to `{value, accumulationType, accumulatedCount, tokenEstimate, expiresAt}` (the shape `SessionContextPanel.svelte` was already coded against), new `/admin/sessions/:sid` detail page (ALIGN-025)
+- `apps/engine/src/config.ts`, `db/telemetry-retention.ts` (new), `index.ts` — hourly sweep deleting terminal runs (and their steps/trajectories/scores/snapshots) older than `TELEMETRY_RETENTION_DAYS` (default 90); decision recorded: keep full-payload storage (run results are served from it), correct the architecture doc instead of truncating (ALIGN-032)
+- `.ai_docs/MAGICAAL_ARCHITECTURE.md` — eleven-point editorial pass (ALIGN-033): marketplace components moved API-side, session manager split + lock semantics, `ExecutionContext`/`NodeModule` contract gaps, telemetry table/column corrections + retention note, agent state enum, webhook auth model, internal API route reality, tenant resource-limits table, `limitBy` renames, formatting fixes (stray fences, duplicate/skipped section numbers)
+
+**Impact:**
+All nine high and fifteen medium alignment issues are now resolved (24 of 34; ten low-severity UI/lint items remain open). Session handling, tenant isolation, and marketplace usage metering now match the architecture doc's stated design rather than approximating it. 252 engine + 340 API + 30 sdk-client tests green; type-check and lint clean across all touched workspaces.
+
+**Notes:**
+Two migrations landed in this batch: `0008_session_context_expiry` (session_context.expires_at) and `0009_oauth_state_connection` (integration_oauth_states.connection_id). The admin session detail view ships without the §14.10 growth chart — the underlying data is available, only the chart rendering is deferred (recorded in PROGRESS.md).
+
+---
+
 ### 2026-07-14 - Engine route tests: close the API↔engine contract gap
 
 **Type:** Feature
