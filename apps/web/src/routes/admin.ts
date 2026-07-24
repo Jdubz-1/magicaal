@@ -51,6 +51,10 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">Router Policies</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Named LLM router configs</div>
           </a>
+          <a class="card" href="/admin/prompts" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Prompts</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Tenant-wide prompt versions</div>
+          </a>
           <a class="card" href="/admin/llm-health" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">Provider Health</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Circuit state, latency &amp; error rates</div>
@@ -1131,6 +1135,157 @@ adminRouter.post('/router-policies/:id/delete', async (req, res, next) => {
     const api = createApiClient(req.accessToken);
     await api.delete(`/v1/llm/router-policies/${req.params.id}`);
     res.redirect('/admin/router-policies');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Prompt Version Management (ALIGN-026) ────────────────────────────────────
+
+interface PromptVersionRow {
+  id: string;
+  name: string;
+  versionNumber: number;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+adminRouter.get('/prompts', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data: activeVersions } = await api.get<PromptVersionRow[]>('/v1/prompts');
+
+    const rows = activeVersions.map((v) => `
+      <tr>
+        <td style="font-weight:600"><a href="/admin/prompts/${encodeURIComponent(v.name)}" style="color:#7c6af7">${escHtml(v.name)}</a></td>
+        <td style="color:#94a3b8">v${v.versionNumber}</td>
+        <td style="font-family:monospace;font-size:0.75rem;color:#94a3b8;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(v.content)}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${v.createdAt ? new Date(v.createdAt).toLocaleString() : '—'}</td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.5rem">Prompt Versions</h1>
+          <a href="/admin/prompts/create" class="btn btn-primary">+ New Version</a>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Active Version</th><th>Content Preview</th><th>Created</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" style="color:#475569;text-align:center;padding:2rem">No prompts defined</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: 'Prompts — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/prompts/create', (req, res) => {
+  const user = req.session!;
+  res.send(layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/prompts" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">New Prompt Version</h1>
+      </div>
+      <form class="card" method="POST" action="/admin/prompts/create">
+        <div class="form-group"><label>Prompt Name</label><input name="name" required placeholder="e.g. system-prompt" /></div>
+        <div class="form-group"><label>Content</label><textarea name="content" rows="10" required></textarea></div>
+        <button type="submit" class="btn btn-primary">Save Version</button>
+      </form>
+    </div>`, { title: 'New Prompt Version — Admin', user: { name: user.userId, role: user.role } }));
+});
+
+adminRouter.post('/prompts/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { name, content } = req.body as { name: string; content: string };
+    const { data: created } = await api.post<{ name: string }>('/v1/prompts', { name, content });
+    res.redirect(`/admin/prompts/${encodeURIComponent(created.name)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/prompts/:name', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { name } = req.params;
+    const compareWith = req.query.compareWith as string | undefined;
+
+    const { data: versions } = await api.get<PromptVersionRow[]>(
+      `/v1/prompts/${encodeURIComponent(name)}/versions`,
+    );
+
+    let diffHtml = '';
+    if (compareWith) {
+      const active = versions.find((v) => v.isActive);
+      if (active) {
+        const { data: diff } = await api.get<{ version1: { versionNumber: number; content: string }; version2: { versionNumber: number; content: string } | null }>(
+          `/v1/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(active.id)}/diff?compareWith=${encodeURIComponent(compareWith)}`,
+        );
+        if (diff.version2) {
+          diffHtml = `
+            <div class="card" style="margin-bottom:1.5rem">
+              <h2 style="font-size:1rem;margin:0 0 1rem">Diff</h2>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                <div>
+                  <div style="color:#94a3b8;font-size:0.75rem;margin-bottom:0.25rem">Active (v${diff.version1.versionNumber})</div>
+                  <pre style="margin:0;font-size:0.75rem;background:#0f1117;padding:0.75rem;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow-y:auto">${escHtml(diff.version1.content)}</pre>
+                </div>
+                <div>
+                  <div style="color:#94a3b8;font-size:0.75rem;margin-bottom:0.25rem">v${diff.version2.versionNumber}</div>
+                  <pre style="margin:0;font-size:0.75rem;background:#0f1117;padding:0.75rem;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow-y:auto">${escHtml(diff.version2.content)}</pre>
+                </div>
+              </div>
+            </div>`;
+        }
+      }
+    }
+
+    const rows = versions.map((v) => `
+      <tr style="${v.isActive ? 'background:#052e16' : ''}">
+        <td>v${v.versionNumber}</td>
+        <td>${v.isActive ? '<span style="color:#34d399">Active</span>' : ''}</td>
+        <td style="font-family:monospace;font-size:0.75rem;color:#94a3b8;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(v.content)}</td>
+        <td style="font-size:0.75rem;color:#94a3b8">${v.createdAt ? new Date(v.createdAt).toLocaleString() : '—'}</td>
+        <td style="white-space:nowrap">
+          ${!v.isActive ? `<form method="POST" action="/admin/prompts/${encodeURIComponent(name)}/versions/${escHtml(v.id)}/promote" style="display:inline;margin-right:0.5rem">
+            <button class="btn btn-ghost" style="font-size:0.75rem">Promote</button>
+          </form>
+          <a href="/admin/prompts/${encodeURIComponent(name)}?compareWith=${escHtml(v.id)}" class="btn btn-ghost" style="font-size:0.75rem">Diff</a>` : ''}
+        </td>
+      </tr>`).join('');
+
+    res.send(layout(`
+      <div class="container" style="margin-top:1.5rem;max-width:900px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+          <h1 style="margin:0;font-size:1.25rem">${escHtml(name)}</h1>
+          <a href="/admin/prompts" style="color:#94a3b8;font-size:0.875rem">← Prompts</a>
+        </div>
+        ${diffHtml}
+        <div class="card">
+          <table>
+            <thead><tr><th>Version</th><th>Status</th><th>Content Preview</th><th>Created</th><th></th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No versions yet</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`, { title: `${name} — Prompts — Admin`, user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/prompts/:name/versions/:vid/promote', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const { name, vid } = req.params;
+    await api.post(`/v1/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(vid)}/promote`);
+    res.redirect(`/admin/prompts/${encodeURIComponent(name)}`);
   } catch (err) {
     next(err);
   }

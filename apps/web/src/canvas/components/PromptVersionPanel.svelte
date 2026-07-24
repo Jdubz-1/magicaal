@@ -11,6 +11,11 @@
     createdAt: string;
   }
 
+  /** The raw row shape GET /v1/prompts and .../versions return. */
+  interface PromptVersionRow extends PromptVersion {
+    name: string;
+  }
+
   interface Prompt {
     name: string;
     activeVersion: PromptVersion | null;
@@ -27,19 +32,33 @@
   let diffMode: { name: string; v1: PromptVersion; v2: PromptVersion } | null = null;
   let error: string | null = null;
 
+  // GET /v1/prompts returns a flat array of each name's *active* version row
+  // (not a { prompts: [...] } wrapper, and versions aren't nested) — build the
+  // per-name summary here; full version lists are fetched lazily on expand.
   async function loadPrompts() {
     loading = true;
     error = null;
     try {
       const res = await fetch('/api/v1/prompts');
       if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json() as { prompts: Prompt[] };
-      prompts = data.prompts ?? [];
+      const activeVersions = await res.json() as PromptVersionRow[];
+      prompts = activeVersions.map((v) => ({
+        name: v.name,
+        activeVersion: v,
+        versions: [],
+      }));
     } catch (err) {
       error = (err as Error).message;
     } finally {
       loading = false;
     }
+  }
+
+  async function loadVersions(name: string) {
+    const res = await fetch(`/api/v1/prompts/${encodeURIComponent(name)}/versions`);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const versions = await res.json() as PromptVersion[];
+    prompts = prompts.map((p) => (p.name === name ? { ...p, versions } : p));
   }
 
   async function promoteVersion(name: string, versionId: string) {
@@ -49,6 +68,7 @@
       });
       if (!res.ok) throw new Error(`${res.status}`);
       await loadPrompts();
+      if (expandedPrompts.has(name)) await loadVersions(name);
     } catch (err) {
       error = (err as Error).message;
     }
@@ -63,10 +83,12 @@
         body: JSON.stringify({ name: newVersionName, content: newVersionContent }),
       });
       if (!res.ok) throw new Error(`${res.status}`);
+      const createdName = newVersionName;
       showNewModal = false;
       newVersionName = '';
       newVersionContent = '';
       await loadPrompts();
+      if (expandedPrompts.has(createdName)) await loadVersions(createdName);
     } catch (err) {
       error = (err as Error).message;
     }
@@ -74,13 +96,19 @@
 
   $: if (expanded && prompts.length === 0) void loadPrompts();
 
-  function togglePrompt(name: string) {
+  async function togglePrompt(name: string) {
     if (expandedPrompts.has(name)) {
       expandedPrompts.delete(name);
-    } else {
-      expandedPrompts.add(name);
+      expandedPrompts = new Set(expandedPrompts);
+      return;
     }
+    expandedPrompts.add(name);
     expandedPrompts = new Set(expandedPrompts);
+    try {
+      await loadVersions(name);
+    } catch (err) {
+      error = (err as Error).message;
+    }
   }
 
   function showDiff(name: string, v1: PromptVersion, v2: PromptVersion) {
