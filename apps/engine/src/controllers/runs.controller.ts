@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import * as crypto from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
@@ -170,6 +170,64 @@ export const getRun: RequestHandler = async (req, res, next) => {
         completionTokens: run.totalCompletionTokens,
         estimatedCostUsd: run.estimatedCostUsd,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /internal/agents/:id/runs (ALIGN-021) — run history for one agent.
+ * Filtered and paginated at the SQL level (unlike getTelemetry's `.filter()`
+ * pass after the row-count `.limit()` is already applied, which can return
+ * fewer rows than requested even when more exist for the filter). Tenant
+ * ownership is the API layer's responsibility, per the existing internal-
+ * route convention — this endpoint trusts the agentId it's given.
+ */
+export const listAgentRuns: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: agentId } = req.params;
+    const { limit = '50', offset = '0', status } = req.query as {
+      limit?: string;
+      offset?: string;
+      status?: string;
+    };
+
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+    const conditions = [eq(telemetryRuns.agentId, agentId)];
+    if (status) conditions.push(eq(telemetryRuns.status, status));
+
+    const rows = await telemetryDb
+      .select()
+      .from(telemetryRuns)
+      .where(and(...conditions))
+      .orderBy(desc(telemetryRuns.startedAt))
+      .limit(limitNum + 1)
+      .offset(offsetNum);
+
+    const hasMore = rows.length > limitNum;
+    const page = rows.slice(0, limitNum);
+
+    res.json({
+      runs: page.map((r) => ({
+        id: r.id,
+        agentId: r.agentId,
+        triggerType: r.triggerType,
+        status: r.status,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        durationMs: r.durationMs,
+        tokenUsage: {
+          promptTokens: r.totalPromptTokens,
+          completionTokens: r.totalCompletionTokens,
+          estimatedCostUsd: r.estimatedCostUsd,
+        },
+      })),
+      limit: limitNum,
+      offset: offsetNum,
+      hasMore,
     });
   } catch (err) {
     next(err);

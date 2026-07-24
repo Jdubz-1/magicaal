@@ -1,5 +1,5 @@
 import type { AxiosInstance } from 'axios';
-import type { InvokeOptions, StartOptions, RunStreamEvent } from './types.js';
+import type { InvokeOptions, StartOptions, RunStreamEvent, RunListPage, RunStatus } from './types.js';
 import type { ValidationIssue } from './errors.js';
 import { RunHandleImpl } from './run-handle.js';
 import { streamRun } from './stream-client.js';
@@ -100,6 +100,18 @@ export class AgentClient<TIn = Record<string, unknown>, TOut = Record<string, un
     );
     const { runId } = res.data;
     return new RunHandleImpl<TOut>(runId, this.agentId, this.http);
+  }
+
+  /** Run history for this agent (ALIGN-021), newest first. */
+  async listRuns(opts?: { status?: RunStatus; limit?: number; offset?: number }): Promise<RunListPage> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    if (opts?.offset) params.set('offset', String(opts.offset));
+    const res = await this.http.get<RunListPage>(
+      `/v1/agents/${this.agentId}/runs?${params.toString()}`,
+    );
+    return res.data;
   }
 
   /** Returns a HumanReviewClient for a suspended run, allowing approve/reject/modify. */

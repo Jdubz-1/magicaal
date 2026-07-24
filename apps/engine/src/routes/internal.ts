@@ -8,6 +8,7 @@ import {
   cancelRun,
   deployAgent,
   webhookDispatch,
+  listAgentRuns,
 } from '../controllers/runs.controller';
 import { scheduleCronAgent, unscheduleCronAgent } from '../controllers/schedule.controller';
 import {
@@ -47,6 +48,7 @@ internalRouter.post('/agents/schedule', scheduleCronAgent);
 internalRouter.delete('/agents/:agentId/schedule', unscheduleCronAgent);
 internalRouter.post('/agents/:id/deploy', deployAgent);
 internalRouter.post('/agents/:agentId/webhook', webhookDispatch);
+internalRouter.get('/agents/:id/runs', listAgentRuns);
 
 internalRouter.get('/telemetry', getTelemetry);
 internalRouter.get('/telemetry/tokens', getTokenUsage);

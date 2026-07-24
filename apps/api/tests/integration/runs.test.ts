@@ -206,6 +206,52 @@ describe('GET /v1/agents/:id/runs/:runId', () => {
   });
 });
 
+describe('GET /v1/agents/:id/runs — listRuns (ALIGN-021)', () => {
+  let token: string;
+
+  beforeAll(async () => {
+    ({ token } = await createUserAndLogin(app, 'developer'));
+  });
+
+  it('proxies the engine run-history list with query params passed through', async () => {
+    const agentId = await createAndPublishAgent(token, `hist-agent-${Date.now()}`);
+    mockEngineGet.mockResolvedValue({
+      data: { runs: [{ id: 'run-1', agentId, status: 'completed' }], limit: 10, offset: 0, hasMore: false },
+    });
+
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/runs?limit=10&status=completed`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.runs).toHaveLength(1);
+    expect(mockEngineGet).toHaveBeenCalledWith(
+      `/internal/agents/${agentId}/runs`,
+      { params: { limit: '10', offset: undefined, status: 'completed' } },
+    );
+  });
+
+  it("404s for another tenant's agent", async () => {
+    const alice = await createUserAndLogin(app, 'developer');
+    const bob = await createUserAndLogin(app, 'developer');
+    const agentId = await createAndPublishAgent(alice.token, `hist-xt-${Date.now()}`);
+
+    const res = await request(app)
+      .get(`/v1/agents/${agentId}/runs`)
+      .set('Authorization', `Bearer ${bob.token}`);
+
+    expect(res.status).toBe(404);
+    expect(mockEngineGet).not.toHaveBeenCalled();
+  });
+
+  it('404s for an unknown agent', async () => {
+    const res = await request(app)
+      .get('/v1/agents/does-not-exist/runs')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('run access is scoped to the caller (ISS-049)', () => {
   it('404s when the run belongs to another tenant', async () => {
     const victim = await createUserAndLogin(app, 'developer');

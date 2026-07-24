@@ -203,6 +203,71 @@ describe('/internal/runs', () => {
     });
   });
 
+  describe('GET /internal/agents/:id/runs — listAgentRuns (ALIGN-021)', () => {
+    it('lists runs for the agent, newest first', async () => {
+      const older = await seedRun({ agentId: 'agent-list', startedAt: new Date(Date.now() - 5000) });
+      const newer = await seedRun({ agentId: 'agent-list', startedAt: new Date() });
+      await seedRun({ agentId: 'agent-other' }); // different agent — must not appear
+
+      const res = await request(app)
+        .get('/internal/agents/agent-list/runs')
+        .set(internalAuthHeader());
+
+      expect(res.status).toBe(200);
+      expect(res.body.runs.map((r: { id: string }) => r.id)).toEqual([newer, older]);
+    });
+
+    it('filters by status at the SQL level, not after the limit is applied', async () => {
+      // Seed more completed runs than the limit, plus one failed run for the
+      // same agent — the failed one must still surface even though it isn't
+      // among the newest `limit` rows overall.
+      const agentId = `agent-filter-${Math.random().toString(36).slice(2)}`;
+      const failed = await seedRun({ agentId, status: 'failed', startedAt: new Date(Date.now() - 10_000) });
+      for (let i = 0; i < 5; i++) {
+        await seedRun({ agentId, status: 'completed', startedAt: new Date(Date.now() - i * 1000) });
+      }
+
+      const res = await request(app)
+        .get(`/internal/agents/${agentId}/runs`)
+        .query({ status: 'failed', limit: '2' })
+        .set(internalAuthHeader());
+
+      expect(res.status).toBe(200);
+      expect(res.body.runs.map((r: { id: string }) => r.id)).toEqual([failed]);
+    });
+
+    it('paginates with limit/offset and reports hasMore', async () => {
+      const agentId = `agent-page-${Math.random().toString(36).slice(2)}`;
+      // Newest-first order matches the DB's desc(startedAt): i=0 is newest.
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        ids.push(await seedRun({ agentId, startedAt: new Date(Date.now() - i * 1000) }));
+      }
+
+      const page1 = await request(app)
+        .get(`/internal/agents/${agentId}/runs`)
+        .query({ limit: '2', offset: '0' })
+        .set(internalAuthHeader());
+      expect(page1.body.runs.map((r: { id: string }) => r.id)).toEqual(ids.slice(0, 2));
+      expect(page1.body.hasMore).toBe(true);
+
+      const page2 = await request(app)
+        .get(`/internal/agents/${agentId}/runs`)
+        .query({ limit: '2', offset: '2' })
+        .set(internalAuthHeader());
+      expect(page2.body.runs.map((r: { id: string }) => r.id)).toEqual(ids.slice(2));
+      expect(page2.body.hasMore).toBe(false);
+    });
+
+    it('returns an empty page for an agent with no runs', async () => {
+      const res = await request(app)
+        .get('/internal/agents/agent-with-none/runs')
+        .set(internalAuthHeader());
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ runs: [], hasMore: false });
+    });
+  });
+
   describe('GET /internal/runs/:id', () => {
     it('returns the run in the shape apps/api/src/controllers/runs.controller.ts expects', async () => {
       const runId = await seedRun({ status: 'completed', outputJson: JSON.stringify({ ok: true }) });

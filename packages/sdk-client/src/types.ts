@@ -76,6 +76,29 @@ export interface RateLimitInfo {
   resetAt: number;
 }
 
+/** A single row from an agent's run history (ALIGN-021). */
+export interface RunSummary {
+  id: string;
+  agentId: string;
+  triggerType: string;
+  status: RunStatus;
+  startedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+  tokenUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    estimatedCostUsd: number;
+  };
+}
+
+export interface RunListPage {
+  runs: RunSummary[];
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface RunHandle<TOut = Record<string, unknown>> {
   readonly id: string;
   wait(): Promise<TOut>;

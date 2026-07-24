@@ -7,6 +7,7 @@ import {
   streamRun,
   reviewRun,
   cancelRun,
+  listRuns,
 } from '../controllers/runs.controller';
 
 /**
@@ -24,6 +25,7 @@ export const runsRouter: RouterType = Router({ mergeParams: true });
 runsRouter.use(authenticateAgentCaller);
 
 runsRouter.post('/', dispatchRun);
+runsRouter.get('/', listRuns);
 runsRouter.get('/:runId', getRun);
 runsRouter.get('/:runId/steps', getRunSteps);
 runsRouter.get('/:runId/stream', streamRun);

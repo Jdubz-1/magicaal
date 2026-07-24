@@ -220,6 +220,34 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /v1/agents/:id/runs (ALIGN-021) — run history for one agent, for both
+ * the platform and invocation-key auth planes (unlike GET /v1/telemetry,
+ * which is platform-only and cross-agent). A list is already scoped by the
+ * :id path param, so ownership is checked once here rather than per-row like
+ * fetchRunScoped does for a bare run ID.
+ */
+export const listRuns: RequestHandler = async (req, res, next) => {
+  try {
+    const { id: agentId } = req.params;
+    const { tenantId } = req.user!;
+
+    const agentRows = await db.select().from(agents).where(eq(agents.id, agentId));
+    const agent = agentRows[0];
+    if (!agent || agent.tenantId !== tenantId) {
+      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
+
+    const { limit, offset, status } = req.query as { limit?: string; offset?: string; status?: string };
+    const response = await engineClient.get(`/internal/agents/${agentId}/runs`, {
+      params: { limit, offset, status },
+    });
+    res.json(response.data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getRun: RequestHandler = async (req, res, next) => {
   try {
     const { id: agentId, runId } = req.params;
