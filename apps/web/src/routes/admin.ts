@@ -67,6 +67,10 @@ adminRouter.get('/', (req, res) => {
             <div style="font-weight:600">Invocation Auth</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">API keys, policies &amp; rate limits</div>
           </a>
+          <a class="card" href="/admin/api-keys" style="text-decoration:none;color:inherit">
+            <div style="font-weight:600">Platform API Keys</div>
+            <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Tenant-wide mk_ credentials</div>
+          </a>
           <a class="card" href="/admin/system" style="text-decoration:none;color:inherit">
             <div style="font-weight:600">System</div>
             <div style="color:#94a3b8;font-size:0.875rem;margin-top:0.25rem">Health &amp; diagnostics</div>
@@ -1591,6 +1595,101 @@ adminRouter.post('/invocation-auth/:agentId/keys/:keyId/revoke', async (req, res
     const { agentId, keyId } = req.params;
     await api.delete(`/v1/agents/${encodeURIComponent(agentId)}/invocation-keys/${encodeURIComponent(keyId)}`);
     res.redirect(`/admin/invocation-auth/${encodeURIComponent(agentId)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Platform API Keys (ALIGN-020) ────────────────────────────────────────────
+
+interface PlatformApiKey {
+  id: string;
+  name: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revoked: boolean;
+  createdAt: string;
+}
+
+function renderApiKeysPage(
+  user: { name: string; role: string },
+  keys: PlatformApiKey[],
+  newKey?: string,
+): string {
+  const rows = keys.map((k) => `
+    <tr style="${k.revoked ? 'opacity:0.45' : ''}">
+      <td>${escHtml(k.name)}</td>
+      <td>${k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—'}</td>
+      <td>${k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : 'Never'}</td>
+      <td>${k.revoked ? '<span style="color:#f87171">Revoked</span>' : '<span style="color:#34d399">Active</span>'}</td>
+      <td>
+        ${!k.revoked ? `<form method="POST" action="/admin/api-keys/${escHtml(k.id)}/revoke" style="display:inline">
+          <button type="submit" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:inherit;padding:0">Revoke</button>
+        </form>` : ''}
+      </td>
+    </tr>`).join('');
+
+  const newKeyHtml = newKey
+    ? `<div class="alert-error" style="background:#14532d;border-color:#166534;color:#86efac;margin-bottom:1rem">
+        <strong>Save this key — it will not be shown again:</strong><br>
+        <code style="font-size:0.875rem;word-break:break-all">${escHtml(newKey)}</code>
+      </div>`
+    : '';
+
+  return layout(`
+    <div class="container" style="margin-top:1.5rem;max-width:800px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+        <h1 style="margin:0;font-size:1.25rem">Platform API Keys</h1>
+        <a href="/admin" style="color:#94a3b8;font-size:0.875rem">← Admin</a>
+      </div>
+      <div class="card">
+        <p style="font-size:0.875rem;color:#94a3b8;margin:0 0 1rem">Platform keys (<code>mk_</code>) carry full tenant access, unlike per-agent invocation keys. Hand them out sparingly — e.g. for the SDK's platform-plane auth.</p>
+        ${newKeyHtml}
+        <form method="POST" action="/admin/api-keys" style="display:flex;gap:0.75rem;margin-bottom:1rem;align-items:flex-end">
+          <div class="form-group" style="margin:0;flex:1">
+            <label>New Key Name</label>
+            <input name="name" required placeholder="e.g. ci-pipeline" />
+          </div>
+          <button type="submit" class="btn btn-primary">Generate Key</button>
+        </form>
+        <table>
+          <thead><tr><th>Name</th><th>Last Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="color:#475569;text-align:center;padding:1.5rem">No API keys created yet</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`, { title: 'Platform API Keys — Admin', user });
+}
+
+adminRouter.get('/api-keys', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { data: keys } = await api.get<PlatformApiKey[]>('/v1/keys');
+    res.send(renderApiKeysPage({ name: user.userId, role: user.role }, keys));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/api-keys', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const { name } = req.body as { name: string };
+
+    const { data: created } = await api.post<{ key: string }>('/v1/keys', { name });
+    const { data: keys } = await api.get<PlatformApiKey[]>('/v1/keys');
+    res.send(renderApiKeysPage({ name: user.userId, role: user.role }, keys, created.key));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/api-keys/:id/revoke', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    await api.delete(`/v1/keys/${encodeURIComponent(req.params.id)}`);
+    res.redirect('/admin/api-keys');
   } catch (err) {
     next(err);
   }

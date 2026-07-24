@@ -3,6 +3,7 @@ import { healthRouter } from './health';
 import { authRouter } from './auth';
 import { usersRouter } from './users';
 import { tenantsRouter } from './tenants';
+import { apiKeysRouter } from './api-keys';
 import { agentsRouter } from './agents';
 import { systemRouter } from './system';
 import { llmRouter } from './llm';
@@ -33,6 +34,7 @@ router.use(healthRouter);
 router.use('/v1/auth', authRouter);
 router.use('/v1/users', usersRouter);
 router.use('/v1/tenants', tenantsRouter);
+router.use('/v1/keys', apiKeysRouter);
 // Public webhook receiver — the calling service carries no bearer token; the
 // per-agent HMAC secret in the URL authenticates it. Must precede agentsRouter,
 // which applies requireAuth to the whole /v1/agents prefix (a router-level
