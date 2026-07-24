@@ -130,6 +130,7 @@
           <ExpressionEditor
             value={String(configValue(key) ?? '')}
             fieldName={key}
+            contextKeys={upstreamNodes.flatMap(getUpstreamOutputKeys)}
             on:change={(e) => updateConfig(key, e.detail)}
             on:evaluate={(e) => evaluateExpression(key, e.detail)}
           />
