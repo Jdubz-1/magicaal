@@ -43,6 +43,18 @@ describe('/internal/agents', () => {
       const afterDeploy = await graphLoader.load(agentId, 'tenant-a');
       expect(afterDeploy.entry).toBe('v2');
     });
+
+    it('publishes a Redis invalidation event so other instances follow suit (ALIGN-030)', async () => {
+      const agentId = seedAgent(db, { tenantId: 'tenant-a' });
+      seedAgentVersion(db, agentId, { entry: 'start', nodes: { start: { id: 'start', type: 'core:start' } } });
+
+      await request(app).post(`/internal/agents/${agentId}/deploy`).set(internalAuthHeader());
+
+      expect(queueMocks.redis.publish).toHaveBeenCalledWith(
+        'magicaal:graph-invalidate',
+        expect.stringContaining(agentId),
+      );
+    });
   });
 
   describe('POST /internal/agents/schedule', () => {

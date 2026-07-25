@@ -35,7 +35,7 @@ export function assertAgentInTenant(agentId: string, tenantId: string): void {
 }
 
 class GraphLoader {
-  private cache = new Map<string, { graph: AgentGraphDefinition; tenantId: string }>();
+  private cache = new Map<string, { graph: AgentGraphDefinition; tenantId: string; versionId: string }>();
 
   async load(agentId: string, tenantId: string): Promise<AgentGraphDefinition> {
     const cached = this.cache.get(agentId);
@@ -54,12 +54,12 @@ class GraphLoader {
     const db = getDb();
     const row = db
       .prepare(
-        `SELECT av.graph_json
+        `SELECT av.graph_json, av.id AS version_id
          FROM agent_versions av
          JOIN agents a ON a.current_version_id = av.id
          WHERE a.id = ? AND a.tenant_id = ? AND a.status = 'active' AND a.enabled = 1`,
       )
-      .get(agentId, tenantId) as { graph_json: string } | undefined;
+      .get(agentId, tenantId) as { graph_json: string; version_id: string } | undefined;
 
     if (!row) {
       throw Object.assign(
@@ -69,8 +69,8 @@ class GraphLoader {
     }
 
     const graph = JSON.parse(row.graph_json) as AgentGraphDefinition;
-    this.cache.set(agentId, { graph, tenantId });
-    logger.debug({ agentId }, 'Graph loaded from database');
+    this.cache.set(agentId, { graph, tenantId, versionId: row.version_id });
+    logger.debug({ agentId, versionId: row.version_id }, 'Graph loaded from database');
     return graph;
   }
 

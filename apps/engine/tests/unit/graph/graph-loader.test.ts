@@ -42,10 +42,17 @@ beforeEach(() => {
 
 describe('GraphLoader.load', () => {
   it('parses and returns graph from database', async () => {
-    mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph) });
+    mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph), version_id: 'v1' });
     const result = await graphLoader.load('agent-1', 't1');
     expect(result).toEqual(sampleGraph);
     expect(mockPrepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects the version id alongside the graph JSON (ALIGN-030 observability)', async () => {
+    mockGet.mockReturnValue({ graph_json: JSON.stringify(sampleGraph), version_id: 'v1' });
+    await graphLoader.load('agent-version', 't1');
+    const query = mockPrepare.mock.calls[0][0] as string;
+    expect(query).toContain('av.id AS version_id');
   });
 
   it('returns cached result on second call without hitting DB again', async () => {

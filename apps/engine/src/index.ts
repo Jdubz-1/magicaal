@@ -7,6 +7,7 @@ import { startScheduler } from './execution/scheduler';
 import { initPricingCache } from './router/router-engine';
 import { sessionManager } from './session/session-manager';
 import { startHotLoadSubscriber, reloadInstalledPackages } from './marketplace/hot-load';
+import { startGraphInvalidateSubscriber } from './graph/graph-invalidate';
 import { sweepTelemetry } from './db/telemetry-retention';
 import { redis } from './queue/client';
 
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
   initPricingCache(); // seeds built-in defaults; DB overrides loaded after first API sync
   startScheduler();
   startHotLoadSubscriber(redis);
+  startGraphInvalidateSubscriber(redis);
 
   // Hourly session expiry sweep
   setInterval(() => {

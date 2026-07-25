@@ -1,4 +1,3 @@
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Redis } from 'ioredis';
@@ -8,6 +7,7 @@ import { registry } from '../registry/node-registry';
 import { integrationRegistry } from '../registry/integration-registry';
 import { loadPackageDir, verifyInstalledDir, assertWithinPackagesDir } from './package-loader';
 import type { PackageManifest } from './package-verifier';
+import { ENGINE_INSTANCE_ID } from '../lib/instance-id';
 
 export const PACKAGE_EVENTS_CHANNEL = 'magicaal:package-events';
 
@@ -15,7 +15,7 @@ export const PACKAGE_EVENTS_CHANNEL = 'magicaal:package-events';
  * Identifies this engine process, so an instance can ignore the event it
  * published itself (it already hot-loaded the package directly).
  */
-export const INSTANCE_ID = crypto.randomUUID();
+export const INSTANCE_ID = ENGINE_INSTANCE_ID;
 
 /** Stable, version-agnostic package identity used for node provenance. */
 export function packageIdOf(manifest: Pick<PackageManifest, 'publisher' | 'name'>): string {

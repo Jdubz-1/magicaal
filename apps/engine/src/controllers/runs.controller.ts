@@ -3,8 +3,9 @@ import * as crypto from 'node:crypto';
 import { eq, and, desc } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns, telemetrySteps } from '../db/telemetry-schema';
-import { runTriggerQueue } from '../queue/client';
-import { graphLoader, assertAgentInTenant } from '../graph/graph-loader';
+import { runTriggerQueue, redis } from '../queue/client';
+import { assertAgentInTenant } from '../graph/graph-loader';
+import { publishGraphInvalidate } from '../graph/graph-invalidate';
 import { sseManager } from '../sse/sse-manager';
 import { resumeRun } from '../execution/resume';
 import { lifecycle } from '../execution/lifecycle';
@@ -360,10 +361,10 @@ export const cancelRun: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const deployAgent: RequestHandler = (req, res, next) => {
+export const deployAgent: RequestHandler = async (req, res, next) => {
   try {
     const { id } = req.params;
-    graphLoader.invalidate(id);
+    await publishGraphInvalidate(redis, id);
     res.json({ agentId: id, invalidated: true });
   } catch (err) {
     next(err);
