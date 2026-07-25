@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { graph } from '../stores/graph';
   import { nodeTypes, type NodeTypeDef } from '../stores/nodeTypes';
+  import { connections, ensureConnectionsLoaded } from '../stores/connections';
 
   // Newly installed packages must appear without a page reload — poll the
   // node list and update the store when the type set changes.
@@ -62,8 +63,27 @@
     }
   }
 
+  /** The service a node type's connection field requires, or undefined if it takes none. */
+  function requiredService(nt: NodeTypeDef): string | undefined {
+    const props = nt.schema?.config?.properties;
+    if (!props) return undefined;
+    for (const prop of Object.values(props)) {
+      if (prop.format === 'connection') return prop.service;
+    }
+    return undefined;
+  }
+
+  function isNotConnected(nt: NodeTypeDef, connServices: Set<string>): boolean {
+    const service = requiredService(nt);
+    if (!service) return false;
+    return !connServices.has(service);
+  }
+
+  $: connectedServices = new Set($connections.map((c) => c.service));
+
   onMount(async () => {
     await loadNodes();
+    void ensureConnectionsLoaded();
     refreshTimer = setInterval(loadNodes, REFRESH_INTERVAL_MS);
 
     try {
@@ -99,7 +119,12 @@
     <div class="category-header">{group.label}</div>
     {#each group.items as nt}
       <button class="palette-item" on:click={() => addNode(nt.type, nt.meta.name)}>
-        <span class="node-name">{nt.meta.name}</span>
+        <span class="node-name">
+          {nt.meta.name}
+          {#if isNotConnected(nt, connectedServices)}
+            <span class="not-connected-badge" title="No {requiredService(nt)} connection configured">not connected</span>
+          {/if}
+        </span>
         <span class="node-type">{nt.type}</span>
       </button>
     {/each}
@@ -122,7 +147,11 @@
     cursor: pointer; color: inherit; text-align: left;
   }
   .palette-item:hover { background: #2d3148; }
-  .node-name { font-size: 0.8125rem; color: #e2e8f0; }
+  .node-name { font-size: 0.8125rem; color: #e2e8f0; display: flex; align-items: center; gap: 0.375rem; }
+  .not-connected-badge {
+    font-size: 0.5625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    color: #fcd34d; background: #78350f; border-radius: 3px; padding: 0.05rem 0.3rem;
+  }
   .node-type { font-size: 0.625rem; color: #64748b; font-family: monospace; margin-top: 0.1rem; }
   .marketplace-link { display: block; font-size: 0.6875rem; color: #7c6af7; padding: 0.125rem 0.25rem 0.375rem; text-decoration: none; }
   .marketplace-link:hover { text-decoration: underline; }
