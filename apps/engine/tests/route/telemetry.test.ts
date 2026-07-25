@@ -44,6 +44,19 @@ describe('/internal/telemetry', () => {
       expect(ids).not.toContain(theirs);
     });
 
+    it('includes reviewId so callers can tell human-review and timed-wait suspensions apart (ALIGN-031)', async () => {
+      const tenantId = 'tenant-review-id';
+      const runId = await seedRun({ tenantId, status: 'suspended', reviewId: 'wait_abc' });
+
+      const res = await request(app)
+        .get('/internal/telemetry')
+        .query({ tenantId })
+        .set(internalAuthHeader());
+
+      const run = res.body.runs.find((r: { id: string }) => r.id === runId);
+      expect(run.reviewId).toBe('wait_abc');
+    });
+
     it('filters by agentId and status on top of the tenant scope', async () => {
       const tenantId = 'tenant-filter';
       await seedRun({ tenantId, agentId: 'agent-x', status: 'completed' });

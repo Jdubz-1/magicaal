@@ -782,7 +782,10 @@ adminRouter.get('/reviews', async (req, res, next) => {
     let suspended: Array<{ id: string; agentId: string; startedAt: string; reviewId?: string }> = [];
     try {
       const { data } = await api.get<{ runs: typeof suspended }>('/v1/telemetry?status=suspended&limit=50');
-      suspended = data.runs ?? [];
+      // A run.suspended state also covers a timed core:wait resume
+      // (ALIGN-031, 'wait_'-prefixed reviewId) — only human-review's
+      // 'rev_'-prefixed suspensions belong on this queue.
+      suspended = (data.runs ?? []).filter((r) => r.reviewId?.startsWith('rev_'));
     } catch { /* engine unavailable */ }
 
     const rows = suspended.map((r) => `

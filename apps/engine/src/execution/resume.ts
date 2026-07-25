@@ -33,6 +33,16 @@ export async function resumeRun(
     );
   }
 
+  // A 'suspended' status also covers a timed core:wait resume (ALIGN-031,
+  // 'wait_'-prefixed reviewId) — that path resumes itself via a delayed
+  // BullMQ job and must never be pointed at by the human-review API.
+  if (!run.reviewId?.startsWith('rev_')) {
+    throw Object.assign(
+      new Error(`Run ${runId} is not awaiting human review`),
+      { status: 409, code: 'RUN_NOT_HUMAN_REVIEWABLE' },
+    );
+  }
+
   if (resolution.action === 'reject') {
     // Mark as failed immediately
     await telemetryDb
@@ -90,7 +100,14 @@ export async function resumeRun(
 
 export async function requeuesuspendedRunsOnStartup(): Promise<void> {
   // On engine restart, find any runs that were suspended but never resumed
-  // and re-queue them so they aren't permanently stuck
+  // and re-queue them so they aren't permanently stuck.
+  //
+  // This only concerns human-review suspensions ('rev_'-prefixed reviewId),
+  // which have no timer and correctly wait for explicit API action — a timed
+  // core:wait suspend (ALIGN-031, 'wait_'-prefixed reviewId) needs no
+  // re-arming here: its delayed BullMQ job is a durable Redis sorted-set
+  // entry independent of this process, so it fires at its original time
+  // whether or not the engine restarted in the meantime.
   const suspended = await telemetryDb
     .select()
     .from(telemetryRuns)

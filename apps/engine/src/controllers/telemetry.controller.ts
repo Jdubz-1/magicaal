@@ -39,6 +39,10 @@ export const getTelemetry: RequestHandler = async (req, res, next) => {
         startedAt: r.startedAt,
         completedAt: r.completedAt,
         durationMs: r.durationMs,
+        // 'rev_'-prefixed for core:human-review, 'wait_'-prefixed for a
+        // timed core:wait suspend (ALIGN-031) — lets consumers (the admin
+        // review queue) tell the two kinds of 'suspended' apart.
+        reviewId: r.reviewId,
         tokenUsage: {
           promptTokens: r.totalPromptTokens,
           completionTokens: r.totalCompletionTokens,

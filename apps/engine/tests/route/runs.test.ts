@@ -304,6 +304,7 @@ describe('/internal/runs', () => {
     it('approve re-enqueues the run and resumes from the suspended node', async () => {
       const runId = await seedRun({
         status: 'suspended',
+        reviewId: 'rev_test-1',
         suspendedNodeId: 'human-review-1',
         checkpointJson: JSON.stringify({ partial: true }),
       });
@@ -323,6 +324,7 @@ describe('/internal/runs', () => {
     it('approve threads the sessionId back into the resumed job (ALIGN-010)', async () => {
       const runId = await seedRun({
         status: 'suspended',
+        reviewId: 'rev_test-2',
         suspendedNodeId: 'review-1',
         sessionId: 'tenant-a:agent-a:sess-resume',
       });
@@ -338,7 +340,7 @@ describe('/internal/runs', () => {
     });
 
     it('reject fails the run immediately without re-enqueuing', async () => {
-      const runId = await seedRun({ status: 'suspended' });
+      const runId = await seedRun({ status: 'suspended', reviewId: 'rev_test-3' });
 
       const res = await request(app)
         .post(`/internal/runs/${runId}/review`)
@@ -354,7 +356,7 @@ describe('/internal/runs', () => {
     });
 
     it('400s on an invalid action', async () => {
-      const runId = await seedRun({ status: 'suspended' });
+      const runId = await seedRun({ status: 'suspended', reviewId: 'rev_test-4' });
       const res = await request(app)
         .post(`/internal/runs/${runId}/review`)
         .set(internalAuthHeader())
@@ -370,6 +372,23 @@ describe('/internal/runs', () => {
         .send({ action: 'approve' });
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('RUN_NOT_SUSPENDED');
+    });
+
+    it('409s a timer-suspended core:wait run — the human-review API cannot touch it (ALIGN-031)', async () => {
+      const runId = await seedRun({
+        status: 'suspended',
+        reviewId: 'wait_test-1',
+        suspendedNodeId: 'wait',
+      });
+
+      const res = await request(app)
+        .post(`/internal/runs/${runId}/review`)
+        .set(internalAuthHeader())
+        .send({ action: 'approve' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('RUN_NOT_HUMAN_REVIEWABLE');
+      expect(queueMocks.runTriggerQueue.add).not.toHaveBeenCalled();
     });
   });
 

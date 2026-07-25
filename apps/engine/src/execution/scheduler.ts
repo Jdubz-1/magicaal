@@ -160,6 +160,21 @@ export function startScheduler(): void {
         if (ctx.isSuspended) {
           holdSessionLock = true;
           await lifecycle.markRunSuspended(runId, ctx.suspendReviewId ?? '', ctx, ctx.suspendedNodeId);
+
+          // Timed auto-resume (ALIGN-031, e.g. core:wait): the node set
+          // ctx.resumeAt instead of waiting for explicit human-review API
+          // action. Reuses the ALIGN-004 retry queue/worker exactly as-is —
+          // mechanically it is already "resume this run after a delay,
+          // resuming from a given node with checkpointed context"; a
+          // dedicated queue would only duplicate it.
+          if (ctx.resumeAt !== undefined && ctx.suspendedNodeId) {
+            const delayMs = Math.max(0, ctx.resumeAt - Date.now());
+            await runRetryQueue.add(
+              'run-retry',
+              { ...job.data, input: ctx.data, resumeFromNodeId: ctx.suspendedNodeId, nodeAttempts },
+              { delay: delayMs },
+            );
+          }
         } else {
           await lifecycle.markRunComplete(runId, ctx.data, ctx);
         }
