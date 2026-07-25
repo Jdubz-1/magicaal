@@ -46,6 +46,7 @@ export class ExecutionContextImpl implements ExecutionContext {
   private _suspended = false;
   private _suspendReviewId: string | undefined;
   private _suspendedNodeId: string | undefined;
+  private _resumeAt: number | undefined;
 
   constructor(params: RunParams) {
     this.runId = params.runId;
@@ -161,10 +162,27 @@ export class ExecutionContextImpl implements ExecutionContext {
     throw Object.assign(new Error(`Sub-run ${runId} timed out`), { code: 'SUB_RUN_TIMEOUT', retryable: false });
   }
 
-  suspend(reviewId: string, nodeId?: string): void {
+  /**
+   * Suspend the run. `nodeId` self-identifies the calling node from
+   * `_currentNodeId` — a dynamic property `worker.ts` sets synchronously
+   * before every node's `execute()` call and clears only after it returns —
+   * so this is reliable without every caller having to pass its own id.
+   *
+   * Previously this only recorded `nodeId` if the caller passed one, and the
+   * only real caller (core-human-review) never did — so `suspendedNodeId`
+   * stayed undefined, `resume.ts` never overrode `graph.entry`, and every
+   * resumed human-review run silently replayed the whole graph from its
+   * original entry node instead of continuing from the review node.
+   *
+   * `resumeAt` (ALIGN-031) is an optional epoch-ms hint for a delayed,
+   * non-human-review resume (e.g. core:wait) — the scheduler reads it via
+   * `resumeAt` to schedule the resume job.
+   */
+  suspend(reviewId: string, opts?: { resumeAt?: number }): void {
     this._suspended = true;
     this._suspendReviewId = reviewId;
-    this._suspendedNodeId = nodeId;
+    this._suspendedNodeId = (this as unknown as Record<string, unknown>)._currentNodeId as string | undefined;
+    this._resumeAt = opts?.resumeAt;
   }
 
   emit(event: string, payload: unknown): void {
@@ -201,6 +219,10 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   get suspendedNodeId(): string | undefined {
     return this._suspendedNodeId;
+  }
+
+  get resumeAt(): number | undefined {
+    return this._resumeAt;
   }
 
   get tokenUsage(): TokenUsage {

@@ -42,7 +42,12 @@ export interface ExecutionContext {
   recordTokenUsage(usage: TokenUsage): void;
   recordTrajectoryStep(step: TrajectoryStep): void;
 
-  suspend(reviewId: string): void;
+  /**
+   * Suspend the run, checkpointing at the calling node. `resumeAt` (epoch ms)
+   * is an optional hint for a timed, non-human-review resume (e.g. core:wait) —
+   * omit it for a human-review-style suspend awaiting explicit API action.
+   */
+  suspend(reviewId: string, opts?: { resumeAt?: number }): void;
   emit(event: string, payload: unknown): void;
 
   // LLM invocation routed through the configured provider adapter registry

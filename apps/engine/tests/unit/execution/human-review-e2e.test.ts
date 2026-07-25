@@ -106,6 +106,11 @@ describe('Human Review E2E', () => {
     expect(ctx.isSuspended).toBe(true);
     expect(ctx.suspendReviewId).toMatch(/^rev_/);
     expect(ctx.get('_review_id')).toMatch(/^rev_/);
+    // Regression: ctx.suspend() previously only recorded a caller-supplied
+    // nodeId, and core-human-review never passed one, so suspendedNodeId
+    // stayed undefined and a resumed run replayed the whole graph instead of
+    // continuing from "review".
+    expect(ctx.suspendedNodeId).toBe('review');
   });
 
   it('does NOT emit node.completed for the human-review node on first execution', async () => {
