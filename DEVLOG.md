@@ -25,6 +25,34 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-24 - Doc–code alignment: all ten low-severity issues (ALIGN-020..022, 026-031, 034) — all 34 alignment issues now resolved
+
+**Type:** Feature
+
+**Description:**
+Closed out the 2026-07-13 alignment review's last tier. These were smaller/polish-tier gaps individually, but the pass surfaced one real correctness bug adjacent to a documented gap: `ExecutionContext.suspend()` never recorded which node suspended a run, so every resumed human-review run had been silently replaying the entire graph from its entry node since the feature shipped — fixed as a prerequisite before `core:wait`'s own suspend/resume work could be built on the same mechanism.
+
+**Changes:**
+- `apps/api/src/controllers/api-keys.controller.ts` (new), `routes/api-keys.ts` (new), `apps/web/src/routes/admin.ts` — tenant-scoped platform API key CRUD (`POST/GET /v1/keys`, `DELETE /v1/keys/:id`), mirroring the existing `ik_` invocation-keys pattern (ALIGN-020)
+- `apps/engine/src/controllers/runs.controller.ts` (`listAgentRuns`, SQL-level filter/pagination), `routes/internal.ts`, `apps/api/src/controllers/runs.controller.ts` (`listRuns`), `routes/runs.ts`, `packages/sdk-client/src/agent-client.ts` (`listRuns()`), `types.ts` — agent-scoped run history (ALIGN-021)
+- ALIGN-022 (prompt version `PUT`): decision only, no code — versions stay immutable by design (both name-only and version-pinned `PromptRef`s resolve live at call time, so in-place edits would retroactively change behavior for every reference)
+- `apps/web/src/routes/admin.ts` (`/admin/prompts`), `apps/web/src/canvas/components/PromptVersionPanel.svelte` — tenant-wide prompt admin panel; fixed the Studio panel's API shape mismatch found in passing (`GET /v1/prompts` returns a flat array, not `{prompts: [...]}` — it had rendered empty since it shipped) (ALIGN-026)
+- `apps/web/src/canvas/components/ExpressionEditor.svelte`, `NodeConfigPanel.svelte`, new CodeMirror 6 deps in `apps/web/package.json` — JS-mode highlighting (JSONata-adjacent tokens), autocomplete from builtin functions + upstream context keys; public prop/event contract unchanged (ALIGN-027)
+- `apps/web/src/canvas/components/LintPanel.svelte`, new `stores/connections.ts` — illegal-cycle-edge and missing-connection-config lint rules; cycle detection checks the back-edge's *source* node type, verified against the engine's own `worker.ts` cycle-handling block (ALIGN-028)
+- `apps/web/src/canvas/components/NodePalette.svelte` — "not connected" badge reusing the ALIGN-028 connections store; canvas node-grouping explicitly backlogged in the architecture doc, not built (ALIGN-029)
+- `apps/engine/src/lib/instance-id.ts` (new, factored out of `hot-load.ts`), `graph/graph-invalidate.ts` (new), `graph/graph-loader.ts`, `controllers/runs.controller.ts`, `index.ts` — Redis pub/sub graph cache invalidation across engine instances, mirroring the package hot-load pattern (ALIGN-030)
+- `apps/engine/src/execution/context.ts`, `packages/sdk/src/context.ts` — **prerequisite fix**: `suspend()` now self-identifies the calling node from the `_currentNodeId` back-channel `worker.ts` already sets, instead of relying on a `nodeId` argument no caller ever passed; regression-tested in `human-review-e2e.test.ts`
+- `packages/nodes/src/nodes/core-wait.ts`, `apps/engine/src/execution/scheduler.ts`, `controllers/telemetry.controller.ts`, `execution/resume.ts`, `apps/web/src/routes/admin.ts` (`/admin/reviews`) — `core:wait` delay mode above 5s suspends and auto-resumes via a delayed BullMQ job reusing the ALIGN-004 retry queue instead of blocking a worker slot; disambiguated from human-review suspensions via a `wait_`/`rev_` `reviewId` prefix, with a defensive `RUN_NOT_HUMAN_REVIEWABLE` guard in `resumeRun` (ALIGN-031)
+- `.ai_docs/MAGICAAL_DEV_ROADMAP.md`, `MAGICAAL_PROGRESS.md` — Caal Phase 2 removed from the Phase 5 timeline and the Phase 4 Caal section rather than retroactively defined; no scope for it was ever recorded (ALIGN-034)
+
+**Impact:**
+All 34 issues from the 2026-07-13 alignment review are now resolved (9 high, 15 medium, 10 low). `core:wait` no longer risks stalling the engine on long delays, and every resumed human-review run now correctly continues from the review node instead of silently re-running upstream side effects. 267 engine + 358 API + 144 nodes tests green; type-check and lint clean across all touched workspaces.
+
+**Notes:**
+`.ai_docs/MAGICAAL_ISSUES.md`, `MAGICAAL_PROGRESS.md`, and `MAGICAAL_ARCHITECTURE.md` updates stay local — that directory is gitignored per repo convention; only this DEVLOG entry is committed. A known, separate limitation was documented rather than fixed: a run that suspends and is resumed after its agent is redeployed executes its remaining steps against the new graph, since the graph loader has no version-pinned load path.
+
+---
+
 ### 2026-07-16 - Doc–code alignment: all fifteen medium-severity issues (ALIGN-010..019, 023-025, 032-033)
 
 **Type:** Bugfix
