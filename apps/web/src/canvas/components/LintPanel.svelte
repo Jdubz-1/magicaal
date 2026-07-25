@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { graph, selectedNode } from '../stores/graph';
   import { nodeTypes } from '../stores/nodeTypes';
   import type { NodeTypeDef } from '../stores/nodeTypes';
+  import { connections, ensureConnectionsLoaded, type Connection } from '../stores/connections';
 
   interface LintIssue {
     severity: 'error' | 'warning';
@@ -11,9 +13,80 @@
 
   let acknowledged = false;
 
+  onMount(() => {
+    void ensureConnectionsLoaded();
+  });
+
+  /**
+   * Back-edges are only legal from a core:loop node (mirrors the engine's own
+   * cycle handling in worker.ts: `nodeDef` there is the edge's *source* — the
+   * node whose outbound edges are being resolved — and the legality check
+   * gates on that source's type, not the edge's target).
+   */
+  function findIllegalCycleEdges(g: typeof $graph): LintIssue[] {
+    const issues: LintIssue[] = [];
+    const adjacency = new Map<string, string[]>();
+    for (const e of g.edges) {
+      const list = adjacency.get(e.from) ?? [];
+      list.push(e.to);
+      adjacency.set(e.from, list);
+    }
+
+    const state = new Map<string, 'visiting' | 'done'>();
+    function dfs(nodeId: string): void {
+      state.set(nodeId, 'visiting');
+      for (const next of adjacency.get(nodeId) ?? []) {
+        if (state.get(next) === 'visiting') {
+          const sourceNode = g.nodes[nodeId];
+          if (sourceNode?.type !== 'core:loop') {
+            issues.push({
+              severity: 'error',
+              message: `Cycle edge from "${sourceNode?.label ?? nodeId}" to "${g.nodes[next]?.label ?? next}" is only legal when the source is a core:loop node — the engine silently skips it otherwise`,
+              nodeId,
+            });
+          }
+        } else if (!state.has(next)) {
+          dfs(next);
+        }
+      }
+      state.set(nodeId, 'done');
+    }
+
+    const entryId = g.entry ?? Object.keys(g.nodes)[0];
+    if (entryId && g.nodes[entryId]) dfs(entryId);
+    return issues;
+  }
+
+  /** Flags nodes whose schema declares a `format: 'connection'` field that is unset or points at a deleted connection. */
+  function findMissingConnections(g: typeof $graph, types: NodeTypeDef[], conns: Connection[]): LintIssue[] {
+    const issues: LintIssue[] = [];
+    const connIds = new Set(conns.map((c) => c.id));
+
+    for (const node of Object.values(g.nodes)) {
+      const typeDef = types.find((t) => t.type === node.type);
+      const props = typeDef?.schema?.config?.properties;
+      if (!props) continue;
+
+      for (const [key, prop] of Object.entries(props)) {
+        if (prop.format !== 'connection') continue;
+        const configured = node.config[key];
+        if (!configured || !connIds.has(String(configured))) {
+          issues.push({
+            severity: 'error',
+            message: `Node "${node.label ?? node.id}" is missing a valid ${prop.service ?? 'integration'} connection for "${key}"`,
+            nodeId: node.id,
+          });
+        }
+      }
+    }
+
+    return issues;
+  }
+
   function lint(
     g: typeof $graph,
     types: NodeTypeDef[],
+    conns: Connection[],
   ): LintIssue[] {
     const issues: LintIssue[] = [];
     const nodes = Object.values(g.nodes);
@@ -129,10 +202,13 @@
       }
     }
 
+    issues.push(...findIllegalCycleEdges(g));
+    issues.push(...findMissingConnections(g, types, conns));
+
     return issues;
   }
 
-  $: issues = lint($graph, $nodeTypes);
+  $: issues = lint($graph, $nodeTypes, $connections);
   $: errors = issues.filter((i) => i.severity === 'error');
   $: warnings = issues.filter((i) => i.severity === 'warning');
   $: canPublish = errors.length === 0 && (warnings.length === 0 || acknowledged);
