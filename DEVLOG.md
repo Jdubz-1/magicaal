@@ -25,6 +25,30 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-25 - First real `docker compose up --build` surfaces and fixes five Docker/CLI pipeline bugs; all six Phase 5 milestone scenarios pass
+
+**Type:** Bugfix
+
+**Description:**
+The full docker-compose stack had never actually been built before — Docker was unavailable in the dev environment throughout Phase 5. With it available, building from scratch failed repeatedly, each failure peeling back a real bug a mocked build/test path had no way to see. All five are fixed; the stack now builds and runs cleanly, and all six §1.8 milestone scenarios (GitHub push → Slack+GitHub+Jira agent, Studio test run, `ik_` invocation-key SDK dispatch, sub-graph/handoff dispatch, webhook trigger, air-gapped package install) were driven against the real running stack and pass.
+
+**Changes:**
+- `packages/cli/tsconfig.build.json`, `packages/compiler/tsconfig.build.json` — added the missing `rootDir: "src"`. Without it, tsc's default common-source-root calculation folds in the config file's own directory, nesting output at `dist/src/index.js` instead of `dist/index.js` and silently breaking the `magicaal` CLI's `bin`/`main` entrypoint (`apps/api/tsconfig.build.json` and `apps/engine/tsconfig.build.json` already had this set correctly — only these two packages were missed).
+- `packages/cli/src/index.ts` — replaced `node:module`'s `register('tsx/esm', pathToFileURL('./'))` with tsx's own `register()` from `tsx/esm/api`. The old call resolved against `process.cwd()`, not the CLI's install location, so it broke whenever tsx wasn't resolvable from the caller's cwd — exactly the Docker `WORKDIR /monorepo` invocation, and exactly what would happen for any external user running `magicaal build` from their own project root once `@magicaal/cli` is published to npm.
+- `packages/cli/src/commands/build.ts` — removed a redundant per-agent-file `import('tsx/esm?...')` that re-registered the loader a second time (incorrectly, via the `--import`-only entry point) on every file; this reintroduced a `require(esm)` cycle error even after the index.ts fix.
+- `agents/package.json` (new), `pnpm-workspace.yaml` — `agents/` was not a pnpm workspace member, so `*.agent.ts` files had no `node_modules` symlink through which to resolve `@magicaal/compiler`. Added it as a real workspace member with `@magicaal/compiler`/`@magicaal/core` as `workspace:*` deps, matching how an external consumer would depend on the published packages.
+- `packages/cli/package.json` — added the missing direct dependency on `reflect-metadata`, used directly in `commands/list.ts`; it had been resolving as a phantom transitive dependency outside strict pnpm.
+- `apps/api/Dockerfile` — the builder stage never built `packages/nodes` (needed transitively by `@magicaal/compiler`, itself needed by the CLI's `build` step) or `packages/integrations/core` (needed directly by `apps/api` for OAuth code exchange in `integrations.controller.ts`). Added their `COPY`+build steps, and added both to the runtime stage's `pnpm install --filter` list and `dist` copies — `--filter @magicaal/api` alone does not pull in a workspace dependency's own external npm dependencies (`jsonata`, `cheerio`, `pg`), matching the pattern `apps/engine/Dockerfile` already used correctly.
+- `apps/api/Dockerfile`, `apps/engine/Dockerfile` — added `apk add python3 make g++` to both builder and (for api) runtime stages. `better-sqlite3` and `isolated-vm` fetch prebuilt binaries over the network at install time; without a C/C++ toolchain, any environment where that fetch fails (restrictive egress, air-gapped CI — not just this session's sandbox) has no fallback and the install hard-fails.
+
+**Impact:**
+`docker compose up --build` now succeeds from a clean checkout. This closes the long-standing Stage 1 blocker in `MAGICAAL_LAUNCH_ROADMAP.md` §1.8 (live-stack validation) — see `MAGICAAL_PROGRESS.md` for the scenario-by-scenario results. `isolated-vm` (the `core:code` sandbox) still fails its native build in this environment due to a pre-existing GCC/template incompatibility unrelated to these fixes; it remains an optional dependency and does not block the rest of the stack, consistent with the already-documented limitation.
+
+**Notes:**
+The live-catalog Marketplace install criterion (§1.8, "`MARKETPLACE_ENABLED=true` pointed at an internal staging Marketplace") still needs a real separate staging Marketplace service to exercise — out of reach without standing up a second service. The air-gapped install path, which exercises the identical verify → install → hot-load → palette pipeline, was fully validated instead: a self-signed `.mpack` bundle was built by hand (Ed25519 keypair, content-hash algorithm per `MARKETPLACE_SPEC.md` §4.3), uploaded via `POST /v1/marketplace/licenses/bundle`, installed as `unverified` under a temporary `MARKETPLACE_ALLOW_UNVERIFIED=true`, and appeared in `GET /v1/nodes` with no restart. Reverting that flag to its secure default afterward correctly triggered the boot-time re-verification gate (`verifyInstalledDir`), which refused to reload the unverified package and logged a clear warning rather than failing open — confirming that gate works as designed.
+
+---
+
 ### 2026-07-24 - Doc–code alignment: all ten low-severity issues (ALIGN-020..022, 026-031, 034) — all 34 alignment issues now resolved
 
 **Type:** Feature
