@@ -7,6 +7,12 @@ ARG GIT_SHA
 FROM node:22-alpine AS builder
 WORKDIR /monorepo
 
+# Native module fallback build toolchain: better-sqlite3 and isolated-vm ship
+# prebuilt binaries fetched over the network at install time; when that fetch
+# is unreachable (restrictive egress, air-gapped CI) node-gyp needs python3 +
+# a C/C++ toolchain to compile from source instead of failing outright.
+RUN apk add --no-cache python3 make g++
+
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate

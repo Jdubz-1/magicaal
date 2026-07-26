@@ -46,11 +46,9 @@ export async function runBuild(opts: BuildOptions): Promise<BuildResult> {
   for (const filePath of files) {
     const relPath = relative(opts.cwd, filePath);
     try {
-      // Use tsx register to support TypeScript + decorators at runtime
-      const mod = await import(`tsx/esm?${Date.now()}`).catch(() => null);
-      void mod; // tsx is pre-registered via --import flag at CLI entry; direct import here
-
-      // Dynamic import of the agent file
+      // Dynamic import of the agent file (tsx is registered once at CLI
+      // startup in index.ts — re-registering per file here previously
+      // caused a require(esm) cycle error)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const exports: Record<string, any> = await import(filePath);
 

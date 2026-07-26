@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-import { register } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { register } from 'tsx/esm/api';
 
-// Register tsx for TypeScript + decorator support in agent files
-register('tsx/esm', pathToFileURL('./'));
+// Register tsx for TypeScript + decorator support in agent files. tsx's own
+// register() resolves itself relative to this call site (a bare specifier
+// require, same as any other import), not process.cwd() — so it works
+// regardless of the caller's working directory. The bare `tsx/esm` loader
+// entry point (registered via node:module's register()) is only valid for
+// `node --import tsx/esm`, not manual registration — using it here silently
+// broke every invocation whose cwd didn't happen to have tsx resolvable.
+register();
 
 import { Command } from 'commander';
 import { buildCommand } from './commands/build.js';

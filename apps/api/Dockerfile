@@ -7,6 +7,12 @@ ARG GIT_SHA
 FROM node:22-alpine AS builder
 WORKDIR /monorepo
 
+# Native module fallback build toolchain: better-sqlite3 and isolated-vm ship
+# prebuilt binaries fetched over the network at install time; when that fetch
+# is unreachable (restrictive egress, air-gapped CI) node-gyp needs python3 +
+# a C/C++ toolchain to compile from source instead of failing outright.
+RUN apk add --no-cache python3 make g++
+
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -18,6 +24,8 @@ COPY packages/sdk/package.json ./packages/sdk/package.json
 COPY packages/compiler/package.json ./packages/compiler/package.json
 COPY packages/cli/package.json ./packages/cli/package.json
 COPY packages/nodes/package.json ./packages/nodes/package.json
+COPY packages/integrations/core/package.json ./packages/integrations/core/package.json
+COPY agents/package.json ./agents/package.json
 COPY apps/api/package.json ./apps/api/package.json
 
 RUN pnpm install --frozen-lockfile
@@ -30,6 +38,15 @@ COPY packages/sdk/src ./packages/sdk/src
 COPY packages/sdk/tsconfig.json ./packages/sdk/tsconfig.json
 COPY packages/nodes/src ./packages/nodes/src
 COPY packages/nodes/tsconfig.json ./packages/nodes/tsconfig.json
+COPY packages/nodes/tsconfig.build.json ./packages/nodes/tsconfig.build.json
+COPY packages/integrations/core/src ./packages/integrations/core/src
+COPY packages/integrations/core/tsconfig.json ./packages/integrations/core/tsconfig.json
+COPY packages/integrations/core/tsconfig.build.json ./packages/integrations/core/tsconfig.build.json
+WORKDIR /monorepo/packages/nodes
+RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/core
+RUN pnpm run build
+WORKDIR /monorepo
 
 # Build CLI + compiler (needed for magicaal build step)
 COPY packages/compiler/src ./packages/compiler/src
@@ -71,12 +88,21 @@ ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
+# Same native-module fallback toolchain as the builder stage — this is a
+# separate `pnpm install` in a fresh image and needs its own build tools.
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /monorepo
 COPY --from=api-builder /monorepo/package.json /monorepo/pnpm-workspace.yaml /monorepo/pnpm-lock.yaml ./
 COPY --from=api-builder /monorepo/packages/core/package.json ./packages/core/
+COPY --from=api-builder /monorepo/packages/nodes/package.json ./packages/nodes/
+COPY --from=api-builder /monorepo/packages/integrations/core/package.json ./packages/integrations/core/
 COPY --from=api-builder /monorepo/apps/api/package.json ./apps/api/
 
-RUN pnpm install --prod --frozen-lockfile --filter @magicaal/api
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/api --filter @magicaal/nodes --filter @magicaal/integration-core
+
+COPY --from=api-builder /monorepo/packages/nodes/dist ./packages/nodes/dist
+COPY --from=api-builder /monorepo/packages/integrations/core/dist ./packages/integrations/core/dist
 
 WORKDIR /monorepo/apps/api
 COPY --from=api-builder /monorepo/apps/api/dist ./dist

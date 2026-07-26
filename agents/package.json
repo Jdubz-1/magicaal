@@ -1,0 +1,9 @@
+{
+  "name": "@magicaal/agents",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@magicaal/compiler": "workspace:*",
+    "@magicaal/core": "workspace:*"
+  }
+}
