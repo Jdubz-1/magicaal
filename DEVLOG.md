@@ -25,6 +25,31 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-26 - Smart node placement, drag-and-drop, and auto-layout in the Studio canvas
+
+**Type:** Feature
+
+**Description:**
+Nodes in the Studio canvas previously landed at hardcoded positions with zero collision awareness (`{x:200,y:200}` from the palette's click-to-add, `{x:100,y:100}` as Canvas.svelte's fallback for any node without a saved position), so any graph with more than a couple of nodes rendered as a stack of overlapping boxes until the user manually dragged every node apart by hand. Added a one-click Auto Placement layout, collision avoidance for every node-placement path, and palette drag-and-drop.
+
+**Changes:**
+- `apps/web/src/canvas/layout/{constants,collision,autoLayout}.ts` (new) — pure-TS layout module. `runAutoLayout()` uses `@dagrejs/dagre` (new dependency) for a layered, left-to-right layout over the whole graph (`nodes`/`edges` only, never `toolEdges`/`workspaceEdges`, which live in separate canvas panel regions); cycles (e.g. a `core:loop` back-edge) are handled automatically by dagre's internal feedback-edge detection, no special pre-processing needed. `findFreeSlot()` is an expanding-ring collision search reused everywhere a node gets positioned.
+- `apps/web/src/canvas/stores/graph.ts` — new centralized `addNode`/`moveNode`, routed through `findFreeSlot`, replacing the ad-hoc inline `graph.update` calls previously duplicated across call sites.
+- `apps/web/src/canvas/stores/autoPlacementUndo.ts` (new) — a single-snapshot "Undo Auto Placement," not a general undo/redo system (none exists anywhere in this codebase — confirmed by a full-tree search; a DEVLOG-sounding claim about one existed only in a stale, gitignored `.ai_docs/` planning note). The snapshot is invalidated automatically the moment any other graph edit happens, via a `graph.subscribe` self-mutation flag rather than threading invalidation calls through every existing/future mutation site.
+- `apps/web/src/canvas/components/Canvas.svelte` — new `CanvasToolbar` (Auto Placement + conditional Undo button), `dragover`/`drop` handlers reusing the existing `toSvgCoords` screen-to-graph transform, and collision-avoided snap-on-release for manual node dragging (live-follow-cursor while dragging is unchanged; the nudge only applies at mouseup/mouseleave).
+- `apps/web/src/canvas/components/NodePalette.svelte` — palette items are now `draggable`, and click-to-add routes through the same centralized `addNode`.
+- **Fixed a pre-existing bug directly in this feature's path**: `Canvas.svelte` and `NodePalette.svelte` were both passed a `readonly` prop from `App.svelte` that neither component declared (`export let readonly`), so it was silently dropped — a read-only, code-defined agent's canvas had no protection against manual dragging or edge creation at all. Both components now declare and use it, gating the new affordances and the pre-existing `onNodeMousedown`/edge-creation handlers.
+- `apps/web/jest.config.ts`, `tsconfig.test.json` (new) — bootstrapped Jest for `apps/web`, which had no test runner at all before this, matching the monorepo's existing `jest`/`ts-jest` convention. Full unit coverage for the layout/collision modules in `apps/web/tests/unit/layout/`.
+- **Second bug found while manually testing this feature, unrelated to it**: `App.svelte`'s `onMount` graph-load logic only read `draftGraphJson` when the agent's `status === 'draft'`, but `saveDraft()` never touches `status` — so `draftGraphJson` legitimately exists on an already-published (`status: 'active'`) agent too, representing edits made since the last publish. Every such edit — not just node positions, all of it — was silently discarded on every Studio reload once an agent had been published even once, always falling back to the last-published snapshot instead. `draftGraphJson` now takes priority whenever present, regardless of `status`.
+
+**Impact:**
+The canvas is now usable for graphs of realistic size without manual node-by-node rearranging, and the palette supports drag-and-drop in addition to click-to-add. The `draftGraphJson` fix is broader than this feature: any Studio edit made after an agent's first publish — new nodes, edge changes, config, not just layout — now actually persists across a reload, which was silently broken before. 12 new tests (`apps/web/tests/unit/layout/`), `apps/web` type-check and `build:canvas` clean.
+
+**Notes:**
+Full interactive verification (drag-and-drop feel, button clicks) was done manually in a browser against the local docker-compose stack, not via automated browser testing — no browser-automation tooling is available in this environment, and the Studio page is a thin server-rendered shell that only becomes interactive once the client-side bundle mounts, so there was nothing further to verify from the command line.
+
+---
+
 ### 2026-07-25 - First real `docker compose up --build` surfaces and fixes five Docker/CLI pipeline bugs; all six Phase 5 milestone scenarios pass
 
 **Type:** Bugfix
