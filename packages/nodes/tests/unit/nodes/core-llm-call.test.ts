@@ -79,6 +79,58 @@ describe('core:llm-call', () => {
     expect(callArgs.messages).toHaveLength(2);
   });
 
+  it('uses userMessageKey to read a pre-assembled message from context, overriding userMessage', async () => {
+    const ctx = makeMockContext({ assembled: 'Fully assembled message text' });
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('Response'));
+
+    await coreLLMCall.execute(ctx, {
+      userMessage: 'this literal string should be ignored',
+      userMessageKey: 'assembled',
+      outputKey: 'out',
+    });
+
+    const callArgs = (ctx.llmCall as jest.Mock).mock.calls[0][0];
+    expect(callArgs.messages).toEqual([{ role: 'user', content: 'Fully assembled message text' }]);
+  });
+
+  it('falls back to userMessage when userMessageKey resolves to nothing', async () => {
+    const ctx = makeMockContext({});
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('Response'));
+
+    await coreLLMCall.execute(ctx, {
+      userMessage: 'fallback text',
+      userMessageKey: 'doesNotExist',
+      outputKey: 'out',
+    });
+
+    const callArgs = (ctx.llmCall as jest.Mock).mock.calls[0][0];
+    expect(callArgs.messages).toEqual([{ role: 'user', content: 'fallback text' }]);
+  });
+
+  it('appends a context-provided systemPromptSuffix to the configured systemPrompt', async () => {
+    const ctx = makeMockContext({ systemPromptSuffix: 'Extra tenant-configured instructions.' });
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('Response'));
+
+    await coreLLMCall.execute(ctx, {
+      systemPrompt: 'Base system prompt.',
+      userMessage: 'Hi',
+      outputKey: 'out',
+    });
+
+    const callArgs = (ctx.llmCall as jest.Mock).mock.calls[0][0];
+    expect(callArgs.system).toBe('Base system prompt.\n\nExtra tenant-configured instructions.');
+  });
+
+  it('uses the bare systemPromptSuffix as the whole system prompt when no systemPrompt is configured', async () => {
+    const ctx = makeMockContext({ systemPromptSuffix: 'Just the suffix.' });
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('Response'));
+
+    await coreLLMCall.execute(ctx, { userMessage: 'Hi', outputKey: 'out' });
+
+    const callArgs = (ctx.llmCall as jest.Mock).mock.calls[0][0];
+    expect(callArgs.system).toBe('Just the suffix.');
+  });
+
   it('returns failed when llmCall throws', async () => {
     const ctx = makeMockContext({});
     (ctx.llmCall as jest.Mock).mockRejectedValue(new Error('Provider error'));

@@ -22,4 +22,10 @@ export const config = Object.freeze({
   marketplaceLocalCatalogPath:
     process.env.MARKETPLACE_LOCAL_CATALOG_PATH ?? '/marketplace/catalog.json',
   marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
+  // invokeCaal polls the engine synchronously within the request lifecycle
+  // (no SSE — see ISS-067). 120s covers the large majority of real Caal
+  // requests without holding the connection anywhere near the engine's own
+  // 10-minute run timeout; requests that outlast it get a distinct
+  // CAAL_STILL_RUNNING response rather than a bare 504 (ISS-068).
+  caalInvokeTimeoutMs: parseInt(process.env.CAAL_INVOKE_TIMEOUT_MS ?? '120000', 10),
 });

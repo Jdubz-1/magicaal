@@ -15,6 +15,8 @@ export interface RunParams {
   input: Record<string, unknown>;
   graphDefaultRouter?: ModelRouterConfig | null;
   tenantRouterPolicy?: ModelRouterConfig | null;
+  /** Per-dispatch router override (e.g. Caal's caal_configuration.routerPolicyId). */
+  runRouterOverride?: ModelRouterConfig | null;
   sessionId?: string;
 }
 
@@ -35,6 +37,7 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   readonly graphDefaultRouter?: ModelRouterConfig | null;
   readonly tenantRouterPolicy?: ModelRouterConfig | null;
+  readonly runRouterOverride?: ModelRouterConfig | null;
 
   private _tokenUsage: TokenUsage = {
     promptTokens: 0,
@@ -57,6 +60,7 @@ export class ExecutionContextImpl implements ExecutionContext {
     this.data = { ...params.input };
     this.graphDefaultRouter = params.graphDefaultRouter;
     this.tenantRouterPolicy = params.tenantRouterPolicy;
+    this.runRouterOverride = params.runRouterOverride;
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -197,6 +201,7 @@ export class ExecutionContextImpl implements ExecutionContext {
       { router: nodeRouterConfig ?? undefined },
       this.graphDefaultRouter ?? undefined,
       this.tenantRouterPolicy ?? undefined,
+      this.runRouterOverride ?? undefined,
     );
     if (!config) {
       throw Object.assign(

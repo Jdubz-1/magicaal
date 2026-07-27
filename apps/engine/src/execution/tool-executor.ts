@@ -124,6 +124,12 @@ export async function runAgentLoop(
     { role: 'user', content: typeof initialInput === 'string' ? initialInput : JSON.stringify(initialInput) },
   ];
 
+  // A tenant-level system prompt suffix (or any other caller-supplied
+  // addendum) rides in on ctx.data rather than static node config, since it
+  // varies per invocation, not per compiled graph.
+  const promptSuffix = ctx.get<string>('systemPromptSuffix');
+  const system = [config.systemPrompt, promptSuffix].filter(Boolean).join('\n\n') || undefined;
+
   let lastRoutingMeta: NodeOutput['routingMeta'];
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
@@ -133,7 +139,7 @@ export async function runAgentLoop(
     if (abort) throw abortError(abort);
 
     const request: CanonicalLLMRequest = {
-      system: config.systemPrompt,
+      system,
       messages: conversation,
       tools: canonicalTools.length > 0 ? canonicalTools : undefined,
       metadata: { agentNodeId: nodeDef.id, mode, iteration },

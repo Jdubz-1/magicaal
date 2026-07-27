@@ -11,6 +11,7 @@
   } from '../stores/graph';
   import { NODE_WIDTH, NODE_HEIGHT } from '../layout/constants';
   import { applyAutoPlacement, undoAutoPlacement, canUndoAutoPlacement } from '../stores/autoPlacementUndo';
+  import { canUndoCaalChange, undoCaalChange } from '../stores/caalUndo';
   import CanvasToolbar from './CanvasToolbar.svelte';
 
   export let agentId: string;
@@ -231,8 +232,10 @@
   <CanvasToolbar
     {readonly}
     canUndo={$canUndoAutoPlacement}
+    canUndoCaal={$canUndoCaalChange}
     on:autoPlacement={onAutoPlacementClick}
     on:undo={undoAutoPlacement}
+    on:undoCaal={() => undoCaalChange()}
   />
   <svg
     bind:this={svgEl}

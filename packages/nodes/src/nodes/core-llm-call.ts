@@ -6,6 +6,7 @@ interface LLMCallConfig {
   // Prompt
   systemPrompt?: string;
   userMessage?: string;
+  userMessageKey?: string;
   messagesKey?: string;
 
   // Session history injection — prepend stored CanonicalMessage[] from this context key
@@ -45,7 +46,11 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
         },
         userMessage: {
           type: 'string',
-          description: 'User message text. Use {{key}} syntax or a JSONata reference to include context values.',
+          description: 'Literal user message text, sent to the LLM exactly as written (no templating).',
+        },
+        userMessageKey: {
+          type: 'string',
+          description: 'Context key holding a pre-assembled user message string (e.g. built by an upstream core:transform node). Takes precedence over userMessage when set.',
         },
         messagesKey: {
           type: 'string',
@@ -91,7 +96,7 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
     if (config.messagesKey) {
       messages = ctx.get<CanonicalMessage[]>(config.messagesKey) ?? [];
     } else {
-      const text = config.userMessage ?? '';
+      const text = (config.userMessageKey ? ctx.get<string>(config.userMessageKey) : undefined) ?? config.userMessage ?? '';
       messages = [{ role: 'user', content: text }];
     }
 
@@ -103,9 +108,15 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
       }
     }
 
+    // A tenant-level Caal system prompt suffix (or any other caller-supplied
+    // addendum) rides in on ctx.data rather than static node config, since it
+    // varies per invocation, not per compiled graph.
+    const promptSuffix = ctx.get<string>('systemPromptSuffix');
+    const system = [config.systemPrompt, promptSuffix].filter(Boolean).join('\n\n') || undefined;
+
     const request = {
       messages,
-      ...(config.systemPrompt && { system: config.systemPrompt }),
+      ...(system && { system }),
       ...(config.maxTokens !== undefined && { maxTokens: config.maxTokens }),
       ...(config.temperature !== undefined && { temperature: config.temperature }),
       ...(config.outputSchema && { outputSchema: config.outputSchema }),

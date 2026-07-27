@@ -2464,9 +2464,19 @@ adminRouter.get('/system/caal', async (req, res, next) => {
 
     let config: Record<string, unknown> = {};
     try {
-      const { data } = await api.get<Record<string, unknown>>('/v1/system/caal-config');
+      const { data } = await api.get<Record<string, unknown>>('/v1/caal/config');
       config = data;
     } catch { /* no config yet */ }
+
+    // routerPolicyId has been wired into invocation (2026-07-27) but this
+    // form never exposed a way to set it — added here alongside the URL fix
+    // above (this page previously called the nonexistent /v1/system/caal-config,
+    // so it always showed defaults on load and errored on every save).
+    let routerPolicies: Array<{ id: string; name: string }> = [];
+    try {
+      const { data } = await api.get<Array<{ id: string; name: string }>>('/v1/llm/router-policies');
+      routerPolicies = data;
+    } catch { /* none configured */ }
 
     const checked = (field: string) => config[field] ? ' checked' : '';
     const val = (field: string, def = '') => escHtml(String(config[field] ?? def));
@@ -2475,6 +2485,9 @@ adminRouter.get('/system/caal', async (req, res, next) => {
       `<option value="${m}"${config['generationMode'] === m ? ' selected' : ''}>${m}</option>`).join('');
     const confirmModeOptions = ['always_confirm', 'confirm_structural', 'apply_directly'].map((m) =>
       `<option value="${m}"${config['confirmationMode'] === m ? ' selected' : ''}>${m}</option>`).join('');
+    const routerPolicyOptions = '<option value="">(none — use graph/tenant default)</option>' +
+      routerPolicies.map((p) =>
+        `<option value="${escHtml(p.id)}"${config['routerPolicyId'] === p.id ? ' selected' : ''}>${escHtml(p.name)}</option>`).join('');
 
     res.send(layout(`
       <div class="container" style="margin-top:1.5rem;max-width:700px">
@@ -2493,21 +2506,25 @@ adminRouter.get('/system/caal', async (req, res, next) => {
             </label>
           </div>
           <div class="form-group">
-            <label>Model Override <span style="color:#64748b;font-size:0.6875rem">(leave blank to use router)</span></label>
-            <input name="modelOverride" value="${val('modelOverride')}" placeholder="e.g. claude-sonnet-4-6" />
+            <label>Router Policy <span style="color:#64748b;font-size:0.6875rem">(overrides the graph/tenant default router for Caal's own LLM calls)</span></label>
+            <select name="routerPolicyId">${routerPolicyOptions}</select>
           </div>
           <div class="form-group">
-            <label>Generation Mode</label>
-            <select name="generationMode">${genModeOptions}</select>
+            <label>Model Override <span style="color:#f87171;font-size:0.6875rem">(not yet implemented — a bare model name has no provider/connection to route through; use Router Policy above instead)</span></label>
+            <input name="modelOverride" value="${val('modelOverride')}" placeholder="e.g. claude-sonnet-4-6" disabled />
           </div>
           <div class="form-group">
-            <label>Confirmation Mode</label>
-            <select name="confirmationMode">${confirmModeOptions}</select>
+            <label>Generation Mode <span style="color:#f87171;font-size:0.6875rem">(not yet implemented)</span></label>
+            <select name="generationMode" disabled>${genModeOptions}</select>
+          </div>
+          <div class="form-group">
+            <label>Confirmation Mode <span style="color:#f87171;font-size:0.6875rem">(not yet implemented — proposals always require manual review)</span></label>
+            <select name="confirmationMode" disabled>${confirmModeOptions}</select>
           </div>
           <div class="form-group">
             <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-              <input type="checkbox" name="showReasoning" value="true"${checked('showReasoning')} style="width:auto" />
-              Show Reasoning in Response
+              <input type="checkbox" name="showReasoning" value="true"${checked('showReasoning')} style="width:auto" disabled />
+              Show Reasoning in Response <span style="color:#f87171;font-size:0.6875rem">(not yet implemented)</span>
             </label>
           </div>
           <div class="form-group">
@@ -2525,10 +2542,11 @@ adminRouter.get('/system/caal', async (req, res, next) => {
 adminRouter.post('/system/caal', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    const { enabled, modelOverride, generationMode, confirmationMode, showReasoning, systemPromptSuffix } =
+    const { enabled, routerPolicyId, modelOverride, generationMode, confirmationMode, showReasoning, systemPromptSuffix } =
       req.body as Record<string, string>;
-    await api.patch('/v1/system/caal-config', {
+    await api.patch('/v1/caal/config', {
       enabled: enabled === 'true',
+      routerPolicyId: routerPolicyId || null,
       modelOverride: modelOverride || null,
       generationMode,
       confirmationMode,

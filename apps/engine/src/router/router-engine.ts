@@ -305,10 +305,22 @@ export function resolveRouterConfig(
   nodeConfig: { router?: string | ModelRouterConfig },
   graphDefaultRouter?: string | ModelRouterConfig,
   tenantPolicy?: (ModelRouterConfig & { overridable?: boolean }) | null,
+  // A per-dispatch override supplied by the caller rather than baked into the
+  // compiled graph — e.g. Caal's per-tenant modelOverride/routerPolicyId
+  // (caal_configuration), threaded through via RunParams.runRouterOverride.
+  // Deliberately ranked below a locked tenant policy (governance still wins)
+  // but above the node/graph level, since it represents an explicit runtime
+  // choice by the tenant, not the graph author's default.
+  runOverride?: ModelRouterConfig | null,
 ): ModelRouterConfig | null {
-  // If tenant policy is locked, it cannot be overridden at node or graph level
+  // If tenant policy is locked, it cannot be overridden at node, graph, or
+  // per-dispatch level
   if (tenantPolicy && tenantPolicy.overridable === false) {
     return tenantPolicy;
+  }
+
+  if (runOverride) {
+    return runOverride;
   }
 
   // Node-level inline config

@@ -13,6 +13,7 @@ import {
   sessionContext,
   syncEvents,
   caalConfiguration,
+  namedRouterPolicies,
   packageRegistry,
   assetLicenses,
   tenants,
@@ -446,6 +447,79 @@ describe('Caal invocation', () => {
     );
     // the caller's real identity travels as input, not as the run tenant
     expect(body.input._invokerTenantId).toBe(tenantId);
+  }, 20_000);
+
+  it('403s with CAAL_DISABLED when the calling tenant has disabled Caal (ISS-073)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    await ensurePlatformTenant();
+    await db.insert(caalConfiguration).values({
+      id: crypto.randomUUID(),
+      tenantId,
+      enabled: false,
+      generationMode: 'complete',
+      confirmationMode: 'confirm_structural',
+      showReasoning: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const res = await request(app)
+      .post('/v1/caal/invoke')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'explain this graph' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('CAAL_DISABLED');
+    expect(engineClient.post).not.toHaveBeenCalled();
+  });
+
+  it('passes the tenant-configured routerPolicyId through as a routerOverride, and systemPromptSuffix as run input (ISS-073)', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'developer');
+    await ensurePlatformTenant();
+    // Relies on the 'caal-assistant' platform agent already inserted by the
+    // 'dispatches to the platform agent...' test earlier in this file —
+    // agents.handle is globally unique, and only one such row can ever exist.
+
+    const policyId = crypto.randomUUID();
+    const policyConfig = {
+      strategy: 'priority',
+      targets: [{ id: 't1', connectionId: 'conn-1', provider: 'anthropic', model: 'claude-opus-5' }],
+      triggers: [],
+    };
+    await db.insert(namedRouterPolicies).values({
+      id: policyId,
+      tenantId,
+      name: 'caal-policy',
+      configJson: JSON.stringify(policyConfig),
+      overridable: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(caalConfiguration).values({
+      id: crypto.randomUUID(),
+      tenantId,
+      enabled: true,
+      routerPolicyId: policyId,
+      systemPromptSuffix: 'Always mention MagiCaal by name.',
+      generationMode: 'complete',
+      confirmationMode: 'confirm_structural',
+      showReasoning: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    engineClient.post.mockResolvedValue({ data: { runId: 'caal-run-2' } });
+    engineClient.get.mockResolvedValue({ data: { status: 'completed', output: {} } });
+
+    const res = await request(app)
+      .post('/v1/caal/invoke')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'explain', agentId: 'agent-42' });
+
+    expect(res.status).toBe(200);
+    const [, body] = engineClient.post.mock.calls[0];
+    expect(body.routerOverride).toEqual(policyConfig);
+    expect(body.input.systemPromptSuffix).toBe('Always mention MagiCaal by name.');
   }, 20_000);
 
   it('surfaces a failed Caal run as a 500', async () => {

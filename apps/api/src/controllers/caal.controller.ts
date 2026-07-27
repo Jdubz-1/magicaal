@@ -1,11 +1,45 @@
 import type { RequestHandler } from 'express';
+import type { ModelRouterConfig } from '@magicaal/core';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
-import { agents, sessions, sessionContext } from '../db/schema';
+import { agents, sessions, sessionContext, caalConfiguration, namedRouterPolicies } from '../db/schema';
 import { engineClient } from '../lib/engine-client';
 import { PLATFORM_TENANT_ID } from '../platform/bootstrap';
+import { config } from '../config';
 
 const CAAL_AGENT_HANDLE = 'caal-assistant';
+
+/**
+ * Resolves the calling tenant's caal_configuration row into the pieces
+ * invokeCaal needs: whether Caal is enabled, a routerOverride (only
+ * buildable from routerPolicyId today — modelOverride is a bare model-name
+ * string with no accompanying provider/connectionId, so there's no valid
+ * ModelRouterTarget to build from it alone; see ISS-073), and the system
+ * prompt suffix. Returns permissive defaults (enabled, no override) when no
+ * row exists yet, matching upsertCaalConfig's own defaults.
+ */
+async function resolveCaalConfig(
+  tenantId: string,
+): Promise<{ enabled: boolean; routerOverride: ModelRouterConfig | null; systemPromptSuffix: string | null }> {
+  const rows = await db.select().from(caalConfiguration).where(eq(caalConfiguration.tenantId, tenantId));
+  const cfg = rows[0];
+  if (!cfg) {
+    return { enabled: true, routerOverride: null, systemPromptSuffix: null };
+  }
+
+  let routerOverride: ModelRouterConfig | null = null;
+  if (cfg.routerPolicyId) {
+    const policyRows = await db
+      .select({ configJson: namedRouterPolicies.configJson })
+      .from(namedRouterPolicies)
+      .where(and(eq(namedRouterPolicies.id, cfg.routerPolicyId), eq(namedRouterPolicies.tenantId, tenantId)));
+    if (policyRows[0]) {
+      routerOverride = JSON.parse(policyRows[0].configJson) as ModelRouterConfig;
+    }
+  }
+
+  return { enabled: cfg.enabled, routerOverride, systemPromptSuffix: cfg.systemPromptSuffix ?? null };
+}
 
 export const invokeCaal: RequestHandler = async (req, res, next) => {
   try {
@@ -21,6 +55,11 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
 
     if (!message) {
       throw Object.assign(new Error('message is required'), { status: 400 });
+    }
+
+    const caalConfig = await resolveCaalConfig(tenantId);
+    if (!caalConfig.enabled) {
+      throw Object.assign(new Error('Caal is disabled for this tenant'), { status: 403, code: 'CAAL_DISABLED' });
     }
 
     // Look up the Caal agent in the _platform tenant
@@ -44,11 +83,13 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
       // a §11.4 exemption from the target agent's invocation policy.
       caller: { kind: 'platform', strategy: 'caal' },
       sessionId,
+      ...(caalConfig.routerOverride && { routerOverride: caalConfig.routerOverride }),
       input: {
         message,
         graphState: graphState ?? null,
         selectedNodeIds: selectedNodeIds ?? [],
         lastRunResult: lastRunResult ?? null,
+        systemPromptSuffix: caalConfig.systemPromptSuffix,
         _invokerTenantId: tenantId,
         _invokerUserId: userId,
         _agentId: agentId ?? null,
@@ -59,13 +100,20 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
 
     // Poll for run completion and stream result back
     const start = Date.now();
-    while (Date.now() - start < 30000) {
+    while (Date.now() - start < config.caalInvokeTimeoutMs) {
       await new Promise((r) => setTimeout(r, 500));
       const statusRes = await engineClient.get(`/internal/runs/${runId}`);
       const run = statusRes.data as { status: string; output?: Record<string, unknown>; error?: unknown };
 
       if (run.status === 'completed') {
-        res.json({ runId, sessionId, output: run.output ?? {} });
+        // response-assembler nests proposal/canvasHighlight/canvasFocus/
+        // nodeReferences under "caalResult" (core:transform can only write
+        // one context key — ISS-081); flatten it back out here so this
+        // endpoint's response shape (output.proposal, output.canvasHighlight,
+        // ...) stays what CaalPanel.svelte already expects.
+        const output = run.output ?? {};
+        const { caalResult, ...rest } = output as { caalResult?: Record<string, unknown> };
+        res.json({ runId, sessionId, output: { ...rest, ...(caalResult ?? {}) } });
         return;
       }
 
@@ -77,7 +125,19 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
       }
     }
 
-    throw Object.assign(new Error('Caal invocation timed out'), { status: 504 });
+    // The engine's own run timeout is much longer than this poll ceiling —
+    // the run may well still complete server-side (session-write included).
+    // Report that honestly rather than implying the request outright failed
+    // (ISS-068); no SSE/status-check path exists yet to let the client keep
+    // watching this specific run (ISS-067). Written directly (not thrown)
+    // since the generic errorHandler only surfaces {error, code} and this
+    // response needs runId/sessionId too.
+    res.status(202).json({
+      code: 'CAAL_STILL_RUNNING',
+      message: 'Caal is taking longer than expected; it may still complete in the background',
+      runId,
+      sessionId,
+    });
   } catch (err) {
     next(err);
   }

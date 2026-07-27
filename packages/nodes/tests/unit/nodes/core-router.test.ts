@@ -36,4 +36,16 @@ describe('core:router', () => {
   it('has the correct node type', () => {
     expect(coreRouter.type).toBe('core:router');
   });
+
+  it('throws when config uses a field the node does not recognize instead of expression (ISS-080 regression)', async () => {
+    const ctx = makeMockContext({ intent: 'question' });
+    // agents/caal.agent.ts once configured this node with `routeKey` instead
+    // of `expression` — jsonata(undefined) throws at construction, so this
+    // node failed on every single invocation, before any downstream node
+    // ever ran. Asserting the throw here documents the exact failure mode a
+    // future config-name typo on this node would reproduce.
+    await expect(
+      coreRouter.execute(ctx, { routeKey: '$.intent' } as unknown as { expression: string; cases: string[] }),
+    ).rejects.toThrow();
+  });
 });

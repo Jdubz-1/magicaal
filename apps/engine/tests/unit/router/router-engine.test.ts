@@ -1,4 +1,4 @@
-import { routedLLMCall, initPricingCache } from '../../../src/router/router-engine';
+import { routedLLMCall, initPricingCache, resolveRouterConfig } from '../../../src/router/router-engine';
 import { providerAdapterRegistry } from '../../../src/router/provider-adapter-registry';
 import type { ProviderAdapter } from '@magicaal/sdk-node';
 import type { ResolvedCredentials } from '@magicaal/sdk-node';
@@ -189,5 +189,41 @@ describe('routedLLMCall', () => {
 
     // Should skip target-a and use target-b
     expect(result.routingMeta.targetUsed.id).toBe('target-b');
+  });
+});
+
+describe('resolveRouterConfig', () => {
+  const nodeRouter: ModelRouterConfig = { strategy: 'priority', targets: [MOCK_TARGET_A], triggers: [] };
+  const graphDefault: ModelRouterConfig = { strategy: 'round-robin', targets: [MOCK_TARGET_B], triggers: [] };
+  const overridableTenantPolicy = { strategy: 'weighted' as const, targets: [MOCK_TARGET_A], triggers: [], overridable: true };
+  const lockedTenantPolicy = { strategy: 'weighted' as const, targets: [MOCK_TARGET_B], triggers: [], overridable: false };
+  const runOverride: ModelRouterConfig = { strategy: 'cost-optimized', targets: [MOCK_TARGET_A, MOCK_TARGET_B], triggers: [] };
+
+  it('prefers node config over graph default and tenant policy when nothing else outranks it', () => {
+    expect(resolveRouterConfig({ router: nodeRouter }, graphDefault, overridableTenantPolicy)).toBe(nodeRouter);
+  });
+
+  it('falls back to graph default when no node config is set', () => {
+    expect(resolveRouterConfig({}, graphDefault, overridableTenantPolicy)).toBe(graphDefault);
+  });
+
+  it('falls back to an overridable tenant policy when nothing else is set', () => {
+    expect(resolveRouterConfig({}, undefined, overridableTenantPolicy)).toBe(overridableTenantPolicy);
+  });
+
+  it('returns null when nothing is configured at any level', () => {
+    expect(resolveRouterConfig({})).toBeNull();
+  });
+
+  it('a locked tenant policy wins over everything, including node config and a run override', () => {
+    expect(resolveRouterConfig({ router: nodeRouter }, graphDefault, lockedTenantPolicy, runOverride)).toBe(
+      lockedTenantPolicy,
+    );
+  });
+
+  it('a per-dispatch run override wins over node config and graph default, but not a locked tenant policy', () => {
+    expect(resolveRouterConfig({ router: nodeRouter }, graphDefault, overridableTenantPolicy, runOverride)).toBe(
+      runOverride,
+    );
   });
 });

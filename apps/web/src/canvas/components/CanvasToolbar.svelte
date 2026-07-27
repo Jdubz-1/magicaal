@@ -3,8 +3,9 @@
 
   export let readonly = false;
   export let canUndo = false;
+  export let canUndoCaal = false;
 
-  const dispatch = createEventDispatcher<{ autoPlacement: void; undo: void }>();
+  const dispatch = createEventDispatcher<{ autoPlacement: void; undo: void; undoCaal: void }>();
 </script>
 
 <div class="canvas-toolbar">
@@ -14,6 +15,11 @@
   {#if canUndo && !readonly}
     <button class="toolbar-btn toolbar-btn-undo" on:click={() => dispatch('undo')}>
       Undo Auto Placement
+    </button>
+  {/if}
+  {#if canUndoCaal && !readonly}
+    <button class="toolbar-btn toolbar-btn-undo" on:click={() => dispatch('undoCaal')}>
+      Undo Caal Change
     </button>
   {/if}
 </div>

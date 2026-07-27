@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import type { ModelRouterConfig } from '@magicaal/core';
 import * as crypto from 'node:crypto';
 import { eq, and, desc } from 'drizzle-orm';
 import { telemetryDb } from '../db/telemetry-client';
@@ -69,7 +70,7 @@ interface RunCaller {
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, sessionMetadata, caller } = req.body as {
+    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, sessionMetadata, caller, routerOverride } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
@@ -77,6 +78,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       sessionId?: string;
       sessionMetadata?: Record<string, unknown>;
       caller?: RunCaller;
+      routerOverride?: ModelRouterConfig | null;
     };
 
     if (!agentId || !tenantId) {
@@ -127,6 +129,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
         input,
         sessionId,
         ...(sessionMetadata && { sessionMetadata }),
+        ...(routerOverride && { routerOverride }),
       });
     } catch (err) {
       // The run never made it into the queue — don't leave the session locked.

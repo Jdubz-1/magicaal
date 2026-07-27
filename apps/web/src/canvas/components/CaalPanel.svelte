@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { selectedNode, graph } from '../stores/graph';
+  import { runState } from '../stores/run';
+  import { canUndoCaalChange, undoCaalChange } from '../stores/caalUndo';
   import ProposalReviewUI from './ProposalReviewUI.svelte';
 
   export let agentId: string;
+  export let readonly = false;
 
   interface CaalMessage {
     role: 'user' | 'assistant';
@@ -41,13 +44,17 @@
 
   let messagesEl: HTMLElement;
 
-  const QUICK_ACTIONS = [
+  const ALL_QUICK_ACTIONS = [
     { label: 'Explain graph', intent: 'explain', prompt: 'Explain what this agent does and how the nodes connect.' },
     { label: 'Suggest improvements', intent: 'suggest', prompt: 'Suggest improvements to this agent graph.' },
     { label: 'Describe selected', intent: 'explain', prompt: 'Describe the currently selected node.' },
     { label: 'Add guardrail', intent: 'modify', prompt: 'Add a content safety guardrail node after the LLM node.' },
     { label: 'Optimize flow', intent: 'suggest', prompt: 'How can I optimize this agent graph for performance?' },
   ];
+
+  // Modification isn't supported for code-defined agents yet (ISS-070) — hide
+  // the one quick action that implies it rather than let it silently fail.
+  $: QUICK_ACTIONS = readonly ? ALL_QUICK_ACTIONS.filter((a) => a.intent !== 'modify') : ALL_QUICK_ACTIONS;
 
   async function sendMessage(text: string, intent?: string) {
     if (!text.trim() || isThinking) return;
@@ -69,7 +76,17 @@
         graphState: graphSnapshot,
         selectedNodeIds: $selectedNode ? [$selectedNode.id] : [],
         sessionId: sessionId ?? undefined,
+        // Without this, invokeCaal's session-ID suffix falls back to
+        // 'global', and every agent a user edits shares one Caal session
+        // bucket instead of one per agent — also needed for loadHistory()'s
+        // agentId-keyed lookup below to match the session that was actually
+        // written (ISS-069).
+        agentId,
         intent: intent ?? guessIntent(text),
+        lastRunResult:
+          $runState.status === 'idle'
+            ? null
+            : { status: $runState.status, output: $runState.output, error: $runState.error },
       };
 
       const res = await fetch('/api/v1/caal/invoke', {
@@ -78,8 +95,8 @@
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error(`Caal invoke failed: ${res.status}`);
       const data = await res.json() as {
+        code?: string;
         output?: {
           content?: string;
           nodeReferences?: string[];
@@ -91,6 +108,19 @@
       };
 
       if (data.sessionId) sessionId = data.sessionId;
+
+      if (data.code === 'CAAL_STILL_RUNNING') {
+        // Distinct from a real failure (ISS-068): the run may still complete
+        // server-side even though this request gave up waiting for it.
+        messages = [...messages, {
+          role: 'assistant',
+          content: "Caal is taking longer than usual — your message may still be processed. Check History shortly.",
+          timestamp: Date.now(),
+        }];
+        return;
+      }
+
+      if (!res.ok) throw new Error(`Caal invoke failed: ${res.status}`);
 
       const out = data.output ?? {};
       const assistantMsg: CaalMessage = {
@@ -170,7 +200,11 @@
   async function loadHistory() {
     if (!sessionId) return;
     try {
-      const res = await fetch(`/api/v1/caal/sessions/${encodeURIComponent(sessionId)}`);
+      // The route is keyed by agent ID, not session ID — the controller
+      // reconstructs the namespaced session ID itself from {tenant, user,
+      // agentId}. Passing the already-namespaced sessionId here double-wraps
+      // it and the lookup never matches (ISS-069).
+      const res = await fetch(`/api/v1/caal/sessions/${encodeURIComponent(agentId)}`);
       if (res.ok) {
         const data = await res.json() as { contextEntries: { messages?: CaalMessage[] } };
         historyMessages = data.contextEntries?.messages ?? [];
@@ -181,12 +215,24 @@
 
   function onProposalApply(event: CustomEvent<CaalProposal>) {
     const proposal = event.detail;
-    // Dispatch patches to the graph store and history
+    // Dispatch patches to the graph store and history — App.svelte's handler
+    // snapshots the graph first (via caalUndo's recordCaalChange) so this can
+    // be undone as a single labelled entry (ISS-071).
     window.dispatchEvent(new CustomEvent('caal:apply-proposal', { detail: proposal }));
     pendingProposal = null;
     messages = [...messages, {
       role: 'assistant',
       content: `Proposal "${proposal.description}" accepted and applied to graph.`,
+      timestamp: Date.now(),
+    }];
+  }
+
+  function onUndoLastChange() {
+    const label = undoCaalChange();
+    if (!label) return;
+    messages = [...messages, {
+      role: 'assistant',
+      content: `Undid: ${label}`,
       timestamp: Date.now(),
     }];
   }
@@ -203,6 +249,9 @@
       Caal AI
     </span>
     <div class="header-actions">
+      {#if $canUndoCaalChange}
+        <button class="icon-btn undo-btn" title="Undo last Caal change" on:click={onUndoLastChange}>↺ Undo</button>
+      {/if}
       {#if sessionId}
         <button class="icon-btn" title="History" on:click={loadHistory}>⏱</button>
       {/if}
@@ -213,6 +262,14 @@
   </div>
 
   {#if expanded}
+    <div class="context-bar">
+      <span>{Object.keys($graph.nodes ?? {}).length} node{Object.keys($graph.nodes ?? {}).length === 1 ? '' : 's'}</span>
+      <span class="sep">·</span>
+      <span>{$selectedNode ? ($selectedNode.label || $selectedNode.type) : 'no selection'}</span>
+      <span class="sep">·</span>
+      <span class="run-status run-status-{$runState.status}">last run: {$runState.status}</span>
+    </div>
+
     {#if showHistory}
       <div class="history-view">
         <div class="history-header">
@@ -232,7 +289,11 @@
       <div class="messages-list" bind:this={messagesEl}>
         {#if messages.length === 0}
           <div class="empty-state">
-            Ask Caal to explain, improve, or modify this agent graph.
+            {#if readonly}
+              Ask Caal to explain this agent. Modification isn't supported for code-defined agents yet — edit the source file directly.
+            {:else}
+              Ask Caal to explain, improve, or modify this agent graph.
+            {/if}
           </div>
         {/if}
         {#each messages as msg}
@@ -355,6 +416,27 @@
     border-radius: 3px;
   }
   .icon-btn:hover { color: #e2e8f0; background: #1e2235; }
+  .undo-btn { color: #fcd34d; font-size: 10px; padding: 2px 6px; }
+  .undo-btn:hover { color: #fde68a; background: #1e1600; }
+
+  .context-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    font-size: 10px;
+    color: #64748b;
+    border-bottom: 1px solid #2d3148;
+    flex-shrink: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .context-bar .sep { color: #2d3148; }
+  .run-status { font-family: monospace; }
+  .run-status-running { color: #f59e0b; }
+  .run-status-completed { color: #22c55e; }
+  .run-status-failed { color: #ef4444; }
 
   .messages-list {
     flex: 1;

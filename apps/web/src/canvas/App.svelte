@@ -6,6 +6,7 @@
   import AgentConfigPanel from './components/AgentConfigPanel.svelte';
   import TestRunPanel from './components/TestRunPanel.svelte';
   import { graph, selectedNode, agent, agentConfig } from './stores/graph';
+  import { recordCaalChange } from './stores/caalUndo';
   import LintPanel from './components/LintPanel.svelte';
   import ToolPanel from './components/ToolPanel.svelte';
   import CaalPanel from './components/CaalPanel.svelte';
@@ -91,32 +92,47 @@
   }
 
   function handleApplyProposal(e: Event) {
-    const proposal = (e as CustomEvent<{ patches: Array<{ op: string; target?: string; data?: Record<string, unknown> }> }>).detail;
-    // Apply patches to the graph store
-    graph.update((g) => {
-      const updated = structuredClone(g) as {
-        nodes: Record<string, unknown>;
-        edges: unknown[];
-        toolEdges: unknown[];
-      };
-      for (const patch of proposal.patches) {
-        if (patch.op === 'add_node' && patch.data) {
-          const nodeData = patch.data as { id: string; type: string; config?: Record<string, unknown> };
-          updated.nodes[nodeData.id] = nodeData;
-        } else if (patch.op === 'update_node' && patch.target && patch.data) {
-          const existing = updated.nodes[patch.target] as Record<string, unknown> | undefined;
-          if (existing) {
-            updated.nodes[patch.target] = { ...existing, ...patch.data };
+    const proposal = (e as CustomEvent<{
+      description: string;
+      patches: Array<{ op: string; target?: string; data?: Record<string, unknown> }>;
+    }>).detail;
+
+    // Snapshot before mutating so the change can be undone as a single
+    // labelled entry (ISS-071) — recordCaalChange runs applyFn under its own
+    // self-mutating guard so this graph.update() doesn't immediately
+    // invalidate the snapshot it belongs to.
+    recordCaalChange(structuredClone($graph), proposal.description, () => {
+      graph.update((g) => {
+        const updated = structuredClone(g) as {
+          nodes: Record<string, unknown>;
+          edges: unknown[];
+          toolEdges: unknown[];
+        };
+        for (const patch of proposal.patches) {
+          if (patch.op === 'add_node' && patch.data) {
+            const nodeData = patch.data as { id: string; type: string; config?: Record<string, unknown> };
+            updated.nodes[nodeData.id] = nodeData;
+          } else if (patch.op === 'update_node' && patch.target && patch.data) {
+            const existing = updated.nodes[patch.target] as Record<string, unknown> | undefined;
+            if (existing) {
+              updated.nodes[patch.target] = { ...existing, ...patch.data };
+            }
+          } else if (patch.op === 'delete_node' && patch.target) {
+            delete updated.nodes[patch.target];
+          } else if (patch.op === 'add_edge' && patch.data) {
+            updated.edges = [...(updated.edges ?? []), patch.data];
+          } else if (patch.op === 'delete_edge' && patch.data) {
+            const { from, to } = patch.data as { from?: string; to?: string };
+            updated.edges = (updated.edges ?? []).filter((e) => {
+              const edge = e as { from: string; to: string };
+              return !(edge.from === from && edge.to === to);
+            });
+          } else if (patch.op === 'add_tool_edge' && patch.data) {
+            updated.toolEdges = [...(updated.toolEdges ?? []), patch.data];
           }
-        } else if (patch.op === 'delete_node' && patch.target) {
-          delete updated.nodes[patch.target];
-        } else if (patch.op === 'add_edge' && patch.data) {
-          updated.edges = [...(updated.edges ?? []), patch.data];
-        } else if (patch.op === 'add_tool_edge' && patch.data) {
-          updated.toolEdges = [...(updated.toolEdges ?? []), patch.data];
         }
-      }
-      return updated;
+        return updated;
+      });
     });
   }
 </script>
@@ -143,7 +159,7 @@
     <SessionContextPanel {agentId} sessionId={activeSessionId} />
     <PromptVersionPanel {agentId} />
     <TestCasesPanel {agentId} />
-    <CaalPanel {agentId} />
+    <CaalPanel {agentId} {readonly} />
   </aside>
 </div>
 
