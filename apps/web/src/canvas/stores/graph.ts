@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { findFreeSlot, type Point } from '../layout/collision';
 
 export interface NodeDef {
   id: string;
@@ -51,4 +52,39 @@ export const agentConfig = writable<{
 
 export function addEdge(edge: EdgeDef): void {
   graph.update((g) => ({ ...g, edges: [...g.edges, edge] }));
+}
+
+/**
+ * Creates a new node, placing it at `desiredPosition` unless that would
+ * overlap an existing node — in which case it's nudged to the nearest free
+ * slot. This is the single entry point every node-creation call site (palette
+ * click-to-add, palette drag-and-drop) should use, so collision avoidance is
+ * applied consistently everywhere a node is added.
+ */
+export function addNode(type: string, label: string, desiredPosition: Point): string {
+  const id = `${type.replace(/:/g, '_')}_${Date.now()}`;
+  graph.update((g) => ({
+    ...g,
+    nodes: {
+      ...g.nodes,
+      [id]: { id, type, label, config: {}, position: findFreeSlot(g, desiredPosition) },
+    },
+  }));
+  return id;
+}
+
+/**
+ * Moves an existing node to `desiredPosition`, nudged to the nearest free
+ * slot if it would overlap another node. `nodeId` is excluded from its own
+ * collision check so a node dragged back near its original spot doesn't
+ * flee itself.
+ */
+export function moveNode(nodeId: string, desiredPosition: Point): void {
+  graph.update((g) => ({
+    ...g,
+    nodes: {
+      ...g.nodes,
+      [nodeId]: { ...g.nodes[nodeId], position: findFreeSlot(g, desiredPosition, nodeId) },
+    },
+  }));
 }

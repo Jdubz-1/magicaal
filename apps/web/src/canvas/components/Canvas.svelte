@@ -1,7 +1,22 @@
 <script lang="ts">
-  import { graph, selectedNode, type NodeDef, type EdgeDef, type ToolEdgeDef, addEdge, addToolEdge } from '../stores/graph';
+  import {
+    graph,
+    selectedNode,
+    type NodeDef,
+    type EdgeDef,
+    type ToolEdgeDef,
+    addEdge,
+    addNode,
+    moveNode,
+  } from '../stores/graph';
+  import { NODE_WIDTH, NODE_HEIGHT } from '../layout/constants';
+  import { applyAutoPlacement, undoAutoPlacement, canUndoAutoPlacement } from '../stores/autoPlacementUndo';
+  import CanvasToolbar from './CanvasToolbar.svelte';
 
   export let agentId: string;
+  export let readonly = false;
+
+  const PALETTE_DND_TYPE = 'application/x-magicaal-node-type';
 
   const TOOL_NODE_TYPES = new Set(['core:tool', 'core:mcp-client']);
   const AGENT_NODE_TYPES = new Set(['core:tool-call', 'core:react']);
@@ -82,6 +97,7 @@
   }
 
   function onNodeMousedown(e: MouseEvent, node: NodeDef) {
+    if (readonly) return;
     const pos = toSvgCoords(e.clientX, e.clientY);
     const nodePos = node.position ?? { x: 100, y: 100 };
     draggingNode = node;
@@ -89,6 +105,7 @@
   }
 
   function startEdgeDrag(e: MouseEvent, nodeId: string) {
+    if (readonly) return;
     const pos = toSvgCoords(e.clientX, e.clientY);
     draggingEdge = { fromNodeId: nodeId, x: pos.x, y: pos.y };
     dragPos = pos;
@@ -136,12 +153,57 @@
   }
 
   function onMouseup() {
+    if (draggingNode) {
+      // Collision avoidance is only applied on release (not live during
+      // onMousemove) so the node follows the cursor exactly while dragging
+      // and only snaps to the nearest free slot if it was dropped on top
+      // of another node.
+      const current = $graph.nodes[draggingNode.id]?.position;
+      if (current) moveNode(draggingNode.id, current);
+    }
     isPanning = false;
     draggingNode = null;
     draggingEdge = null;
   }
 
+  function onDragOver(e: DragEvent) {
+    e.preventDefault();
+    if (readonly) return;
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    if (readonly) return;
+    const raw = e.dataTransfer?.getData(PALETTE_DND_TYPE);
+    if (!raw) return;
+    const { type, name } = JSON.parse(raw) as { type: string; name: string };
+    const dropCenter = toSvgCoords(e.clientX, e.clientY);
+    const topLeft = { x: dropCenter.x - NODE_WIDTH / 2, y: dropCenter.y - NODE_HEIGHT / 2 };
+    addNode(type, name, topLeft);
+  }
+
+  /** Recenter the viewBox on the current graph's bounding box. */
+  function fitViewToGraph() {
+    const positions = Object.values($graph.nodes)
+      .map((n) => n.position)
+      .filter((p): p is { x: number; y: number } => !!p);
+    if (positions.length === 0) return;
+    const margin = 60;
+    const minX = Math.min(...positions.map((p) => p.x)) - margin;
+    const minY = Math.min(...positions.map((p) => p.y)) - margin;
+    const maxX = Math.max(...positions.map((p) => p.x + NODE_WIDTH)) + margin;
+    const maxY = Math.max(...positions.map((p) => p.y + NODE_HEIGHT)) + margin;
+    viewBox = { x: minX, y: minY, w: Math.max(maxX - minX, 200), h: Math.max(maxY - minY, 150) };
+  }
+
+  function onAutoPlacementClick() {
+    applyAutoPlacement();
+    fitViewToGraph();
+  }
+
   function confirmEdge(type: EdgeDef['type'], condition?: string) {
+    if (readonly) return;
     if (!pendingEdge) return;
     const newEdge: EdgeDef = {
       id: `e-${Date.now()}`,
@@ -162,8 +224,16 @@
   on:mousemove={onMousemove}
   on:mouseup={onMouseup}
   on:mouseleave={onMouseup}
+  on:dragover={onDragOver}
+  on:drop={onDrop}
   role="presentation"
 >
+  <CanvasToolbar
+    {readonly}
+    canUndo={$canUndoAutoPlacement}
+    on:autoPlacement={onAutoPlacementClick}
+    on:undo={undoAutoPlacement}
+  />
   <svg
     bind:this={svgEl}
     viewBox="{viewBox.x} {viewBox.y} {viewBox.w} {viewBox.h}"

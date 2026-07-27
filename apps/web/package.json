@@ -14,7 +14,8 @@
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -34,16 +35,20 @@
     "pino-http": "^10.3.0"
   },
   "devDependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.0",
+    "@types/jest": "^29.5.14",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.1",
+    "jest": "^29.7.0",
     "nodemon": "^3.1.9",
     "svelte": "^5.0.0",
+    "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3",
     "vite": "^6.3.5"

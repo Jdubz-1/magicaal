@@ -1,8 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { graph } from '../stores/graph';
+  import { addNode as addNodeToGraph } from '../stores/graph';
   import { nodeTypes, type NodeTypeDef } from '../stores/nodeTypes';
   import { connections, ensureConnectionsLoaded } from '../stores/connections';
+
+  export let readonly = false;
+
+  const PALETTE_DND_TYPE = 'application/x-magicaal-node-type';
 
   // Newly installed packages must appear without a page reload — poll the
   // node list and update the store when the type set changes.
@@ -102,14 +106,17 @@
   });
 
   function addNode(type: string, name: string) {
-    const id = `${type.replace(/:/g, '_')}_${Date.now()}`;
-    graph.update((g) => ({
-      ...g,
-      nodes: {
-        ...g.nodes,
-        [id]: { id, type, label: name, config: {}, position: { x: 200, y: 200 } },
-      },
-    }));
+    if (readonly) return;
+    addNodeToGraph(type, name, { x: 200, y: 200 });
+  }
+
+  function onDragStart(e: DragEvent, type: string, name: string) {
+    if (readonly) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer?.setData(PALETTE_DND_TYPE, JSON.stringify({ type, name }));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
   }
 </script>
 
@@ -118,7 +125,14 @@
   {#each grouped as group}
     <div class="category-header">{group.label}</div>
     {#each group.items as nt}
-      <button class="palette-item" on:click={() => addNode(nt.type, nt.meta.name)}>
+      <button
+        class="palette-item"
+        class:readonly
+        disabled={readonly}
+        draggable={!readonly}
+        on:dragstart={(e) => onDragStart(e, nt.type, nt.meta.name)}
+        on:click={() => addNode(nt.type, nt.meta.name)}
+      >
         <span class="node-name">
           {nt.meta.name}
           {#if isNotConnected(nt, connectedServices)}
@@ -147,6 +161,8 @@
     cursor: pointer; color: inherit; text-align: left;
   }
   .palette-item:hover { background: #2d3148; }
+  .palette-item.readonly { opacity: 0.5; cursor: not-allowed; }
+  .palette-item.readonly:hover { background: transparent; }
   .node-name { font-size: 0.8125rem; color: #e2e8f0; display: flex; align-items: center; gap: 0.375rem; }
   .not-connected-badge {
     font-size: 0.5625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;

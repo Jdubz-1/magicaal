@@ -39,7 +39,12 @@
         if (readonly) lastSyncAt = agentData?.updatedAt ?? null;
       }
 
-      if (agentData?.status === 'draft' && agentData.draftGraphJson) {
+      if (agentData?.draftGraphJson) {
+        // draftGraphJson represents pending edits saved via "Save Draft" and
+        // can legitimately be set on an already-published (status: 'active')
+        // agent too — saveDraft() never touches status. It must always take
+        // priority over the last-published snapshot below, or every edit
+        // made after the first publish silently vanishes on reload.
         graph.set(JSON.parse(agentData.draftGraphJson));
       } else if (versionsRes.ok) {
         const versions = await versionsRes.json() as Array<{ graphJson: string }>;
