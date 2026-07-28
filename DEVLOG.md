@@ -25,6 +25,38 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-28 - Node.js 24 upgrade; core:code's isolated-vm sandbox was silently broken in production
+
+**Type:** Infrastructure
+
+**Description:**
+Bumped devbox's pinned Node.js from 22 to 24, then verified the change against the full monorepo before rolling it out to CI and Docker. `better-sqlite3` and `argon2` (N-API, ABI-stable) needed no changes. `isolated-vm@4.7.2` (the `core:code` sandbox) has no Node 24 prebuild and fails to compile from source against Node 24's V8 headers — bumped to `^6.0.2`, which ships real prebuilds for the new ABI.
+
+Testing that bump for real (not through the existing test suite, which mocks `isolated-vm` entirely) surfaced that `core:code` had never actually executed real code correctly in production, independent of the Node version: `await import('isolated-vm')` on this native CJS addon has always returned `{ default: <the real exports> }`, never the named exports directly — there's no JS source for Node's ESM/CJS interop to statically analyze on a `.node` binary. `ivm.Isolate` was therefore always `undefined`, and the resulting `TypeError` was silently swallowed into the generic `CODE_EXECUTION_FAILED` fallback rather than the dedicated `CODE_SANDBOX_UNAVAILABLE` path. Two more bugs surfaced once that one was fixed and real inputs could reach the sandbox for the first time.
+
+**Changes:**
+- `devbox.json`/`devbox.lock` — `nodejs@22` → `nodejs@24`.
+- `packages/nodes/package.json` — `isolated-vm` `^4.7.2` → `^6.0.2` (still an `optionalDependency`; `core:code` already degraded gracefully on a missing/broken native binding, so this was never an outage, just a silently non-functional node type).
+- `packages/nodes/src/nodes/core-code.ts` — four fixes, all found by real (non-mocked) execution:
+  - Unwrap `mod.default ?? mod` after `await import('isolated-vm')`, with a check that `Isolate` is actually a function before proceeding — the missing unwrap above.
+  - Removed `jail.set('undefined', undefined)`: legacy defensive code copied from an old isolated-vm example, never functionally necessary (a fresh V8 context already has `undefined` as a non-configurable global), and `isolated-vm@6` now rejects it outright ("Set failed").
+  - Guarded the `finally` block's `isolate.dispose()` with `!isolate.isDisposed`. `isolated-vm@6` disposes the isolate itself on a memory-limit violation before `script.run()`'s promise rejects; the unconditional second `dispose()` threw "Isolate is already disposed", and since a `finally` block's throw silently replaces whatever the `try` block was already throwing, the correctly-worded "...due to memory limit" error never reached the `catch` block's string-matching, so every OOM was misreported as generic `CODE_EXECUTION_FAILED`.
+  - Outer `catch` now duck-types (`typeof err.message === 'string'`) instead of `err instanceof Error` — native-addon errors don't reliably pass nominal `instanceof` checks across Jest's sandboxed VM realm (`jest-environment-node`), which made the two fixes above untestable under Jest even though they worked correctly in a plain Node process.
+  - `packages/nodes/src/types/isolated-vm.d.ts` — added the now-used `isDisposed: boolean` to this repo's own hand-maintained ambient type shim (kept intentionally, not deleted: it's what keeps type-checking working in environments where the optional native dependency fails to install at all, and as a local ambient module declaration it always shadows whatever isolated-vm's own ships, so it has to be kept in sync by hand).
+- `packages/nodes/tests/unit/nodes/core-code.real-isolated-vm.test.ts` (new) — exercises the real, unmocked `isolated-vm` for the basic-execution, timeout, and memory-limit paths; self-skips if the native binding isn't installed. This is the test that would have caught all three of the above immediately had it existed from the start — `core-code.test.ts`'s existing suite fully mocks the sandbox and cannot see any of this class of bug.
+- `.github/workflows/ci.yml` — both `actions/setup-node` `node-version` pins, `'22'` → `'24'`.
+- `apps/api/Dockerfile`, `apps/engine/Dockerfile`, `apps/web/Dockerfile` — all six `FROM node:22-alpine` lines (builder + runtime stage × 3 files) → `node:24-alpine`.
+- `CONTRIBUTING.md` — "Node.js 22 LTS" → "24 LTS".
+- `CLAUDE.md` — new Common Pitfall: switching devbox's `nodejs` package version does not rebuild native modules. pnpm's content-addressable store serves the old-ABI binary regardless of the new Node version — even `pnpm install --force` doesn't reliably invalidate it — so a plain reinstall after the version bump fails at runtime with a `NODE_MODULE_VERSION` mismatch until the affected package's store entry (or all of `node_modules`) is deleted and reinstalled. Hit this twice while doing this exact upgrade.
+
+**Impact:**
+`core:code` should now actually execute user code in the sandbox for the first time in production, with correct error-code mapping for timeouts and memory-limit violations. Local dev, CI, and both Docker runtime images now agree on Node 24 (previously CI/Docker silently stayed on 22 while local dev could drift ahead). Verified: 152 nodes + 276 engine + 361 API + 21 CLI + 12 web + 32 sdk-client tests green; type-checks and builds clean across every package/app; `apps/api` and `apps/engine` Docker images built from scratch on `node:24-alpine` and both native modules (`isolated-vm`, `better-sqlite3`) confirmed working by running real code inside the built containers, not just checking install succeeded.
+
+**Notes:**
+`isolated-vm`'s own bundled type declarations (`isolated-vm@6.1.2`'s `isolated-vm.d.ts`) are actually complete and accurate now — this repo's local shim at `packages/nodes/src/types/isolated-vm.d.ts` only exists for the native-dependency-entirely-absent case and will keep silently shadowing the real types (a local ambient `declare module` always wins over `node_modules` types for a bare specifier) whether or not that's still the right tradeoff going forward; worth revisiting if `core:code`'s isolated-vm usage grows.
+
+---
+
 ### 2026-07-27 - Caal never actually worked since Phase 4; full message/routing/config repair
 
 **Type:** Bugfix
