@@ -4,7 +4,7 @@
 ARG GIT_SHA
 
 # Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /monorepo
 
 # Native module fallback build toolchain: better-sqlite3 and isolated-vm ship
@@ -82,7 +82,7 @@ COPY apps/api/tsconfig.build.json ./tsconfig.build.json
 RUN pnpm run build
 
 # Stage 2: Runtime
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"

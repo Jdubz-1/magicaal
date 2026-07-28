@@ -21,7 +21,7 @@
     "pg": "^8.21.0"
   },
   "optionalDependencies": {
-    "isolated-vm": "^4.7.2"
+    "isolated-vm": "^6.0.2"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

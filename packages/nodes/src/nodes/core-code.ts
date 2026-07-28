@@ -82,11 +82,24 @@ export const coreCode: NodeModule<CodeConfig> = {
     }
 
     try {
-      // Lazy-load isolated-vm (optional native dep — unavailable if native build failed)
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // Lazy-load isolated-vm (optional native dep — unavailable if native build failed).
+      // isolated-vm is a native CJS addon with no JS source for Node's ESM/CJS
+      // interop to statically analyze, so a dynamic import() only ever yields
+      // { default: <the real exports> } — never the named exports directly.
+      // Unwrapping .default here was missing entirely, so every real
+      // (non-mocked) invocation threw "ivm.Isolate is not a constructor",
+      // which the outer catch below silently downgraded to the generic
+      // CODE_EXECUTION_FAILED instead of the dedicated sandbox-unavailable
+      // path — this node has never actually executed real code in production.
       let ivm: typeof import('isolated-vm');
       try {
-        ivm = (await import('isolated-vm')) as typeof import('isolated-vm');
+        const mod = (await import('isolated-vm')) as typeof import('isolated-vm') & {
+          default?: typeof import('isolated-vm');
+        };
+        ivm = mod.default ?? mod;
+        if (typeof ivm.Isolate !== 'function') {
+          throw new Error('isolated-vm module loaded but Isolate export is missing');
+        }
       } catch {
         return {
           status: 'failed' as const,
@@ -104,7 +117,12 @@ export const coreCode: NodeModule<CodeConfig> = {
       try {
         const vmContext = await isolate.createContext();
         const jail = vmContext.global;
-        await jail.set('undefined', undefined);
+        // A fresh V8 context already has `undefined` as a non-configurable
+        // global binding — explicitly .set()-ing it was legacy defensive
+        // code copied from an old isolated-vm example, never functionally
+        // required, and isolated-vm 6 rejects assigning a raw `undefined`
+        // value through .set() at all ("Set failed"), so this would now
+        // throw where it previously silently did nothing useful.
 
         // Inject input values as read-only globals using ExternalCopy for serialisation
         for (const [key, value] of Object.entries(inputs)) {
@@ -137,10 +155,28 @@ export const coreCode: NodeModule<CodeConfig> = {
           },
         };
       } finally {
-        isolate.dispose();
+        // A memory-limit violation now disposes the isolate itself before
+        // script.run()'s promise rejects (isolated-vm 6). Disposing again
+        // here threw "Isolate is already disposed" — and since a finally
+        // block's throw silently replaces whatever the try block was
+        // already throwing, that discarded the original, correctly-worded
+        // "...due to memory limit" error the catch below pattern-matches on,
+        // and every OOM was misreported as generic CODE_EXECUTION_FAILED.
+        if (!isolate.isDisposed) isolate.dispose();
       }
     } catch (err) {
-      if (!(err instanceof Error)) {
+      // Duck-type rather than `instanceof Error`: isolated-vm's native addon
+      // throws real Error objects, but `new.target`/prototype identity for
+      // an error constructed inside a native module doesn't always match
+      // the calling realm's Error constructor — under Jest specifically
+      // (jest-environment-node sandboxes tests in a separate vm context)
+      // `instanceof Error` came back false for a completely genuine timeout/
+      // memory-limit error with a normal .message, silently discarding it
+      // as "Unknown error" and masking every specific error code below.
+      const hasMessage = (e: unknown): e is { message: string } =>
+        typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string';
+
+      if (!hasMessage(err)) {
         return {
           status: 'failed' as const,
           outputs: {},

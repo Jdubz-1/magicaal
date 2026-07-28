@@ -263,9 +263,11 @@ chore(devbox): add ripgrep to dev environment
 
 9. **Changing devbox packages without committing `devbox.lock`**: After `devbox add` or `devbox rm`, commit both `devbox.json` and `devbox.lock`.
 
-10. **Sending a response after `next(err)`**: Calling `next(err)` hands control to `errorHandler`. Any `res.json()` after that triggers "headers already sent".
+10. **Switching the devbox `nodejs` version doesn't rebuild native modules**: `better-sqlite3` and `isolated-vm` ship native `.node` binaries tied to a specific Node ABI. After bumping `nodejs@22` → `nodejs@24` (or any major change) in `devbox.json`, a plain `pnpm install` reuses the old-ABI binary from pnpm's content-addressable store and fails at runtime with `NODE_MODULE_VERSION` mismatch — even `pnpm install --force` doesn't reliably fix this. Delete the specific package's store entry (or `rm -rf node_modules` at every workspace root) and reinstall.
 
-11. **Middleware order in `app.ts`**: `requestLogger` must come before routes; `notFound` and `errorHandler` must be last, in that order.
+11. **Sending a response after `next(err)`**: Calling `next(err)` hands control to `errorHandler`. Any `res.json()` after that triggers "headers already sent".
+
+12. **Middleware order in `app.ts`**: `requestLogger` must come before routes; `notFound` and `errorHandler` must be last, in that order.
 
 ## Development Tracking
 

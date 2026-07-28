@@ -14,7 +14,7 @@ MagiCaal uses a CLA rather than a DCO. The reason: MagiCaal Labs, Inc. needs the
 
 ## Dev Environment Setup
 
-MagiCaal uses [Devbox](https://www.jetify.com/devbox) to pin Node.js 22 LTS and pnpm 9.
+MagiCaal uses [Devbox](https://www.jetify.com/devbox) to pin Node.js 24 LTS and pnpm 9.
 
 ```bash
 # 1. Clone

@@ -3,6 +3,7 @@
 declare module 'isolated-vm' {
   export class Isolate {
     constructor(options?: { memoryLimit?: number });
+    readonly isDisposed: boolean;
     createContext(): Promise<Context>;
     compileScript(code: string): Promise<Script>;
     dispose(): void;
