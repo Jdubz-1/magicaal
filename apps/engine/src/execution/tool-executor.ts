@@ -13,6 +13,7 @@ import { RunParams, ExecutionContextImpl as CtxImpl } from './context';
 import type { ExecutionContextImpl } from './context';
 import { resolveEdges } from './graph-utils';
 import { mcpRegistry } from '../mcp/mcp-registry';
+import { registry } from '../registry/node-registry';
 import { logger } from '../lib/logger';
 import { checkAbort, abortError } from './run-control';
 
@@ -53,7 +54,29 @@ export async function assembleTools(
   for (const edge of graph.toolEdges) {
     if (edge.to !== agentNodeId) continue;
     const sourceNode = graph.nodes[edge.from];
-    if (!sourceNode) continue;
+    if (!sourceNode) {
+      // Not a node placed in this graph — may be a standalone registered
+      // NodeModule referenced by type name (e.g. Caal's this.tool('caal.graph.read', ...)).
+      const snapshot = (ctx as unknown as Record<string, unknown>)._registrySnapshot as
+        | ReturnType<typeof registry.snapshot>
+        | undefined;
+      const source = snapshot ?? registry;
+      let module;
+      try {
+        module = source.get(edge.from);
+      } catch {
+        logger.warn({ toolEdgeFrom: edge.from, agentNodeId }, 'Tool edge source not found as graph node or registered node type — skipping');
+        continue;
+      }
+      tools.push({
+        name: module.type,
+        description: module.meta.description,
+        inputSchema: module.schema.config,
+        source: 'native',
+        nodeId: edge.from,
+      });
+      continue;
+    }
 
     if (sourceNode.type === 'core:tool') {
       const cfg = sourceNode.config as unknown as ToolNodeConfig;
@@ -239,6 +262,8 @@ async function invokeToolCall(
     let content: string;
     if (tool.source === 'graph') {
       content = await invokeGraphTool(tool.nodeId, toolCall.input, graph, ctx);
+    } else if (tool.source === 'native') {
+      content = await invokeNativeTool(tool.nodeId, toolCall.input, ctx);
     } else {
       content = await invokeMcpTool(tool.nodeId, tool.mcpToolName!, toolCall.input, ctx);
     }
@@ -288,6 +313,27 @@ async function invokeGraphTool(
 
   const result = subCtx.get(cfg.outputMapping);
   return result !== undefined ? JSON.stringify(result) : '{}';
+}
+
+async function invokeNativeTool(
+  moduleType: string,
+  args: Record<string, unknown>,
+  ctx: ExecutionContextImpl,
+): Promise<string> {
+  const snapshot = (ctx as unknown as Record<string, unknown>)._registrySnapshot as
+    | ReturnType<typeof registry.snapshot>
+    | undefined;
+  const source = snapshot ?? registry;
+  const module = source.get(moduleType);
+
+  // Invoked directly against the shared ctx (no forked sub-context) — these
+  // tools accumulate staged state across calls within one agentic loop
+  // (e.g. Caal's _caal_patches), which a fork would never see.
+  const output = await module.execute(ctx, args);
+  if (output.status === 'failed') {
+    return JSON.stringify({ error: output.error?.message ?? 'Tool execution failed' });
+  }
+  return JSON.stringify(output.outputs ?? {});
 }
 
 async function invokeMcpTool(

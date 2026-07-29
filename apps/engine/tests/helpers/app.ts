@@ -91,7 +91,7 @@ jest.mock('@/queue/client', () => queueMocks);
 import { createApp } from '@/app';
 import { config } from '@/config';
 import { runTelemetryMigrations } from '@/db/telemetry-migrate';
-import { registerNodes, registerIntegrations, registerAdapters } from '@/registry/startup';
+import { registerNodes, registerIntegrations, registerAdapters, registerCaalTools } from '@/registry/startup';
 import type { Application } from 'express';
 
 let bootstrapped = false;
@@ -107,6 +107,7 @@ export async function buildTestApp(): Promise<Application> {
     await runTelemetryMigrations();
     registerNodes();
     registerIntegrations();
+    registerCaalTools();
     registerAdapters();
     bootstrapped = true;
   }

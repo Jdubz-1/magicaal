@@ -41,11 +41,21 @@
   let pendingEdgeScreenPos = { x: 0, y: 0 };
   let pendingCondition = '';
   let showConditionInput = false;
+  let didInitialFit = false;
 
   $: {
     nodes = Object.values($graph.nodes);
     edges = $graph.edges;
     toolEdges = $graph.toolEdges ?? [];
+  }
+
+  // Code-defined graphs are auto-laid-out on load (App.svelte) rather than
+  // hand-placed, so a fixed default viewBox can leave nodes off-screen for
+  // anything wider than a handful of nodes — fit the view once, the first
+  // time laid-out nodes land in the store.
+  $: if (readonly && nodes.length > 0 && !didInitialFit) {
+    fitViewToGraph();
+    didInitialFit = true;
   }
 
   // Count inbound tool edges per agent node for the tool badge
@@ -264,18 +274,23 @@
       />
     {/each}
 
-    <!-- Tool edges: dashed amber lines -->
+    <!-- Tool edges: dashed amber lines. Edges whose source is a registered
+         node type rather than a node placed on this canvas (e.g. Caal's
+         native tools) have no position to draw from — the tool badge on
+         the agent node still reflects them. -->
     {#each toolEdges as te}
-      {@const from = getNodePos(te.from)}
-      {@const to = getNodePos(te.to)}
-      <line
-        x1={from.x + 160} y1={from.y + 20}
-        x2={to.x} y2={to.y + 20}
-        stroke="#f59e0b"
-        stroke-width="1.5"
-        stroke-dasharray="5 3"
-        opacity="0.8"
-      />
+      {#if $graph.nodes[te.from]}
+        {@const from = getNodePos(te.from)}
+        {@const to = getNodePos(te.to)}
+        <line
+          x1={from.x + 160} y1={from.y + 20}
+          x2={to.x} y2={to.y + 20}
+          stroke="#f59e0b"
+          stroke-width="1.5"
+          stroke-dasharray="5 3"
+          opacity="0.8"
+        />
+      {/if}
     {/each}
 
     <!-- Nodes -->

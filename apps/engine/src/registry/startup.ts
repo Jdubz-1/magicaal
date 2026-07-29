@@ -1,4 +1,5 @@
 import { ALL_NODES } from '@magicaal/nodes';
+import { ALL_CAAL_TOOLS } from '@magicaal/integration-caal';
 import type { IntegrationPackage } from '@magicaal/sdk-node';
 import { SLACK_INTEGRATION } from '@magicaal/integration-slack';
 import { GITHUB_INTEGRATION } from '@magicaal/integration-github';
@@ -45,6 +46,21 @@ export function registerNodes(): void {
     registry.register(node);
   }
   logger.info({ count: ALL_NODES.length }, 'Node registry initialized');
+}
+
+/**
+ * Caal's platform/graph/proposal/canvas tools are standalone NodeModules —
+ * not core:tool graph nodes, not an IntegrationPackage — registered directly
+ * into the same registry so tool edges that reference them by type name
+ * (agents/caal.agent.ts's this.tool('caal.graph.read', ...) calls) resolve
+ * to something at runtime. Previously unregistered entirely: every one of
+ * Caal's tool edges silently produced zero assembled tools.
+ */
+export function registerCaalTools(): void {
+  for (const tool of ALL_CAAL_TOOLS) {
+    registry.register(tool);
+  }
+  logger.info({ count: ALL_CAAL_TOOLS.length }, 'Caal tool registry initialized');
 }
 
 export function registerIntegrations(): void {

@@ -9,9 +9,11 @@
 </script>
 
 <div class="canvas-toolbar">
-  <button class="toolbar-btn" disabled={readonly} on:click={() => dispatch('autoPlacement')}>
-    Auto Placement
-  </button>
+  {#if !readonly}
+    <button class="toolbar-btn" on:click={() => dispatch('autoPlacement')}>
+      Auto Placement
+    </button>
+  {/if}
   {#if canUndo && !readonly}
     <button class="toolbar-btn toolbar-btn-undo" on:click={() => dispatch('undo')}>
       Undo Auto Placement

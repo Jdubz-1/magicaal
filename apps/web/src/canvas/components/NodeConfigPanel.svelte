@@ -5,6 +5,7 @@
   import ConnectionSelect from './ConnectionSelect.svelte';
 
   export let node: NodeDef;
+  export let readonly = false;
 
   $: nodeTypeDef = $nodeTypes.find((nt) => nt.type === node.type);
   $: schemaProps = nodeTypeDef?.schema?.config?.properties ?? {};
@@ -95,7 +96,7 @@
 
   <div class="form-group">
     <label>Label</label>
-    <input type="text" value={node.label ?? ''} on:input={(e) => updateLabel((e.target as HTMLInputElement).value)} />
+    <input type="text" value={node.label ?? ''} disabled={readonly} on:input={(e) => updateLabel((e.target as HTMLInputElement).value)} />
   </div>
 
   {#each Object.entries(schemaProps) as [key, prop]}
@@ -106,21 +107,25 @@
           value={String(configValue(key) ?? '')}
           service={prop.service}
           onChange={(id) => updateConfig(key, id)}
+          disabled={readonly}
         />
       {:else if prop.type === 'object'}
         <textarea rows="4"
           value={JSON.stringify(configValue(key) ?? {}, null, 2)}
+          disabled={readonly}
           on:blur={(e) => { try { updateConfig(key, JSON.parse((e.target as HTMLTextAreaElement).value)); } catch { /* invalid JSON */ } }}
         ></textarea>
       {:else if prop.type === 'array'}
         <input type="text"
           value={Array.isArray(configValue(key)) ? (configValue(key) as string[]).join(', ') : String(configValue(key) ?? '')}
+          disabled={readonly}
           on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value.split(',').map((s) => s.trim()).filter(Boolean))}
           placeholder="comma-separated values"
         />
       {:else if prop.type === 'boolean'}
         <input type="checkbox"
           checked={Boolean(configValue(key))}
+          disabled={readonly}
           on:change={(e) => updateConfig(key, (e.target as HTMLInputElement).checked)}
           style="width:auto"
         />
@@ -145,15 +150,16 @@
           <div class="field-with-picker">
             <input type="text"
               value={String(configValue(key) ?? '')}
+              disabled={readonly}
               on:input={(e) => updateConfig(key, (e.target as HTMLInputElement).value)}
             />
             {#if upstreamNodes.length > 0}
-              <button class="picker-btn" title="Reference upstream node output"
+              <button class="picker-btn" title="Reference upstream node output" disabled={readonly}
                 on:click={() => { pickerFieldKey = pickerFieldKey === key ? null : key; }}>
                 ↗
               </button>
             {/if}
-            <button class="expr-toggle-btn" title="Switch to JSONata expression editor"
+            <button class="expr-toggle-btn" title="Switch to JSONata expression editor" disabled={readonly}
               on:click={() => { exprFieldKey = key; pickerFieldKey = null; }}>
               ƒ
             </button>
@@ -177,7 +183,7 @@
     </div>
   {/each}
 
-  <button class="btn-danger" on:click={removeNode}>Remove node</button>
+  <button class="btn-danger" disabled={readonly} on:click={removeNode}>Remove node</button>
 </div>
 
 <style>

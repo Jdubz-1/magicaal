@@ -3,6 +3,7 @@
   import { agent, graph, agentConfig } from '../stores/graph';
 
   export let agentId: string;
+  export let readonly = false;
 
   let publishing = false;
   let publishMsg = '';
@@ -187,16 +188,16 @@
     <div class="agent-status status-{$agent.status}">{$agent.status}</div>
   {/if}
   <div class="btn-row">
-    <button class="btn-draft" disabled={draftSaving} on:click={saveDraft}>
+    <button class="btn-draft" disabled={draftSaving || readonly} on:click={saveDraft}>
       {draftSaving ? 'Saving…' : 'Save Draft'}
     </button>
-    <button class="btn-publish" disabled={publishing} on:click={publish}>
+    <button class="btn-publish" disabled={publishing || readonly} on:click={publish}>
       {publishing ? 'Publishing…' : 'Publish'}
     </button>
   </div>
   {#if draftMsg}<div class="status-msg">{draftMsg}</div>{/if}
   {#if publishMsg}<div class="status-msg">{publishMsg}</div>{/if}
-  {#if $agent?.status === 'active'}
+  {#if $agent?.status === 'active' && !readonly}
     <button class="btn-revert" disabled={reverting} on:click={revertToDraft}>
       {reverting ? 'Reverting…' : 'Revert to Draft'}
     </button>

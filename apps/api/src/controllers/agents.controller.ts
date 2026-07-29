@@ -112,8 +112,15 @@ export const createAgent: RequestHandler = async (req, res, next) => {
 
 export const getAgent: RequestHandler = async (req, res, next) => {
   try {
-    const { tenantId } = req.user!;
-    const rows = await db.select().from(agents).where(and(eq(agents.id, req.params.id), eq(agents.tenantId, tenantId)));
+    const { tenantId, role } = req.user!;
+    // Mirrors listAgents' platform_admin bypass — without it, platform-tenant
+    // agents (e.g. Caal, tenantId '_platform') 404 for any admin whose own
+    // tenant differs, even though listAgents already lets that same admin see
+    // the agent in the list they clicked it from.
+    const rows =
+      role === 'platform_admin'
+        ? await db.select().from(agents).where(eq(agents.id, req.params.id))
+        : await db.select().from(agents).where(and(eq(agents.id, req.params.id), eq(agents.tenantId, tenantId)));
     if (!rows[0]) throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
     res.json(rows[0]);
   } catch (err) {

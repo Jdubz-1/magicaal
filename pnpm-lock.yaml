@@ -137,6 +137,9 @@ importers:
       '@magicaal/integration-bamboohr':
         specifier: workspace:*
         version: link:../../packages/integrations/bamboohr
+      '@magicaal/integration-caal':
+        specifier: workspace:*
+        version: link:../../packages/integrations/caal
       '@magicaal/integration-core':
         specifier: workspace:*
         version: link:../../packages/integrations/core

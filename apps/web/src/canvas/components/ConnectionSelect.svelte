@@ -4,6 +4,7 @@
   export let value: string = '';
   export let service: string | undefined = undefined;
   export let onChange: (connectionId: string) => void;
+  export let disabled = false;
 
   interface Connection {
     id: string;
@@ -32,10 +33,11 @@
     type="text"
     value={value}
     placeholder="connection ID"
+    {disabled}
     on:input={(e) => onChange((e.target as HTMLInputElement).value)}
   />
 {:else}
-  <select value={value} on:change={(e) => onChange((e.target as HTMLSelectElement).value)}>
+  <select {disabled} value={value} on:change={(e) => onChange((e.target as HTMLSelectElement).value)}>
     <option value="">— select a connection —</option>
     {#each connections as conn}
       <option value={conn.id}>

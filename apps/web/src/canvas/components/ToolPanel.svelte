@@ -8,12 +8,21 @@
   $: activeNodeId = $selectedNode?.id ?? null;
   $: activeNodeType = $selectedNode?.type ?? null;
 
-  // Tools connected TO the selected agent node
+  // Tools connected TO the selected agent node. A tool edge's source may be
+  // a node placed on this canvas (core:tool / core:mcp-client) or, for
+  // native/registry tools like Caal's, a registered node type with no
+  // canvas presence at all — those are shown by their type name instead.
   $: connectedTools = activeNodeId && AGENT_NODE_TYPES.has(activeNodeType ?? '')
-    ? ($graph.toolEdges ?? [])
-        .filter((te) => te.to === activeNodeId)
-        .map((te) => ({ edge: te, node: $graph.nodes[te.from] }))
-        .filter((t) => t.node !== undefined)
+    ? ($graph.toolEdges ?? []).filter((te) => te.to === activeNodeId).map((te) => {
+        const node = $graph.nodes[te.from];
+        return {
+          edge: te,
+          node,
+          name: node ? String(node.config?.name ?? node.type) : te.from,
+          source: node ? (node.type === 'core:mcp-client' ? 'MCP' : 'Graph') : 'Native',
+          description: node ? node.config?.description : undefined,
+        };
+      })
     : [];
 
   // When a tool node is selected, show its config
@@ -38,12 +47,12 @@
       <p class="empty-state">No tools connected.<br/>Connect <code>core:tool</code> or <code>core:mcp-client</code> nodes via tool edges.</p>
     {:else}
       <ul class="tool-list">
-        {#each connectedTools as { node }}
+        {#each connectedTools as { name, source, description }}
           <li class="tool-item">
-            <span class="tool-name">{String(node.config?.name ?? node.type)}</span>
-            <span class="tool-source">{node.type === 'core:mcp-client' ? 'MCP' : 'Graph'}</span>
-            {#if node.config?.description}
-              <span class="tool-desc">{String(node.config.description)}</span>
+            <span class="tool-name">{name}</span>
+            <span class="tool-source">{source}</span>
+            {#if description}
+              <span class="tool-desc">{String(description)}</span>
             {/if}
           </li>
         {/each}

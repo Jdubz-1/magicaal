@@ -20,6 +20,7 @@
   "dependencies": {
     "@magicaal/core": "workspace:*",
     "@magicaal/integration-bamboohr": "workspace:*",
+    "@magicaal/integration-caal": "workspace:*",
     "@magicaal/integration-core": "workspace:*",
     "@magicaal/integration-github": "workspace:*",
     "@magicaal/integration-gmail": "workspace:*",

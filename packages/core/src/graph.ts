@@ -74,7 +74,7 @@ export interface AssembledTool {
   name: string;
   description: string;
   inputSchema: object;
-  source: 'graph' | 'mcp';
+  source: 'graph' | 'mcp' | 'native';
   nodeId: string;
   mcpToolName?: string;
 }

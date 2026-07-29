@@ -7,6 +7,7 @@
   import TestRunPanel from './components/TestRunPanel.svelte';
   import { graph, selectedNode, agent, agentConfig } from './stores/graph';
   import { recordCaalChange } from './stores/caalUndo';
+  import { runAutoLayout } from './layout/autoLayout';
   import LintPanel from './components/LintPanel.svelte';
   import ToolPanel from './components/ToolPanel.svelte';
   import CaalPanel from './components/CaalPanel.svelte';
@@ -53,6 +54,16 @@
           const latest = versions[versions.length - 1];
           graph.set(JSON.parse(latest.graphJson ?? '{}'));
         }
+      }
+
+      // Code-defined graphs never carry hand-placed positions — the compiler
+      // that produces them has no concept of layout — so every node would
+      // otherwise stack at Canvas.svelte's default fallback position. Lay
+      // them out automatically every load, exactly like clicking "Auto
+      // Placement" would, since users can't drag nodes on a readonly graph
+      // to fix this themselves.
+      if (readonly) {
+        graph.update((g) => runAutoLayout(g));
       }
 
       if (configRes.ok) {

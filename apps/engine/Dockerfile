@@ -22,6 +22,7 @@ COPY packages/core/package.json ./packages/core/package.json
 COPY packages/sdk/package.json ./packages/sdk/package.json
 COPY packages/nodes/package.json ./packages/nodes/package.json
 COPY packages/integrations/core/package.json ./packages/integrations/core/package.json
+COPY packages/integrations/caal/package.json ./packages/integrations/caal/package.json
 COPY packages/integrations/slack/package.json ./packages/integrations/slack/package.json
 COPY packages/integrations/github/package.json ./packages/integrations/github/package.json
 COPY packages/integrations/jira/package.json ./packages/integrations/jira/package.json
@@ -51,6 +52,9 @@ COPY packages/nodes/tsconfig.build.json ./packages/nodes/tsconfig.build.json
 COPY packages/integrations/core/src ./packages/integrations/core/src
 COPY packages/integrations/core/tsconfig.json ./packages/integrations/core/tsconfig.json
 COPY packages/integrations/core/tsconfig.build.json ./packages/integrations/core/tsconfig.build.json
+COPY packages/integrations/caal/src ./packages/integrations/caal/src
+COPY packages/integrations/caal/tsconfig.json ./packages/integrations/caal/tsconfig.json
+COPY packages/integrations/caal/tsconfig.build.json ./packages/integrations/caal/tsconfig.build.json
 COPY packages/integrations/slack/src ./packages/integrations/slack/src
 COPY packages/integrations/slack/tsconfig.json ./packages/integrations/slack/tsconfig.json
 COPY packages/integrations/slack/tsconfig.build.json ./packages/integrations/slack/tsconfig.build.json
@@ -100,6 +104,8 @@ WORKDIR /monorepo/packages/nodes
 RUN pnpm run build
 WORKDIR /monorepo/packages/integrations/core
 RUN pnpm run build
+WORKDIR /monorepo/packages/integrations/caal
+RUN pnpm run build
 WORKDIR /monorepo/packages/integrations/slack
 RUN pnpm run build
 WORKDIR /monorepo/packages/integrations/github
@@ -146,6 +152,8 @@ COPY --from=builder /monorepo/packages/nodes/package.json ./packages/nodes/
 COPY --from=builder /monorepo/packages/nodes/dist ./packages/nodes/dist
 COPY --from=builder /monorepo/packages/integrations/core/package.json ./packages/integrations/core/
 COPY --from=builder /monorepo/packages/integrations/core/dist ./packages/integrations/core/dist
+COPY --from=builder /monorepo/packages/integrations/caal/package.json ./packages/integrations/caal/
+COPY --from=builder /monorepo/packages/integrations/caal/dist ./packages/integrations/caal/dist
 COPY --from=builder /monorepo/packages/integrations/slack/package.json ./packages/integrations/slack/
 COPY --from=builder /monorepo/packages/integrations/slack/dist ./packages/integrations/slack/dist
 COPY --from=builder /monorepo/packages/integrations/github/package.json ./packages/integrations/github/
@@ -176,7 +184,7 @@ COPY --from=builder /monorepo/packages/integrations/shopify/package.json ./packa
 COPY --from=builder /monorepo/packages/integrations/shopify/dist ./packages/integrations/shopify/dist
 COPY --from=builder /monorepo/apps/engine/package.json ./apps/engine/
 
-RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes --filter @magicaal/integration-core --filter @magicaal/integration-slack --filter @magicaal/integration-github --filter @magicaal/integration-jira --filter @magicaal/integration-gmail --filter @magicaal/integration-sendgrid --filter @magicaal/integration-stripe --filter @magicaal/integration-google-workspace --filter @magicaal/integration-salesforce --filter @magicaal/integration-hubspot --filter @magicaal/integration-zendesk --filter @magicaal/integration-twilio --filter @magicaal/integration-quickbooks --filter @magicaal/integration-bamboohr --filter @magicaal/integration-shopify
+RUN pnpm install --prod --frozen-lockfile --filter @magicaal/engine --filter @magicaal/nodes --filter @magicaal/integration-core --filter @magicaal/integration-caal --filter @magicaal/integration-slack --filter @magicaal/integration-github --filter @magicaal/integration-jira --filter @magicaal/integration-gmail --filter @magicaal/integration-sendgrid --filter @magicaal/integration-stripe --filter @magicaal/integration-google-workspace --filter @magicaal/integration-salesforce --filter @magicaal/integration-hubspot --filter @magicaal/integration-zendesk --filter @magicaal/integration-twilio --filter @magicaal/integration-quickbooks --filter @magicaal/integration-bamboohr --filter @magicaal/integration-shopify
 
 WORKDIR /monorepo/apps/engine
 COPY --from=builder /monorepo/apps/engine/dist ./dist
