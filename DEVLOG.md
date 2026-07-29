@@ -25,6 +25,83 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-29 - platform_admin couldn't open platform-tenant agents (e.g. Caal) in Studio at all
+
+**Type:** Bugfix
+
+**Description:**
+While verifying the code-defined-graph auto-layout feature (previous entry below), the Caal graph still showed all nodes stacked after rebuilding and hard-refreshing Studio. Traced it to `apps/api/src/controllers/agents.controller.ts`'s `getAgent` handler (`GET /v1/agents/:id`), which filters strictly by `and(eq(agents.id, id), eq(agents.tenantId, tenantId))` — the caller's own tenant, no exception. Caal's agent row belongs to the special `_platform` tenant; a `platform_admin` logged into any other tenant (e.g. the seeded "Dev Tenant") got a 404 fetching it directly by ID, even though `listAgents` already has an explicit `role === 'platform_admin'` bypass letting that same admin see it in the agent list they clicked it from in the first place. Studio's `App.svelte` treats a failed agent fetch as "not yet saved" (silently swallowed) and falls back to whatever `readonly`/`authoringMode` defaults to (`false`) — so the entire readonly/auto-layout code path from the previous entry never activated for Caal under this login, even though it was deployed correctly (verified via container file hash). The graph still partially rendered because the separate `listAgentVersions` endpoint has no tenant scoping at all and succeeded independently, loading the raw, unpositioned compiled graph.
+
+The same missing bypass exists on several sibling endpoints (`updateAgent`, `publishAgent`, `draftAgent`, `getVersionDiff`, `rollbackVersion`, `updateAgentConfig`, `getSchemaInput`/`getSchemaOutput`) — scoped to fixing only `getAgent` for now, the one actually blocking Studio's initial load; the others are a known follow-up if platform_admin needs full cross-tenant management of platform-tenant agents rather than just being able to view them.
+
+**Changes:**
+- `apps/api/src/controllers/agents.controller.ts`'s `getAgent` — added the same `role === 'platform_admin'` bypass `listAgents` already has: platform_admin queries by `id` alone; every other role keeps the existing `id` + `tenantId` filter.
+
+**Impact:**
+platform_admin can now actually open Caal (or any other `_platform`-tenant agent) in Studio, which is what makes the auto-layout/readonly-lock feature from the previous entry observable at all for it. Verified: `apps/api` type-check and full test suite green (27 suites / 361 tests, including the existing 33-test `agents.test.ts` integration suite), rebuilt `api` Docker image deployed to the running local stack with the fix confirmed present in the container's compiled `dist/`.
+
+**Notes:**
+The sibling endpoints listed above have the identical gap and were deliberately left unfixed in this pass — flagging as a follow-up if platform_admin needs to publish/rollback/edit-config on platform-tenant agents from Studio, not just view them. Separately, `listAgentVersions` and (unverified, worth checking) possibly `getAgentConfig` have the opposite problem — no tenant scoping at all, meaning any authenticated user of any tenant can currently read any other tenant's agent's versions by ID. Not touched here since it wasn't the bug blocking verification, but is a real cross-tenant read exposure worth its own look.
+
+---
+
+### 2026-07-29 - Code-defined graphs now auto-layout in Studio and are fully locked read-only
+
+**Type:** Feature
+
+**Description:**
+Every code-defined agent (`authoringMode === 'code-defined'`, e.g. Caal, synced in from `packages/compiler` rather than hand-built in Studio) rendered with all of its nodes stacked at the same point on the canvas. Root cause: the compiler never emits per-node `position` or graph `layout` data — that only ever gets set client-side, when a user drags or adds a node in Studio (`apps/web/src/canvas/stores/graph.ts`'s `addNode()`/`moveNode()`). Code-defined graphs never go through that path, so every node's `position` was `undefined`, and `Canvas.svelte`'s fallback (`n?.position ?? { x: 100, y: 100 }`) put them all in the same spot.
+
+Rather than teach the compiler about layout (which would mean maintaining hand-tuned coordinates in source files, or the compiler reinventing a layout algorithm Studio already has), code-defined graphs now run the existing dagre-based "Auto Placement" algorithm automatically on load, with no button needed — exactly the same `runAutoLayout()` used by the manual button, just triggered unconditionally instead of on click.
+
+While wiring this up, found that `AgentConfigPanel.svelte` and `NodeConfigPanel.svelte` both receive a `readonly` prop from `App.svelte` but neither declares `export let readonly` — Svelte silently drops unrecognized props, so "Save Draft"/"Publish"/"Revert to Draft" and every node config field were never actually gated by readonly mode. Left alone, a stray "Save Draft" on a code-defined agent would persist a `draftGraphJson` that — per `App.svelte`'s own load priority — permanently masks all future source-driven recompiles, and would have frozen in whatever auto-computed layout happened to be in memory at save time. Closed both gaps as part of this change.
+
+**Changes:**
+- `apps/web/src/canvas/App.svelte` — after loading a code-defined graph, `graph.update(g => runAutoLayout(g))` runs unconditionally (not gated on "does it already have positions," since a code-defined graph never has meaningful ones to preserve, and re-running on every load makes the layout self-heal if the compiled source's node/edge set changes between reloads).
+- `apps/web/src/canvas/components/Canvas.svelte` — one-time `fitViewToGraph()` the first time a readonly graph's laid-out nodes land in the store, so a wide left-to-right layout doesn't leave nodes outside the default `1000×600` viewBox.
+- `apps/web/src/canvas/components/CanvasToolbar.svelte` — "Auto Placement" (and its "Undo" pair) is now hidden entirely for readonly graphs instead of rendered-but-disabled; visually-authored graphs are unaffected.
+- `apps/web/src/canvas/components/AgentConfigPanel.svelte` — added the missing `export let readonly = false;`; "Save Draft"/"Publish" now actually disable, "Revert to Draft" now actually hides, for code-defined agents.
+- `apps/web/src/canvas/components/NodeConfigPanel.svelte` — added the missing `export let readonly = false;`; every config field control, the label input, "Remove node", and the "↗"/"ƒ" upstream-reference/expression-editor toggle buttons now disable for a readonly node's panel (the toggle buttons specifically needed gating too, since `ExpressionEditor.svelte` has no readonly support of its own — leaving the toggle live would have let a locked field still be edited through it).
+- `apps/web/src/canvas/components/ConnectionSelect.svelte` — added a `disabled` prop (previously had none), needed so `NodeConfigPanel` can actually disable a locked node's connection-type fields.
+
+**Impact:**
+Caal (and every other code-defined agent) now displays as a clean, non-overlapping, left-to-right layout the instant Studio loads it, with node dragging, config editing, and draft/publish actions all correctly locked. Visually-authored agents are unaffected — same manual drag-and-drop, same "Auto Placement" button and undo behavior as before. Verified: `apps/web` type-check and full test suite green (12 tests, including the untouched `runAutoLayout` unit suite), `vite build:canvas` succeeds with no new warnings, and the rebuilt `web` Docker image was deployed to the running local stack with the new dagre-layout code confirmed present in the served bundle.
+
+**Notes:**
+Not verified in an actual browser — no browser access in this environment. Worth a manual pass in Studio to confirm the layout looks reasonable and the locked controls behave as expected before considering this fully closed.
+
+---
+
+### 2026-07-29 - Caal's tool edges pointed at unregistered type names, not graph nodes — LLM never actually had tools
+
+**Type:** Bugfix
+
+**Description:**
+Studio's canvas showed two dangling dashed-amber lines on the Caal agent graph, both starting from empty canvas space into the `suggester`/`modifier` tool-call nodes. Root cause: `agents/caal.agent.ts` wires 26 tool edges via `this.tool('caal.graph.read', 'suggester')`-style calls, where the first argument is a bare tool *type name*, not the ID of a node actually placed in the graph — `core:tool`/`core:mcp-client` nodes representing Caal's 17 tools don't exist anywhere in the graph; the tools are standalone registered `NodeModule`s. The canvas glitch was cosmetic; the real bug was in `apps/engine/src/execution/tool-executor.ts`'s `assembleTools()`, which silently dropped any tool edge whose `from` didn't resolve to a graph node (`if (!sourceNode) continue`) — meaning `suggester`/`modifier` received zero tools at runtime, and every one of Caal's Suggest/Modify LLM calls degraded to a tool-less chat turn. `caal.proposal.create` could never be invoked, so no proposal could ever be generated. Compounding this, `packages/integrations/caal`'s 17 tool modules were never imported or registered anywhere in the running engine at all — absent from `apps/engine/src/registry/startup.ts` and `apps/engine/Dockerfile` — so even a corrected lookup would have found nothing.
+
+Introduced a third tool-edge "source kind" alongside the existing `core:tool` (graph-sourced, forked sub-context, traverses its own outbound flow edges) and `core:mcp-client` (external MCP tools): **native** — a self-contained, already-registered `NodeModule` invoked directly via `module.execute(ctx, args)` against the **shared** `ctx`, not a fork, since Caal's tools accumulate staged state across calls within one agentic loop (`_caal_patches`, `_caal_proposal`) that a forked sub-context would never see.
+
+**Changes:**
+- `packages/integrations/caal/src/index.ts` — added `ALL_CAAL_TOOLS: NodeModule[]` aggregate export (mirrors `@magicaal/nodes`' `ALL_NODES`).
+- `packages/integrations/caal/tsconfig.build.json` — added the missing `rootDir: "src"` (present in every other integration package); without it `tsc` preserved the `src/` folder inside `dist/`, so `dist/index.js` never existed at the path `package.json`'s `main`/`types` pointed to — the package silently couldn't be imported by anything.
+- `apps/engine/src/registry/startup.ts` — new `registerCaalTools()`, called at boot alongside `registerNodes()`/`registerIntegrations()`.
+- `apps/engine/src/index.ts`, `apps/engine/tests/helpers/app.ts` — call `registerCaalTools()` in the boot sequence.
+- `apps/engine/package.json` — added `@magicaal/integration-caal` dependency.
+- `apps/engine/Dockerfile` — added the per-integration build+copy stage for `packages/integrations/caal`.
+- `apps/engine/src/execution/tool-executor.ts` — `assembleTools()` now falls back to resolving `edge.from` against the run's pinned registry snapshot (same pattern as `worker.ts`'s `executeNodeOnce`) when it isn't a graph node, pushing an `AssembledTool` with `source: 'native'`; `invokeToolCall()` gained a `'native'` branch calling `module.execute(ctx, args)` directly. `registry.get()` throws rather than returning falsy on an unknown type, so both lookups are wrapped appropriately. `name` uses the module's `type` (e.g. `caal.graph.read`), not `meta.name` (a human-readable label like "Create Proposal" containing spaces, which would fail every provider's tool-name validation).
+- `packages/core/src/graph.ts` — `AssembledTool.source` union gained `'native'`.
+- `apps/web/src/canvas/components/Canvas.svelte` — tool-edge lines whose source isn't a real node in `$graph.nodes` are no longer drawn (previously all fell back to the same default position, producing the two overlapping dangling lines).
+- `apps/web/src/canvas/components/ToolPanel.svelte` — `connectedTools` no longer filters out native tool edges; they're now shown by type name (e.g. `caal.graph.read`) with source label "Native".
+- `apps/engine/tests/unit/execution/tool-executor.test.ts` — new coverage registering a fake native tool module and asserting `assembleTools()` includes it, and that `invokeToolCall()`'s `execute()` call receives the exact same `ctx` instance passed into `runAgentLoop` (not a fork) with its `ctx.data` mutation visible to the caller afterward.
+
+**Impact:**
+Caal's Suggest/Modify intents can now actually call tools and produce proposals — previously impossible since the agentic loop had nothing to call. Studio's dangling canvas lines are gone; `ToolPanel` now correctly lists all 9/17 tools per node instead of "No tools connected." Verified: 39 engine test suites / 278 tests green, engine type-check and build clean, `docker build -f apps/engine/Dockerfile .` succeeds, and running the built image directly confirmed all 17 `caal.*` types resolve from `packages/integrations/caal/dist/index.js` exactly as referenced in `agents/caal.agent.ts`.
+
+**Notes:**
+Not yet verified: a live end-to-end LLM invoke through `/v1/caal/invoke` producing a real proposal (needs live provider credentials not available in this environment), and a manual Studio browser check of the canvas/ToolPanel changes (no browser access available here) — both worth doing before considering this fully closed. Also explicitly deferred, per the original plan: compile-time validation of native tool references in `packages/compiler` (a typo'd tool name still won't be caught at `magicaal build` time, though the engine now logs a warning instead of silently dropping it), and node-palette visibility filtering so Caal's tools don't appear in every tenant's `GET /v1/nodes` palette by default.
+
+---
+
 ### 2026-07-28 - Node.js 24 upgrade; core:code's isolated-vm sandbox was silently broken in production
 
 **Type:** Infrastructure
