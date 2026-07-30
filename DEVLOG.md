@@ -25,6 +25,32 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-07-30 - Realigned OSS governance to a sole-developer operating model
+
+**Type:** Documentation
+
+**Description:**
+The OSS vision, launch roadmap, and live governance docs (`GOVERNANCE.md`, `CONTRIBUTING.md`, `RELEASES.md`, `.github/*`) were originally designed for a project with a founding team and near-term external contributors: a CLA gated behind a registered legal entity, a mandatory multi-day RFC discussion/FCP process, a three-branch release ladder (`DEV-main → qa → main`), and a large batch of external setup (Discord, community calls, GitHub Project boards, a 10+ good-first-issue quota) required before the repo could even go public. There is currently one developer working on MagiCaal, so that structure was redesigned to be flexible and efficient for that reality now, while remaining able to scale back up cleanly if co-maintainers or steady external contribution shows up later — no part of the new structure requires rewriting governance from scratch to grow.
+
+Key decisions: the CLA/legal-entity dependency is replaced with a DCO (commit sign-off, no entity required); the RFC process keeps its trigger list but drops the mandatory discussion/FCP timers in favor of a self-serve "write it, merge it when ready" practice; the branch model simplifies to `DEV-main → main`, with feature/fix branches merging into `DEV-main` and testing happening there; and a large batch of external/community setup (legal entity, domain, Discord, community calls, GitHub Project board, the good-first-issue quota) moves from a pre-launch gate to a post-traction bucket triggered by real signals of demand rather than a checklist. All of this is documented with explicit "what changes when this stops being true" triggers so it's clear when to reintroduce the fuller process.
+
+**Changes:**
+- `.ai_docs/MAGICAAL_OSS_VISION.md` (gitignored planning doc) — added a §0 "Operating Reality" framing section; replaced the CLA subsection with DCO; rewrote the RFC lifecycle and Core Maintainer sections to be self-serve; updated the launch checklist
+- `.ai_docs/MAGICAAL_LAUNCH_ROADMAP.md` (gitignored) — restructured Stage 0 into 0.A (required pre-launch) and 0.B (deferred to post-traction with explicit triggers); updated the dependency map, Stage 2 gate, and key risks accordingly
+- `.ai_docs/MAGICAAL_OSS_TRACK_A_CHECKLIST.md` (gitignored) — rewritten with the same Part 1 (B1–B3, required) / Part 2 (deferred) split
+- `GOVERNANCE.md` — RFC Lifecycle rewritten to drop the discussion/FCP timeline; Core Maintainers section trimmed to reflect the current empty roster
+- `CONTRIBUTING.md` — CLA section replaced with a DCO section (`git commit -s`); Branch Strategy simplified to two tiers; PR Process updated
+- `RELEASES.md` — full rewrite of the branch/release flow dropping the `qa` branch and RC-from-qa promotion ceremony; releases now cut by merging `DEV-main → main` directly
+- `.github/workflows/ci.yml` — removed `qa` from CI trigger branches
+- `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/rfc_proposal.yml` — CLA checklist item swapped for DCO sign-off; RFC issue template wording updated for the self-serve process
+- `SECURITY.md` — softened a "MagiCaal Labs employees" reference since there's no separate legal entity yet
+- `README.md` — removed a premature Discord link
+
+**Impact:**
+No runtime behavior changes — this is entirely process/documentation. Going forward, PRs are gated by a DCO bot instead of a CLA bot, releases are cut from a two-branch flow instead of three, and RFCs can be written and merged without waiting on a fixed discussion window. The deferred items (legal entity, CLA, domain, Discord, Project board, good-first-issue quota) remain fully specified and ready to stand up the moment their trigger condition is met.
+
+---
+
 ### 2026-07-29 - platform_admin couldn't open platform-tenant agents (e.g. Caal) in Studio at all
 
 **Type:** Bugfix
