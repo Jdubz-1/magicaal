@@ -97,7 +97,6 @@ packages/
 | | |
 |---|---|
 | Docs | [docs.magicaal.dev](https://docs.magicaal.dev) |
-| Discord | [discord.gg/magicaal](https://discord.gg/magicaal) |
 | Roadmap | [ROADMAP.md](ROADMAP.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security | [SECURITY.md](SECURITY.md) |

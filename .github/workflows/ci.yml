@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, DEV-main, qa]
+    branches: [main, DEV-main]
   push:
-    branches: [main, DEV-main, qa]
+    branches: [main, DEV-main]
 
 jobs:
   lint-typecheck-test:

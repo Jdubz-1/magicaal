@@ -25,4 +25,4 @@ Closes #
 - [ ] Docs updated (if applicable)
 - [ ] No `process.env` calls outside `config.ts`
 - [ ] `import type` used for all `@magicaal/core` imports
-- [ ] CLA signed (first-time contributors — see `CONTRIBUTING.md`)
+- [ ] Commits signed off per DCO (`git commit -s`)

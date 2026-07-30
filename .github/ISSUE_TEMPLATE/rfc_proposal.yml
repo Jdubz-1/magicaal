@@ -5,9 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        **The RFC itself is a pull request** — not an issue.
+        **The RFC itself is a pull request** — not an issue. RFCs are currently a self-serve design-note practice (no mandatory discussion window), so you're welcome to skip this and open the RFC PR directly.
 
-        Use this issue only to briefly describe your idea and gauge interest before investing time in writing the full RFC document. If the idea gets traction here, open a PR adding `rfcs/NNNN-short-title.md` using the template at [`rfcs/0000-template.md`](../rfcs/0000-template.md).
+        Use this issue if you'd rather briefly describe your idea and get early feedback before investing time in writing the full RFC document. Open a PR adding `rfcs/NNNN-short-title.md` using the template at [`rfcs/0000-template.md`](../rfcs/0000-template.md) whenever you're ready.
 
         See [`GOVERNANCE.md`](../GOVERNANCE.md) for the full RFC process and the list of changes that require an RFC.
 

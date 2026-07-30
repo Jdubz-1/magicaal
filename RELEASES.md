@@ -8,10 +8,8 @@ This document covers the full branching model, day-to-day development flow, rele
 
 ```
 main          ──────────────────────────────────────────── production; tagged releases only
-               ↑ PR when QA passes                ↑ hotfix PR (rare)
-qa            ──────────────────────────────────────────── pre-release validation
-               ↑ PR when feature-complete
-DEV-main      ──────────────────────────────────────────── primary integration branch
+               ↑ PR when DEV-main is release-ready    ↑ hotfix PR (rare)
+DEV-main      ──────────────────────────────────────────── primary integration + testing branch
                ↑ ↑ ↑ PRs from feature/fix branches
 feat/api/...
 feat/engine/...
@@ -20,14 +18,13 @@ fix/web/...
 
 | Branch | Protected | Who merges to it | Purpose |
 |---|---|---|---|
-| `main` | Yes | BDFL only, from `qa` or `hotfix/*` | Stable, production-ready code; every merge is tagged |
-| `qa` | Yes | BDFL only, from `DEV-main` | Pre-release validation; RC tags cut from here |
-| `DEV-main` | Yes | PRs from feature/fix branches; BDFL direct-push for trivial fixes | Primary development integration |
+| `main` | Yes | BDFL only, from `DEV-main` or `hotfix/*` | Stable, production-ready code; every merge is tagged |
+| `DEV-main` | Yes | PRs from feature/fix branches; BDFL direct-push for trivial fixes | Primary development integration; testing (lint, typecheck, test, manual smoke test) happens here |
 | `feat/*` | No | PR to `DEV-main` | New features |
 | `fix/*` | No | PR to `DEV-main` | Bug fixes |
 | `hotfix/*` | No | PR directly to `main` | Emergency production patches (rare) |
 
-OSS contributor PRs always target **`DEV-main`**, never `qa` or `main`.
+OSS contributor PRs always target **`DEV-main`**, never `main`.
 
 ---
 
@@ -83,46 +80,38 @@ Releases are cut when a roadmap phase (or significant sub-milestone within a pha
 ### Step 1 — Feature freeze on DEV-main
 
 When a phase is feature-complete:
-- Announce on Discord `#contributors` that `DEV-main` is in feature freeze
 - No new feature PRs merge to `DEV-main` until the release is out
 - Bug fixes targeting the release may still merge during freeze
 
-### Step 2 — Promote DEV-main → qa
+### Step 2 — Cut a Release Candidate (optional, for larger releases)
+
+For significant releases (new phase, major feature), cut an RC tag directly from `DEV-main` before promoting to `main`:
 
 ```bash
-git checkout qa
+git checkout DEV-main
 git pull
-git merge --no-ff DEV-main -m "chore(release): promote DEV-main to qa for v0.X.0"
-git push
-```
-
-### Step 3 — Cut a Release Candidate (optional, for larger releases)
-
-For significant releases (new phase, major feature), cut an RC tag from `qa`:
-
-```bash
 git tag v0.6.0-rc.1
 git push origin v0.6.0-rc.1
 ```
 
 This triggers `release.yml` — Docker images are pushed (`ghcr.io/magicaal/api:v0.6.0-rc.1`), npm packages are published with the `next` tag, and a **pre-release** GitHub Release is created. The pre-release flag is set automatically because the tag contains a hyphen.
 
-Run the RC on a staging deployment. Fix any issues on `qa` directly (or via short-lived `fix/*` branches off `qa`), back-merge fixes to `DEV-main`, and cut additional RCs as needed (`-rc.2`, `-rc.3`).
+Run the RC on a staging deployment. Fix any issues directly on `DEV-main` (or via short-lived `fix/*` branches), and cut additional RCs as needed (`-rc.2`, `-rc.3`).
 
 For small patch releases, skip the RC.
 
-### Step 4 — Promote qa → main
+### Step 3 — Promote DEV-main → main
 
 When validation passes:
 
 ```bash
 git checkout main
 git pull
-git merge --no-ff qa -m "chore(release): promote qa to main for v0.X.0"
+git merge --no-ff DEV-main -m "chore(release): promote DEV-main to main for v0.X.0"
 git push
 ```
 
-### Step 5 — Cut the release tag
+### Step 4 — Cut the release tag
 
 ```bash
 git tag v0.6.0
@@ -134,7 +123,7 @@ git push origin v0.6.0
 2. **npm-publish job** — publishes `@magicaal/sdk`, `@magicaal/compiler`, `@magicaal/cli` to npm
 3. **github-release job** — creates a GitHub Release; body is extracted from `CHANGELOG.md` for this version
 
-### Step 6 — Post-release
+### Step 5 — Post-release
 
 ```bash
 # Back-merge main into DEV-main to pick up any release-only commits
@@ -143,7 +132,6 @@ git merge --no-ff main -m "chore(release): back-merge main into DEV-main post-v0
 git push
 
 # Lift the feature freeze
-# Announce the release on Discord #announcements (the GitHub release bot handles this automatically)
 ```
 
 Add a `DEVLOG.md` entry and commit it as `docs(devlog): vX.Y.Z release`.
@@ -168,7 +156,7 @@ Until `v1.0.0`, minor versions (`v0.X.0`) may include breaking changes between p
 
 ## Hotfix Flow (Emergency Production Patches)
 
-Use this only for critical issues in production that cannot wait for the normal `DEV-main → qa → main` cycle (e.g., security vulnerability, data-loss bug).
+Use this only for critical issues in production that cannot wait for the normal `DEV-main → main` cycle (e.g., security vulnerability, data-loss bug).
 
 ```bash
 # 1. Branch off main (NOT DEV-main)
@@ -177,7 +165,7 @@ git checkout -b hotfix/auth-bypass-cve-2026-xxxx
 
 # 2. Fix, test locally
 # Small fix — the change must be minimal and targeted
-git commit -m "fix(api): patch invocation auth bypass (CVE-2026-XXXX)"
+git commit -s -m "fix(api): patch invocation auth bypass (CVE-2026-XXXX)"
 
 # 3. PR directly to main
 gh pr create --base main --title "fix(api): critical auth bypass hotfix"
@@ -188,11 +176,7 @@ git checkout main && git pull
 git tag v0.5.1
 git push origin v0.5.1
 
-# 5. Back-merge to qa and DEV-main
-git checkout qa
-git merge --no-ff main -m "chore(hotfix): back-merge v0.5.1 hotfix into qa"
-git push
-
+# 5. Back-merge to DEV-main
 git checkout DEV-main
 git merge --no-ff main -m "chore(hotfix): back-merge v0.5.1 hotfix into DEV-main"
 git push
@@ -208,7 +192,6 @@ If the hotfix is a security vulnerability, coordinate with `security@magicaal.de
 |---|---|---|
 | PR to any branch | `ci.yml` | lint, typecheck, test, build |
 | Push to `DEV-main` | `ci.yml` | lint, typecheck, test, build |
-| Push to `qa` | `ci.yml` | lint, typecheck, test, build |
 | Push to `main` | `ci.yml` | lint, typecheck, test, build |
 | Tag `v*.*.*` | `release.yml` | Docker build+push, npm publish, GitHub Release |
 | Push to `main` or PR to `main` | `codeql.yml` | SAST scan |
@@ -223,7 +206,6 @@ Configure in GitHub → Settings → Branches:
 | Branch | Require PR | Required checks | Allow force push | Allow direct push |
 |---|---|---|---|---|
 | `main` | Yes (≥1 review) | CI pass | No | No |
-| `qa` | Yes (≥1 review) | CI pass | No | No |
 | `DEV-main` | Yes for external contributors; BDFL may push directly | CI pass on PRs | No | BDFL only |
 
 ---

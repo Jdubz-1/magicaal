@@ -48,7 +48,7 @@ The following areas are in scope for security reports:
 The following are **not** in scope:
 
 - Attacks requiring physical access to the server
-- Social engineering attacks against MagiCaal Labs employees or community members
+- Social engineering attacks against the maintainer or community members
 - Vulnerabilities in third-party dependencies — please report these to the upstream project directly
 - Theoretical vulnerabilities with no demonstrated practical exploitation path
 - Self-XSS or attacks that require the attacker to already have admin access to the deployment

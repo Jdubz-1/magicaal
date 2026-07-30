@@ -1,14 +1,22 @@
 # Contributing to MagiCaal
 
-Thank you for your interest in contributing. This document covers everything you need to get started: CLA requirements, dev environment setup, coding standards, and the PR process.
+Thank you for your interest in contributing. This document covers everything you need to get started: DCO requirements, dev environment setup, coding standards, and the PR process.
 
 ---
 
-## Contributor License Agreement (CLA)
+## Developer Certificate of Origin (DCO)
 
-MagiCaal uses a CLA rather than a DCO. The reason: MagiCaal Labs, Inc. needs the right to relicense contributions for the commercial Cloud offering. The Apache 2.0 license you receive as a user is unaffected — the CLA does not restrict what you can do with your own contributions.
+MagiCaal uses the standard [Developer Certificate of Origin](https://developercertificate.org/) rather than a CLA. It certifies that you have the right to submit your contribution under the project's license — it does **not** grant anyone relicensing rights beyond Apache 2.0, and requires no legal entity or hosted agreement to stand up.
 
-**You must sign the CLA before your first PR can be merged.** The CLA bot enforces this automatically — it will block the PR and post a signing link. Sign at [magicaal.dev/cla](https://magicaal.dev/cla). Both Individual and Corporate variants are available.
+**Every commit must carry a `Signed-off-by` trailer.** Add `-s` when committing:
+
+```bash
+git commit -s -m "fix(api): correctly propagate status code in errorHandler"
+```
+
+A DCO bot checks every PR commit automatically. If a commit is missing the trailer, amend it (`git commit --amend -s`) and force-push your branch — the bot re-checks and clears the block.
+
+*If a genuine commercial relicensing need arises later, a CLA may be introduced — applying only to contributions made from that point forward, never retroactively.*
 
 ---
 
@@ -137,7 +145,7 @@ Write no comments by default. Add a comment only when the **why** is non-obvious
 
 ## What Requires an RFC
 
-Changes in these categories require a [Request for Comments (RFC)](rfcs/0000-template.md) before implementation. See [GOVERNANCE.md](GOVERNANCE.md) for the full process.
+Changes in these categories should get a [Request for Comments (RFC)](rfcs/0000-template.md) before implementation. This is currently a self-serve design-note practice — write it, merge it when ready, no mandatory discussion window — see [GOVERNANCE.md](GOVERNANCE.md) for the full process.
 
 **Requires an RFC:**
 - New node type or node category
@@ -173,27 +181,26 @@ devbox run -- pnpm --filter @magicaal/api run test   # Single workspace
 
 ## Branch Strategy
 
-MagiCaal uses a three-branch ladder: `DEV-main` → `qa` → `main`. All development work starts on `DEV-main`; `main` only receives code that has passed QA.
+MagiCaal uses a two-branch flow: `DEV-main` → `main`. All development and testing happens on `DEV-main`; `main` only receives code that's ready to release.
 
 ```
 feat/api/xyz  ─┐
-feat/engine/xyz─┤──→ DEV-main ──→ qa ──→ main ──→ vX.Y.Z tag
+feat/engine/xyz─┤──→ DEV-main ──→ main ──→ vX.Y.Z tag
 fix/web/xyz   ─┘
 ```
 
 | Branch | Purpose |
 |---|---|
 | `main` | Production-ready; every merge is tagged and released |
-| `qa` | Pre-release validation; RC tags cut from here |
-| `DEV-main` | Primary integration branch; all feature PRs target this |
+| `DEV-main` | Primary integration + testing branch; all feature PRs target this |
 | `feat/*`, `fix/*` | Short-lived; branch off `DEV-main`, PR back to `DEV-main` |
-| `hotfix/*` | Emergency fixes only; branch off `main`, PR back to `main`, then back-merged |
+| `hotfix/*` | Emergency fixes only; branch off `main`, PR back to `main`, then back-merged into `DEV-main` |
 
-**OSS contributors always target `DEV-main`**, never `qa` or `main`.
+**OSS contributors always target `DEV-main`**, never `main` directly.
 
 Branch naming: `feat/<scope>/<description>`, `fix/<scope>/<description>`, `hotfix/<description>` — where `<scope>` matches a conventional commit scope (`api`, `engine`, `web`, `nodes`, etc.).
 
-For the full release flow (how `DEV-main` promotes to `qa` to `main`, how tags are cut, RC process, hotfix procedure, versioning rules, and CI/CD trigger table) see **[RELEASES.md](RELEASES.md)**.
+For the full release flow (how `DEV-main` promotes to `main`, how tags are cut, RC process, hotfix procedure, versioning rules, and CI/CD trigger table) see **[RELEASES.md](RELEASES.md)**.
 
 ---
 
@@ -220,15 +227,15 @@ Commit messages describe **why**, not **what**. The diff shows what changed.
 
 ## Pull Request Process
 
-1. Fork the repo and create a feature branch
-2. Sign the CLA at [magicaal.dev/cla](https://magicaal.dev/cla) (first-time contributors)
+1. Fork the repo and create a feature branch off `DEV-main`
+2. Commit with `git commit -s` so every commit carries a DCO `Signed-off-by` trailer
 3. Write tests for your change
 4. Run `devbox run lint`, `devbox run type-check`, and `devbox run test` — all must pass
 5. Add a `CHANGELOG.md` entry if the change is user-visible
-6. Open a PR using the PR template
-7. Address review feedback; the CLA bot will auto-clear once the CLA is signed
+6. Open a PR targeting `DEV-main`, using the PR template
+7. Address review feedback; the DCO bot will auto-clear once every commit is signed off
 
-The BDFL or a designated Core Maintainer will review and merge. Response time is typically 1–3 business days. See [GOVERNANCE.md](GOVERNANCE.md) for merge authority details.
+The BDFL reviews and merges. Response time is typically 1–3 business days. See [GOVERNANCE.md](GOVERNANCE.md) for merge authority details.
 
 ---
 

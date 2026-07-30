@@ -41,40 +41,31 @@ RFCs are **not** required for:
 - Tooling changes (devbox, CI, Dependabot)
 - Refactors that do not change public interfaces
 
-### RFC Lifecycle
+### RFC Lifecycle (self-serve)
 
-```
-Draft → Discussion (minimum 7 days) → Final Comment Period (3 days) → Accepted / Rejected / Withdrawn
-```
+RFCs are a **self-serve design-note practice, not a gated multi-day process** — there is currently one maintainer, so there is no second reviewer to wait on:
 
 1. Author opens a PR adding `rfcs/NNNN-short-title.md` using the template at `rfcs/0000-template.md`
-2. Discussion happens on the PR — anyone may comment
-3. The BDFL or a designated Core Maintainer calls the Final Comment Period (FCP)
-4. The BDFL makes the final accept/reject decision, stated explicitly in the PR
-5. Accepted RFCs are merged to `main`; rejected or withdrawn RFCs are closed but preserved in the PR history
+2. Anyone may comment on the PR — there is no mandatory discussion window
+3. The BDFL merges (accepts) or closes (rejects/withdraws) the RFC whenever ready, stating the decision explicitly in the PR
+4. Accepted RFCs are merged to `main`; rejected or withdrawn RFCs are closed but preserved in the PR history
 
 The `rfcs/` directory lives at the monorepo root. The RFC template is at `rfcs/0000-template.md`.
+
+**Once a second maintainer is active, or a pattern of substantive external RFC comments emerges,** a fixed discussion window and Final Comment Period return. The trigger list of what requires an RFC doesn't change — only the review cadence around it.
 
 ---
 
 ## Core Maintainers
 
-The BDFL may designate **Core Maintainers** — individuals with merge authority on specific packages or subsystems.
+The BDFL may designate **Core Maintainers** — individuals with merge authority on specific packages or subsystems — once there's someone to designate. The mechanism is fully documented and ready to use:
 
-Core Maintainers can:
-- Merge non-RFC changes within their designated subsystem without BDFL review
-- Provide non-binding advisory votes during RFC discussion
-
-Core Maintainer status is:
 - **Granted** by the BDFL based on demonstrated contribution history and judgment
 - **Documented** in `MAINTAINERS.md` with the assigned subsystem and GitHub handle
-- **Revocable** by the BDFL with 30 days notice and a documented reason
-- **Subject to activity requirements**: 6 months of inactivity results in Emeritus status
-- **Emeritus**: former maintainers retain their history and recognition but no merge authority
+- **Revocable** by the BDFL with 30 days notice and a documented reason; 6 months of inactivity results in Emeritus status
 
-Security-sensitive changes (auth, cryptography, invocation auth, tenant isolation, credential injection) require BDFL review regardless of CODEOWNERS subsystem assignments.
+There is currently no Core Maintainer roster — see `MAINTAINERS.md`. Security-sensitive changes (auth, cryptography, invocation auth, tenant isolation, credential injection) require BDFL review regardless of CODEOWNERS subsystem assignments, both now and once Core Maintainers exist.
 
-Current roster: `MAINTAINERS.md`
 Automatic review routing: `.github/CODEOWNERS`
 
 ---
@@ -86,7 +77,7 @@ Automatic review routing: `.github/CODEOWNERS`
 | `GOVERNANCE.md` (this file) | BDFL identity, RFC process, Core Maintainer process |
 | `MAINTAINERS.md` | Current Core Maintainer roster with subsystems |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1; enforcement contact |
-| `CONTRIBUTING.md` | How to contribute, CLA requirement, coding standards, PR process |
+| `CONTRIBUTING.md` | How to contribute, DCO requirement, coding standards, PR process |
 | `SECURITY.md` | CVE reporting, disclosure timeline, scope, Hall of Fame |
 | `CHANGELOG.md` | Release history (conventional commits + curated highlights) |
 
