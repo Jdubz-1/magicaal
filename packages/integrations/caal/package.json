@@ -4,7 +4,7 @@
   "private": true,
   "description": "MagiCaal Caal AI assistant tool package",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "type-check": "tsc --noEmit"
