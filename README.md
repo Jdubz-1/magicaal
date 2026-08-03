@@ -60,7 +60,7 @@ apps/web (port 8080)  ← Studio canvas + Admin panel (Datastar)
 For contributing or building from source:
 
 ```bash
-# Requires Devbox (pins Node.js 22 LTS + pnpm 9)
+# Requires Devbox (pins Node.js 24 LTS + pnpm 9)
 devbox shell   # runs pnpm install automatically
 cp apps/api/.env.example apps/api/.env
 cp apps/engine/.env.example apps/engine/.env

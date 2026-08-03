@@ -34,7 +34,7 @@ magicaal/
 
 ## Environment Setup
 
-This repo uses [Devbox](https://www.jetify.com/devbox) to manage the dev environment. Devbox pins Node.js 22 LTS + pnpm 9 and runs `pnpm install` automatically on shell entry.
+This repo uses [Devbox](https://www.jetify.com/devbox) to manage the dev environment. Devbox pins Node.js 24 LTS + pnpm 9 and runs `pnpm install` automatically on shell entry.
 
 ```bash
 # Check if devbox is already installed
@@ -43,7 +43,7 @@ devbox version
 # If not installed, run the installer (one-time, system-level)
 curl -fsSL https://get.jetify.com/devbox | bash
 
-# Enter the dev shell — Node.js 22 LTS + pnpm activate; deps install automatically
+# Enter the dev shell — Node.js 24 LTS + pnpm activate; deps install automatically
 devbox shell
 
 # Copy environment files before starting services
