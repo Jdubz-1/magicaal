@@ -21,6 +21,13 @@ import { config } from '../../config';
 export const myHandler = (req: any, res: any) => { ... };
 ```
 
+**`@magicaal/core` is types-only and has no runtime code.** A plain `import` from it compiles fine but **fails at runtime in Docker** once TypeScript's type-only imports are erased — always use `import type`:
+
+```typescript
+import type { AgentGraphDefinition } from '@magicaal/core'; // ✅
+import { AgentGraphDefinition } from '@magicaal/core';      // ❌ fails at runtime
+```
+
 ## Naming Conventions
 
 | Thing | Convention | Example |
@@ -50,6 +57,14 @@ export const myHandler = (req: any, res: any) => { ... };
 - Controllers call `next(err)` — they do not send error responses themselves
 - Attach `status` or `statusCode` to errors to control the HTTP response code
 - `errorHandler.ts` is the only place that sends `{ error: ... }` responses
+
+## Database
+
+Use Drizzle ORM — never raw SQL outside migration files. See [Database & Migrations](../database.md) for the full pattern and migration workflow.
+
+## Auth
+
+Controllers read the verified caller from `req.user` (platform plane) or from the invocation-plane resolution in `authenticateAgentCaller` — never trust a tenant/user id from URL params or the request body. See [Auth & RBAC](../auth-rbac.md).
 
 ## Testing
 

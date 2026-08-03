@@ -116,6 +116,12 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       },
     },
     '/v1/agents/{id}/runs': {
+      get: {
+        tags: ['Runs'],
+        summary: 'List runs for an agent',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
       post: {
         tags: ['Runs'],
         summary: 'Invoke the agent (sync or async)',
@@ -132,6 +138,29 @@ export function buildOpenApiSpec(): Record<string, unknown> {
         tags: ['Runs'],
         summary: 'Get run status and output',
         parameters: [pathParam('id'), pathParam('runId')],
+        responses: { '200': ok, '404': notFound },
+      },
+      delete: {
+        tags: ['Runs'],
+        summary: 'Cancel an in-flight run',
+        parameters: [pathParam('id'), pathParam('runId')],
+        responses: { '204': noContent, '404': notFound },
+      },
+    },
+    '/v1/agents/{id}/runs/{runId}/review': {
+      post: {
+        tags: ['Runs'],
+        summary: 'Submit a human-review decision for a run paused on a core:human-review node',
+        parameters: [pathParam('id'), pathParam('runId')],
+        requestBody: jsonBody({ decision: str, feedback: str }, ['decision']),
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/runs/{runId}': {
+      get: {
+        tags: ['Runs'],
+        summary: 'Look up a run directly by id (platform or invocation plane)',
+        parameters: [pathParam('runId')],
         responses: { '200': ok, '404': notFound },
       },
     },
@@ -204,6 +233,337 @@ export function buildOpenApiSpec(): Record<string, unknown> {
         parameters: [pathParam('id'), pathParam('secret')],
         requestBody: jsonBody({}),
         responses: { '202': accepted, '401': unauthorized },
+      },
+    },
+    '/v1/agents/{id}/versions': {
+      get: {
+        tags: ['Agents'],
+        summary: 'List published versions of an agent',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/versions/{vId}/diff': {
+      get: {
+        tags: ['Agents'],
+        summary: 'Diff a version’s graph against the previous version',
+        parameters: [pathParam('id'), pathParam('vId')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/versions/{vId}/rollback': {
+      post: {
+        tags: ['Agents'],
+        summary: 'Roll back the active version to an earlier published version',
+        parameters: [pathParam('id'), pathParam('vId')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/agents/{id}/config': {
+      get: {
+        tags: ['Agents'],
+        summary: 'Get agent runtime config (timeout, concurrency, routing overrides)',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+      patch: {
+        tags: ['Agents'],
+        summary: 'Update agent runtime config',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({}),
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/invocation-policy': {
+      get: {
+        tags: ['Agents'],
+        summary: 'Get the agent’s invocation policy (private, key-only, or public)',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+      patch: {
+        tags: ['Agents'],
+        summary: 'Update the agent’s invocation policy',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ policy: str }, ['policy']),
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/invocation-keys': {
+      get: {
+        tags: ['Agents'],
+        summary: 'List invocation keys issued for an agent',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+      post: {
+        tags: ['Agents'],
+        summary: 'Issue a new invocation key (ik_ prefixed, shown once)',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ label: str }),
+        responses: { '201': created },
+      },
+    },
+    '/v1/agents/{id}/invocation-keys/{keyId}': {
+      delete: {
+        tags: ['Agents'],
+        summary: 'Revoke an invocation key',
+        parameters: [pathParam('id'), pathParam('keyId')],
+        responses: { '204': noContent },
+      },
+    },
+    '/v1/agents/{id}/invocation-log': {
+      get: {
+        tags: ['Agents'],
+        summary: 'Audit log of invocation-plane calls to this agent',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/test-cases': {
+      get: {
+        tags: ['Test Cases'],
+        summary: 'List test cases for an agent',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+      post: {
+        tags: ['Test Cases'],
+        summary: 'Create a test case',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ input: obj, expected: obj }),
+        responses: { '201': created },
+      },
+    },
+    '/v1/agents/{id}/test-cases/{cid}': {
+      put: {
+        tags: ['Test Cases'],
+        summary: 'Update a test case',
+        parameters: [pathParam('id'), pathParam('cid')],
+        requestBody: jsonBody({ input: obj, expected: obj }),
+        responses: { '200': ok },
+      },
+      delete: {
+        tags: ['Test Cases'],
+        summary: 'Delete a test case',
+        parameters: [pathParam('id'), pathParam('cid')],
+        responses: { '204': noContent },
+      },
+    },
+    '/v1/agents/{id}/test-cases/run': {
+      post: {
+        tags: ['Test Cases'],
+        summary: 'Run the full test-case suite for an agent',
+        parameters: [pathParam('id')],
+        responses: { '202': accepted },
+      },
+    },
+
+    // ── Users, Tenants & API Keys ────────────────────────────────────────────
+    '/v1/users': {
+      get: { tags: ['Users'], summary: 'List users in the tenant', responses: { '200': ok } },
+      post: {
+        tags: ['Users'],
+        summary: 'Create a user (platform_admin or tenant_admin only)',
+        requestBody: jsonBody({ email: str, role: str }, ['email', 'role']),
+        responses: { '201': created },
+      },
+    },
+    '/v1/users/{id}': {
+      get: {
+        tags: ['Users'],
+        summary: 'Get a user',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+      patch: {
+        tags: ['Users'],
+        summary: 'Update a user (platform_admin or tenant_admin only)',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ role: str }),
+        responses: { '200': ok },
+      },
+      delete: {
+        tags: ['Users'],
+        summary: 'Deactivate a user (platform_admin or tenant_admin only)',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent },
+      },
+    },
+    '/v1/tenants': {
+      get: { tags: ['Tenants'], summary: 'List tenants (platform_admin only)', responses: { '200': ok } },
+      post: {
+        tags: ['Tenants'],
+        summary: 'Create a tenant (platform_admin only)',
+        requestBody: jsonBody({ name: str, slug: str }, ['name', 'slug']),
+        responses: { '201': created },
+      },
+    },
+    '/v1/tenants/{id}': {
+      get: {
+        tags: ['Tenants'],
+        summary: 'Get a tenant (platform_admin or that tenant’s tenant_admin)',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+      patch: {
+        tags: ['Tenants'],
+        summary: 'Update a tenant',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ name: str }),
+        responses: { '200': ok },
+      },
+    },
+    '/v1/keys': {
+      get: { tags: ['API Keys'], summary: 'List platform API keys (tenant_admin+)', responses: { '200': ok } },
+      post: {
+        tags: ['API Keys'],
+        summary: 'Mint a platform API key (tenant_admin+, secret shown once)',
+        requestBody: jsonBody({ label: str }),
+        responses: { '201': created },
+      },
+    },
+    '/v1/keys/{id}': {
+      delete: {
+        tags: ['API Keys'],
+        summary: 'Revoke a platform API key',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent },
+      },
+    },
+
+    // ── Data Sources ─────────────────────────────────────────────────────────
+    '/v1/datasources': {
+      get: { tags: ['Data Sources'], summary: 'List data sources (developer+)', responses: { '200': ok } },
+      post: {
+        tags: ['Data Sources'],
+        summary: 'Create a data source',
+        requestBody: jsonBody({ type: str, config: obj }, ['type', 'config']),
+        responses: { '201': created },
+      },
+    },
+    '/v1/datasources/{id}': {
+      get: {
+        tags: ['Data Sources'],
+        summary: 'Get a data source',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+      patch: {
+        tags: ['Data Sources'],
+        summary: 'Update a data source',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ config: obj }),
+        responses: { '200': ok },
+      },
+      delete: {
+        tags: ['Data Sources'],
+        summary: 'Delete a data source',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent },
+      },
+    },
+    '/v1/datasources/{id}/test': {
+      post: {
+        tags: ['Data Sources'],
+        summary: 'Test connectivity for a data source',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '400': badRequest },
+      },
+    },
+
+    // ── MCP Servers ──────────────────────────────────────────────────────────
+    '/v1/mcp-servers': {
+      get: { tags: ['MCP'], summary: 'List registered MCP servers', responses: { '200': ok } },
+      post: {
+        tags: ['MCP'],
+        summary: 'Register an MCP server (tenant_admin+)',
+        requestBody: jsonBody({ name: str, transport: str, config: obj }, ['name', 'transport']),
+        responses: { '201': created },
+      },
+    },
+    '/v1/mcp-servers/{id}': {
+      get: {
+        tags: ['MCP'],
+        summary: 'Get an MCP server',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+      delete: {
+        tags: ['MCP'],
+        summary: 'Remove an MCP server (tenant_admin+)',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent },
+      },
+    },
+    '/v1/mcp-servers/{id}/test': {
+      post: {
+        tags: ['MCP'],
+        summary: 'Test connectivity to an MCP server (tenant_admin+)',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '400': badRequest },
+      },
+    },
+
+    // ── Prompts ──────────────────────────────────────────────────────────────
+    '/v1/prompts': {
+      get: { tags: ['Prompts'], summary: 'List prompt names', responses: { '200': ok } },
+      post: {
+        tags: ['Prompts'],
+        summary: 'Create a new prompt version (developer+)',
+        requestBody: jsonBody({ name: str, template: str }, ['name', 'template']),
+        responses: { '201': created },
+      },
+    },
+    '/v1/prompts/{name}/versions': {
+      get: {
+        tags: ['Prompts'],
+        summary: 'List versions of a prompt',
+        parameters: [pathParam('name')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/prompts/{name}/versions/{vid}/diff': {
+      get: {
+        tags: ['Prompts'],
+        summary: 'Diff two prompt versions',
+        parameters: [pathParam('name'), pathParam('vid')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/prompts/{name}/versions/{vid}/promote': {
+      post: {
+        tags: ['Prompts'],
+        summary: 'Promote a prompt version to active (developer+)',
+        parameters: [pathParam('name'), pathParam('vid')],
+        responses: { '200': ok },
+      },
+    },
+
+    // ── Caal ─────────────────────────────────────────────────────────────────
+    '/v1/caal/invoke': {
+      post: {
+        tags: ['Caal'],
+        summary: 'Invoke Caal against a target agent graph',
+        requestBody: jsonBody({ agentId: str, message: str }, ['agentId', 'message']),
+        responses: { '200': ok, '202': accepted },
+      },
+    },
+    '/v1/caal/sessions/{agentId}': {
+      get: {
+        tags: ['Caal'],
+        summary: 'Get the caller’s Caal conversation history for a target agent',
+        parameters: [pathParam('agentId')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/caal/config': {
+      get: { tags: ['Caal'], summary: 'Get tenant Caal configuration', responses: { '200': ok } },
+      patch: {
+        tags: ['Caal'],
+        summary: 'Update tenant Caal configuration (tenant_admin+)',
+        requestBody: jsonBody({}),
+        responses: { '200': ok },
       },
     },
 
@@ -420,6 +780,14 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: 'Agents' },
       { name: 'Runs' },
       { name: 'Sessions' },
+      { name: 'Test Cases' },
+      { name: 'Users' },
+      { name: 'Tenants' },
+      { name: 'API Keys' },
+      { name: 'Data Sources' },
+      { name: 'MCP' },
+      { name: 'Prompts' },
+      { name: 'Caal' },
       { name: 'Integrations' },
       { name: 'Triggers' },
       { name: 'Marketplace' },

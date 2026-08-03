@@ -1,6 +1,28 @@
 # Architecture
 
-## Request Lifecycle
+## System Overview
+
+MagiCaal is three independently deployable Express/Node services plus shared packages:
+
+```
+Browser ──HTTP/SSE──► apps/api (BFF, :3000) ──internal REST──► apps/engine (:4000)
+                          │                                        │
+                     Primary DB (SQLite via Drizzle)      Telemetry Store (SQLite)
+                          │                                        │
+                     Job Queue (BullMQ + Redis) ◄──────────────────┘
+
+apps/web (Studio canvas + Admin panel, :8080) ──► apps/api
+```
+
+- **`apps/api`** — the BFF: auth, agent CRUD, Studio/Admin data layer, engine proxy, boot-time sync of Graph-as-Code agents from `agents/`, OAuth callbacks, Marketplace account/license operations.
+- **`apps/engine`** — the graph execution runtime: Node Registry, Execution Worker, Tool Executor, Model Router, MCP client, Marketplace package loader/hot-load. See **[Engine Architecture →](engine.md)**.
+- **`apps/web`** — Studio canvas editor (Svelte) + Admin panel (Datastar), talking to `apps/api` only — it never calls the engine directly. See **[Web Architecture →](web.md)**.
+
+Deep dives: **[Model Router →](model-router.md)**, and the cross-cutting subsystem pages under [developer-guide/](../README.md) (auth/RBAC, sessions, MCP, Marketplace, Caal, database).
+
+## Per-Service Request Lifecycle
+
+Each of the three services is a separate Express app but follows the same middleware pipeline:
 
 ```
 Client (HTTP)
@@ -34,9 +56,11 @@ errorHandler    — Log error, send JSON error response
 | Controllers | `src/controllers/` | Business logic and response construction |
 | Lib | `src/lib/` | Stateless utilities shared across layers |
 
+This applies identically in `apps/api`, `apps/engine`, and `apps/web` — each has its own instance of every layer.
+
 ## Configuration Pattern
 
-`src/config.ts` is a frozen object built once at startup. Any missing required variable throws immediately with a clear error message, preventing the service from starting in a misconfigured state.
+`src/config.ts` in each app is a frozen object built once at startup. Any missing required variable throws immediately with a clear error message, preventing the service from starting in a misconfigured state.
 
 ```typescript
 export const config = Object.freeze({
@@ -54,6 +78,12 @@ Errors propagate to `src/middleware/errorHandler.ts` via `next(err)`. The handle
 
 Controllers should never send error responses directly — always call `next(err)`.
 
+## Data & Queue
+
+- **Primary DB** — SQLite (WAL mode) via Drizzle ORM, shared by `apps/api` and `apps/engine` over a mounted volume in Docker. See [Database & Migrations →](../database.md).
+- **Telemetry Store** — a separate SQLite file for run/step telemetry, token usage, and trajectory records, so high-volume telemetry writes don't contend with primary-DB reads/writes.
+- **Job Queue** — BullMQ + Redis, used for trigger dispatch, per-tenant concurrency control, and rate-limit counters.
+
 ## Adding a Feature
 
-See [DEVELOPMENT.md — Adding a New Route](../../../DEVELOPMENT.md) for the step-by-step process.
+See [DEVELOPMENT.md — Adding a New Route](../../../DEVELOPMENT.md#adding-a-new-route) for the step-by-step process.
