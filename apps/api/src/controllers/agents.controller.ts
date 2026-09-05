@@ -1,8 +1,22 @@
 import type { RequestHandler } from 'express';
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and, ne, inArray, count } from 'drizzle-orm';
 import * as crypto from 'node:crypto';
 import { db } from '../db/client';
-import { agents, agentVersions, agentConfig, tenants } from '../db/schema';
+import {
+  agents,
+  agentVersions,
+  agentConfig,
+  tenants,
+  invocationPolicies,
+  invocationKeys,
+  invocationLog,
+  integrationTriggers,
+  testCases,
+  workspaces,
+  sessions,
+  sessionContext,
+  sessionRunLinks,
+} from '../db/schema';
 import { parseResourceLimits } from './tenants.controller';
 import { engineClient } from '../lib/engine-client';
 import { parseAndValidateGraph } from '../lib/graph-validator';
@@ -38,10 +52,17 @@ function newId(): string {
 export const listAgents: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId, role } = req.user!;
-    const rows =
-      role === 'platform_admin'
-        ? await db.select().from(agents)
-        : await db.select().from(agents).where(eq(agents.tenantId, tenantId));
+    // Archived agents are hidden by default — an archive that still shows up in
+    // Studio and Admin is not an archive as far as the user is concerned.
+    const includeArchived = req.query.includeArchived === 'true';
+    const scope =
+      role === 'platform_admin' ? undefined : eq(agents.tenantId, tenantId);
+    const notArchived = includeArchived ? undefined : ne(agents.status, 'archived');
+    const filters = [scope, notArchived].filter((f) => f !== undefined);
+
+    const rows = filters.length
+      ? await db.select().from(agents).where(and(...filters))
+      : await db.select().from(agents);
     res.json(rows);
   } catch (err) {
     next(err);
@@ -152,6 +173,121 @@ export const updateAgent: RequestHandler = async (req, res, next) => {
 
     if (!updated) throw Object.assign(new Error('Agent not found'), { status: 404 });
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Archive an agent, or hard-delete it with `?purge=true`.
+ *
+ * Archive is the default and is what the published API reference has always
+ * documented. Purge exists because archiving leaves every row in place and
+ * keeps the UNIQUE handle taken, so it cannot serve the "remove this test
+ * agent" case — that previously required opening the SQLite file by hand.
+ */
+export const deleteAgent: RequestHandler = async (req, res, next) => {
+  try {
+    const { tenantId, role } = req.user!;
+    const { id } = req.params;
+    const purge = req.query.purge === 'true';
+
+    // Same platform_admin bypass as getAgent: without it, platform-tenant
+    // agents 404 for an admin whose own tenant differs, even though listAgents
+    // shows them the agent in the first place.
+    const rows =
+      role === 'platform_admin'
+        ? await db.select().from(agents).where(eq(agents.id, id))
+        : await db.select().from(agents).where(and(eq(agents.id, id), eq(agents.tenantId, tenantId)));
+
+    const agent = rows[0];
+    if (!agent) {
+      throw Object.assign(new Error('Agent not found'), { status: 404, code: 'AGENT_NOT_FOUND' });
+    }
+
+    // Boot-time sync looks agents up by handle and re-inserts any manifest
+    // entry it cannot find, so deleting a code-defined agent would undo itself
+    // at the next API boot. The convention for "no longer in code" is the
+    // stale flag, set by the sync itself.
+    if (agent.authoringMode === 'code-defined') {
+      throw Object.assign(
+        new Error(
+          `Agent "${agent.handle}" is code-defined and owned by agents.manifest.json — ` +
+            'remove it from the manifest and rebuild instead of deleting it here.',
+        ),
+        { status: 409, code: 'AGENT_CODE_DEFINED' },
+      );
+    }
+
+    // Purge is irreversible and takes the run history with it, so it needs more
+    // than the developer role the router already gates on.
+    if (purge && role !== 'tenant_admin' && role !== 'platform_admin') {
+      throw Object.assign(
+        new Error('Purging an agent requires the tenant_admin role'),
+        { status: 403, code: 'FORBIDDEN' },
+      );
+    }
+
+    // Engine first, before a single row changes: it owns the active-run check,
+    // and its 409 is the authoritative answer. Deliberately not swallowed the
+    // way publishAgent's deploy/schedule calls are — if the engine is
+    // unreachable we cannot verify in-flight runs or purge telemetry, so the
+    // delete has to fail rather than half-happen.
+    try {
+      await engineClient.delete(`/internal/agents/${id}`, { params: { purge: String(purge) } });
+    } catch (err) {
+      // engineClient's response interceptor has already flattened an engine
+      // error response into a plain Error carrying `status` and `code` (and
+      // dropped `err.response`), so branch on those rather than on the axios
+      // shape. Anything without a status never reached the engine.
+      const { status, message, code } = err as { status?: number; message?: string; code?: string };
+      if (status === 409) {
+        throw Object.assign(new Error(message ?? 'Agent has runs in flight'), {
+          status: 409,
+          code: code ?? 'AGENT_HAS_ACTIVE_RUNS',
+        });
+      }
+      throw Object.assign(
+        new Error('Engine unavailable — agent not deleted'),
+        { status: 502, code: 'ENGINE_UNAVAILABLE' },
+      );
+    }
+
+    if (!purge) {
+      await db
+        .update(agents)
+        .set({ status: 'archived', enabled: false, updatedAt: new Date() })
+        .where(eq(agents.id, id));
+      res.status(204).end();
+      return;
+    }
+
+    // No schema declares ON DELETE CASCADE and foreign_keys is ON, so children
+    // go first. One transaction: a failure part-way through would otherwise
+    // strand orphans across nine tables. Drizzle's better-sqlite3 transaction
+    // is synchronous, hence .run() rather than await on each statement.
+    const sessionIds = (
+      await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.agentId, id))
+    ).map((r) => r.id);
+
+    db.transaction((tx) => {
+      if (sessionIds.length > 0) {
+        tx.delete(sessionContext).where(inArray(sessionContext.sessionId, sessionIds)).run();
+        tx.delete(sessionRunLinks).where(inArray(sessionRunLinks.sessionId, sessionIds)).run();
+      }
+      tx.delete(sessions).where(eq(sessions.agentId, id)).run();
+      tx.delete(invocationLog).where(eq(invocationLog.agentId, id)).run();
+      tx.delete(invocationKeys).where(eq(invocationKeys.agentId, id)).run();
+      tx.delete(invocationPolicies).where(eq(invocationPolicies.agentId, id)).run();
+      tx.delete(integrationTriggers).where(eq(integrationTriggers.agentId, id)).run();
+      tx.delete(testCases).where(eq(testCases.agentId, id)).run();
+      tx.delete(workspaces).where(eq(workspaces.agentId, id)).run();
+      tx.delete(agentConfig).where(eq(agentConfig.agentId, id)).run();
+      tx.delete(agentVersions).where(eq(agentVersions.agentId, id)).run();
+      tx.delete(agents).where(eq(agents.id, id)).run();
+    });
+
+    res.status(204).end();
   } catch (err) {
     next(err);
   }

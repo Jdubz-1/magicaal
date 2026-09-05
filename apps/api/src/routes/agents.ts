@@ -14,6 +14,7 @@ import {
   updateAgentConfig,
   getSchemaInput,
   getSchemaOutput,
+  deleteAgent,
 } from '../controllers/agents.controller';
 import { createInvocationKey, listInvocationKeys, revokeInvocationKey } from '../controllers/invocation-keys.controller';
 import { getInvocationPolicy, updateInvocationPolicy } from '../controllers/invocation-policy.controller';
@@ -30,6 +31,9 @@ agentsRouter.get('/', listAgents);
 agentsRouter.post('/', createAgent);
 agentsRouter.get('/:id', getAgent);
 agentsRouter.patch('/:id', updateAgent);
+// Archives by default; ?purge=true hard-deletes and is gated on tenant_admin
+// inside the handler, since the stricter role depends on the query param.
+agentsRouter.delete('/:id', deleteAgent);
 agentsRouter.post('/:id/publish', publishAgent);
 agentsRouter.post('/:id/draft', draftAgent);
 agentsRouter.get('/:id/versions', listAgentVersions);

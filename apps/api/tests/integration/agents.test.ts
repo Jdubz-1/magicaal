@@ -1,16 +1,19 @@
+import * as crypto from 'node:crypto';
+import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
-import { eq } from 'drizzle-orm';
 import { createApp } from '../../src/app';
 import { runMigrations } from '../../src/db/migrate';
 import { createUserAndLogin } from '../helpers/auth-helpers';
 import { db } from '@/db/client';
-import { tenants } from '@/db/schema';
+import { tenants, agents, agentVersions, agentConfig } from '@/db/schema';
 
 // engineClient.post is called non-fatally on publish/deploy — mock it to avoid real HTTP
 jest.mock('../../src/lib/engine-client', () => ({
   engineClient: {
     post: jest.fn().mockResolvedValue({ data: {} }),
     get: jest.fn().mockResolvedValue({ data: {} }),
+    // DELETE /v1/agents/:id calls engine teardown before touching any row.
+    delete: jest.fn().mockResolvedValue({ data: {} }),
   },
 }));
 
@@ -567,6 +570,212 @@ describe('schema discovery', () => {
     const res = await request(app)
       .get(`/v1/agents/${create.body.id}/schema/input`)
       .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('DELETE /v1/agents/:id', () => {
+  const engine = jest.requireMock('../../src/lib/engine-client') as {
+    engineClient: { delete: jest.Mock; post: jest.Mock; get: jest.Mock };
+  };
+
+  beforeEach(() => {
+    engine.engineClient.delete.mockReset();
+    engine.engineClient.delete.mockResolvedValue({ data: {} });
+  });
+
+  async function makeAgent(token: string, handle: string): Promise<string> {
+    const res = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: handle, handle });
+    expect(res.status).toBe(201);
+    return res.body.id as string;
+  }
+
+  it('archives an agent by default and hides it from the list', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(token, `arch-${Date.now()}`);
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(204);
+
+    const row = (await db.select().from(agents).where(eq(agents.id, agentId)))[0];
+    expect(row.status).toBe('archived');
+    expect(row.enabled).toBe(false);
+
+    const list = await request(app).get('/v1/agents').set('Authorization', `Bearer ${token}`);
+    expect(list.body.map((a: { id: string }) => a.id)).not.toContain(agentId);
+
+    const withArchived = await request(app)
+      .get('/v1/agents?includeArchived=true')
+      .set('Authorization', `Bearer ${token}`);
+    expect(withArchived.body.map((a: { id: string }) => a.id)).toContain(agentId);
+  });
+
+  it('tears down in the engine before changing any row', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(token, `teardown-${Date.now()}`);
+
+    await request(app).delete(`/v1/agents/${agentId}`).set('Authorization', `Bearer ${token}`);
+
+    expect(engine.engineClient.delete).toHaveBeenCalledWith(`/internal/agents/${agentId}`, {
+      params: { purge: 'false' },
+    });
+  });
+
+  it('purges the agent and every row that references it', async () => {
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    const agentId = await makeAgent(token, `purge-${Date.now()}`);
+
+    // Give the agent a published version + config so the purge has children.
+    await request(app)
+      .post(`/v1/agents/${agentId}/publish`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        graphJson: JSON.stringify({
+          version: '1.0',
+          name: 'purge me',
+          entry: 'start',
+          nodes: { start: { id: 'start', type: 'core:start', config: {} } },
+          edges: [],
+          toolEdges: [],
+          workspaceEdges: [],
+          config: {},
+        }),
+      });
+
+    expect((await db.select().from(agentVersions).where(eq(agentVersions.agentId, agentId))).length)
+      .toBeGreaterThan(0);
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}?purge=true`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(204);
+
+    expect((await db.select().from(agents).where(eq(agents.id, agentId))).length).toBe(0);
+    expect((await db.select().from(agentVersions).where(eq(agentVersions.agentId, agentId))).length).toBe(0);
+    expect((await db.select().from(agentConfig).where(eq(agentConfig.agentId, agentId))).length).toBe(0);
+
+    // The assertion that would have caught the table missed during the manual
+    // cleanup: nothing anywhere may still point at the deleted agent.
+    const violations = await db.all(sql`PRAGMA foreign_key_check`);
+    expect(violations).toEqual([]);
+
+    expect(engine.engineClient.delete).toHaveBeenCalledWith(`/internal/agents/${agentId}`, {
+      params: { purge: 'true' },
+    });
+  });
+
+  it('frees the handle so the same one can be reused after a purge', async () => {
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    const handle = `reuse-${Date.now()}`;
+    const agentId = await makeAgent(token, handle);
+
+    await request(app)
+      .delete(`/v1/agents/${agentId}?purge=true`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(204);
+
+    const again = await request(app)
+      .post('/v1/agents')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: handle, handle });
+    expect(again.status).toBe(201);
+  });
+
+  it('refuses to purge for a developer', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(token, `noperm-${Date.now()}`);
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}?purge=true`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+    // Nothing was torn down or removed.
+    expect(engine.engineClient.delete).not.toHaveBeenCalled();
+    expect((await db.select().from(agents).where(eq(agents.id, agentId))).length).toBe(1);
+  });
+
+  it('refuses to delete a code-defined agent', async () => {
+    const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
+    const agentId = crypto.randomUUID();
+    const now = new Date();
+    await db.insert(agents).values({
+      id: agentId,
+      tenantId,
+      name: 'Code Defined',
+      handle: `code-${Date.now()}`,
+      authoringMode: 'code-defined',
+      status: 'draft',
+      enabled: false,
+      stale: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('AGENT_CODE_DEFINED');
+    expect(engine.engineClient.delete).not.toHaveBeenCalled();
+  });
+
+  it('propagates the engine 409 when runs are in flight', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(token, `busy-${Date.now()}`);
+
+    // The shape engineClient's response interceptor actually produces: a plain
+    // Error carrying status/code, with err.response already stripped. Mocking
+    // the raw axios shape here would test a case that cannot occur.
+    engine.engineClient.delete.mockRejectedValue(
+      Object.assign(new Error('Agent has 2 run(s) in flight'), {
+        status: 409,
+        code: 'AGENT_HAS_ACTIVE_RUNS',
+      }),
+    );
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('AGENT_HAS_ACTIVE_RUNS');
+
+    // The agent is untouched — an unverifiable delete must not half-happen.
+    const row = (await db.select().from(agents).where(eq(agents.id, agentId)))[0];
+    expect(row.status).toBe('draft');
+  });
+
+  it('fails with 502 when the engine is unreachable', async () => {
+    const { token } = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(token, `engdown-${Date.now()}`);
+
+    // No `status` — the interceptor rethrows the raw axios error when the
+    // engine never answered.
+    engine.engineClient.delete.mockRejectedValue(
+      Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+    );
+
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(502);
+
+    const row = (await db.select().from(agents).where(eq(agents.id, agentId)))[0];
+    expect(row.status).toBe('draft');
+  });
+
+  it("404s on another tenant's agent", async () => {
+    const owner = await createUserAndLogin(app, 'developer');
+    const agentId = await makeAgent(owner.token, `other-${Date.now()}`);
+
+    const stranger = await createUserAndLogin(app, 'tenant_admin');
+    const res = await request(app)
+      .delete(`/v1/agents/${agentId}`)
+      .set('Authorization', `Bearer ${stranger.token}`);
     expect(res.status).toBe(404);
   });
 });

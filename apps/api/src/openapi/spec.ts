@@ -3,6 +3,8 @@ import { config } from '../config';
 type OpenApiOperation = {
   tags: string[];
   summary: string;
+  /** Longer prose for operations whose behaviour a one-line summary can't carry. */
+  description?: string;
   security?: Array<Record<string, string[]>>;
   parameters?: Array<{
     name: string;
@@ -42,6 +44,8 @@ const noContent = { description: 'No content' };
 const badRequest = { description: 'Invalid request' };
 const unauthorized = { description: 'Missing or invalid credentials' };
 const notFound = { description: 'Not found' };
+const forbidden = { description: 'Insufficient role' };
+const conflict = { description: 'Conflicts with current state' };
 
 const str = { type: 'string' };
 const obj = { type: 'object' };
@@ -77,7 +81,19 @@ export function buildOpenApiSpec(): Record<string, unknown> {
 
     // ── Agents ────────────────────────────────────────────────────────────
     '/v1/agents': {
-      get: { tags: ['Agents'], summary: 'List agents for the tenant', responses: { '200': ok } },
+      get: {
+        tags: ['Agents'],
+        summary: 'List agents for the tenant',
+        parameters: [
+          {
+            name: 'includeArchived',
+            in: 'query',
+            schema: { type: 'boolean' },
+            description: 'true to include archived agents, which are omitted by default',
+          },
+        ],
+        responses: { '200': ok },
+      },
       post: {
         tags: ['Agents'],
         summary: 'Create a draft agent',
@@ -101,9 +117,29 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       },
       delete: {
         tags: ['Agents'],
-        summary: 'Archive an agent',
-        parameters: [pathParam('id')],
-        responses: { '204': noContent, '404': notFound },
+        summary: 'Archive an agent, or purge it outright',
+        description:
+          'Archives by default (status becomes "archived" and the agent stops executing). ' +
+          'With purge=true the agent and all of its rows are deleted permanently, including ' +
+          'its run history, which requires the tenant_admin role. Code-defined agents cannot ' +
+          'be deleted — they are owned by agents.manifest.json and would be re-created by the ' +
+          'next boot-time sync. Fails with 409 while any run is pending, running, or suspended.',
+        parameters: [
+          pathParam('id'),
+          {
+            name: 'purge',
+            in: 'query',
+            schema: { type: 'boolean' },
+            description: 'true to delete permanently instead of archiving (tenant_admin only)',
+          },
+        ],
+        responses: {
+          '204': noContent,
+          '403': forbidden,
+          '404': notFound,
+          '409': conflict,
+          '502': { description: 'Engine unavailable — agent not deleted' },
+        },
       },
     },
     '/v1/agents/{id}/publish': {
