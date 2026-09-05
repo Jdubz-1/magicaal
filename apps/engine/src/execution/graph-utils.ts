@@ -8,7 +8,12 @@ export async function resolveEdges(
 ): Promise<string[]> {
   const fromEdges = edges.filter((e) => e.from === fromId);
 
-  const unconditional = fromEdges.filter((e) => e.type === 'unconditional');
+  // An edge with no type is unconditional — the same default the compiler emits
+  // (packages/compiler/src/graph.ts). Without this, such an edge matches none of
+  // the three filters below and is silently dropped, so the run ends after the
+  // entry node and still reports success. Publish-time validation cannot reach
+  // graphs already stored in the DB; this can.
+  const unconditional = fromEdges.filter((e) => (e.type ?? 'unconditional') === 'unconditional');
   if (unconditional.length > 0) {
     return unconditional.map((e) => e.to);
   }

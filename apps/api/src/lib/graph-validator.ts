@@ -1,5 +1,7 @@
 import type { AgentGraphDefinition } from '@magicaal/core';
 
+const EDGE_TYPES: ReadonlySet<string> = new Set(['unconditional', 'conditional', 'fallback']);
+
 /**
  * Structural validation of an agent graph, applied at every point a graph
  * enters the system: publish, and Marketplace template import.
@@ -34,6 +36,19 @@ export function validateGraph(graph: AgentGraphDefinition): void {
   const edges = graph.edges ?? [];
   const nodeIds = new Set(Object.keys(graph.nodes));
   for (const edge of edges) {
+    // A typo here is invisible without this check: the engine resolves edges by
+    // matching `type` exactly, so an unrecognised value is silently dropped and
+    // the run "completes" having executed only the entry node. An absent type
+    // is fine — the engine reads it as unconditional, matching what the
+    // compiler emits.
+    if (edge.type !== undefined && !EDGE_TYPES.has(edge.type)) {
+      throw Object.assign(
+        new Error(
+          `Edge '${edge.id}' has invalid type '${edge.type}' (expected ${[...EDGE_TYPES].join(', ')})`,
+        ),
+        { status: 400, code: 'INVALID_GRAPH_EDGE_TYPE' },
+      );
+    }
     if (!nodeIds.has(edge.from)) {
       throw Object.assign(
         new Error(`Edge '${edge.id}' references unknown source node '${edge.from}'`),
