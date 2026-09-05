@@ -2,6 +2,23 @@ import type { RequestHandler } from 'express';
 import { runScheduledQueue } from '../queue/client';
 import { logger } from '../lib/logger';
 
+/**
+ * Remove the repeatable job for an agent, if one is registered. Shared by the
+ * unschedule route and by agent teardown — BullMQ keys repeatables by an opaque
+ * key, so the only way to target one is to scan for the job name.
+ */
+export async function removeAgentSchedule(agentId: string): Promise<number> {
+  const existingJobs = await runScheduledQueue.getRepeatableJobs();
+  let removed = 0;
+  for (const job of existingJobs) {
+    if (job.name === `cron:${agentId}`) {
+      await runScheduledQueue.removeRepeatableByKey(job.key);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 export const scheduleCronAgent: RequestHandler = async (req, res, next) => {
   try {
     const { agentId, tenantId, cronExpression } = req.body as {
@@ -18,12 +35,7 @@ export const scheduleCronAgent: RequestHandler = async (req, res, next) => {
     }
 
     // Remove existing repeating job for this agent if any
-    const existingJobs = await runScheduledQueue.getRepeatableJobs();
-    for (const job of existingJobs) {
-      if (job.name === `cron:${agentId}`) {
-        await runScheduledQueue.removeRepeatableByKey(job.key);
-      }
-    }
+    await removeAgentSchedule(agentId);
 
     // Add new repeating job
     await runScheduledQueue.add(
@@ -43,14 +55,7 @@ export const unscheduleCronAgent: RequestHandler = async (req, res, next) => {
   try {
     const { agentId } = req.params;
 
-    const existingJobs = await runScheduledQueue.getRepeatableJobs();
-    let removed = 0;
-    for (const job of existingJobs) {
-      if (job.name === `cron:${agentId}`) {
-        await runScheduledQueue.removeRepeatableByKey(job.key);
-        removed++;
-      }
-    }
+    const removed = await removeAgentSchedule(agentId);
 
     logger.info({ agentId, removed }, 'Cron job removed');
     res.json({ agentId, removed });

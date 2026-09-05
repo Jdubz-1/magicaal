@@ -11,6 +11,7 @@ import {
   listAgentRuns,
 } from '../controllers/runs.controller';
 import { scheduleCronAgent, unscheduleCronAgent } from '../controllers/schedule.controller';
+import { teardownAgent } from '../controllers/agent-teardown.controller';
 import {
   getTelemetry,
   getTokenUsage,
@@ -47,6 +48,9 @@ internalRouter.delete('/runs/:id', cancelRun);
 internalRouter.post('/agents/schedule', scheduleCronAgent);
 internalRouter.delete('/agents/:agentId/schedule', unscheduleCronAgent);
 internalRouter.post('/agents/:id/deploy', deployAgent);
+// Archive/purge teardown: active-run check, cron removal, cache invalidation,
+// and (on purge) the agent's telemetry history.
+internalRouter.delete('/agents/:id', teardownAgent);
 internalRouter.post('/agents/:agentId/webhook', webhookDispatch);
 internalRouter.get('/agents/:id/runs', listAgentRuns);
 
