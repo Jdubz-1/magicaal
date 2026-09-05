@@ -21,6 +21,7 @@ import {
 import { config } from '../config';
 import { loadTenantLimits } from '../auth/tenant-limits';
 import { drainRunTally } from './usage-tally';
+import { stripInternalKeys } from '@magicaal/nodes';
 import { reportPackageUsage } from '../marketplace/usage-flush';
 import type { ModelRouterConfig, SessionConfig } from '@magicaal/core';
 
@@ -187,7 +188,18 @@ export function startScheduler(): void {
             );
           }
         } else {
-          await lifecycle.markRunComplete(runId, ctx.data, ctx);
+          // What the run returns is the terminal core:end node's selection, not
+          // the raw context. Falling back to the context (minus engine-internal
+          // keys) covers graphs that finish without a core:end — core:stop, or
+          // a branch that simply runs out of edges.
+          const declaredOutput = (ctx as unknown as Record<string, unknown>)._runOutput as
+            | Record<string, unknown>
+            | undefined;
+          await lifecycle.markRunComplete(
+            runId,
+            declaredOutput ?? stripInternalKeys(ctx.data),
+            ctx,
+          );
         }
       } catch (err) {
         const code = (err as { code?: string }).code;

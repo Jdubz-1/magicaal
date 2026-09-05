@@ -103,6 +103,14 @@ describe('resolveEdges', () => {
     expect(result).toEqual([]);
   });
 
+  it('treats an edge with no type as unconditional', async () => {
+    // Regression: a typeless edge matched none of the three filters and was
+    // silently dropped, so the run ended at the entry node reporting success.
+    const edges = [{ id: 'e1', from: 'a', to: 'b' }] as unknown as AgentGraphDefinition['edges'];
+    const result = await resolveEdges(edges, 'a', {});
+    expect(result).toEqual(['b']);
+  });
+
   it('skips conditional edges with evaluation errors and falls back', async () => {
     const edges: AgentGraphDefinition['edges'] = [
       { id: 'e1', from: 'a', to: 'b', type: 'conditional', condition: '$[[[invalid' },
@@ -140,6 +148,48 @@ describe('executeGraph', () => {
     expect(mockEnd.execute).toHaveBeenCalledTimes(1);
     expect(mockLifecycle.writeStepStart).toHaveBeenCalledTimes(2);
     expect(mockLifecycle.writeStepEnd).toHaveBeenCalledTimes(2);
+  });
+
+  it('records the core:end node outputs as the run output', async () => {
+    const mockStart = { execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: {} }) };
+    const mockEnd = {
+      execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: { total: 42 } }),
+    };
+
+    mockRegistry.get.mockImplementation((type: string) => {
+      if (type === 'core:start') return mockStart as any;
+      if (type === 'core:end') return mockEnd as any;
+      throw new Error(`Unknown type: ${type}`);
+    });
+
+    const graph = makeGraph(
+      {
+        start: { type: 'core:start', config: {} },
+        end: { type: 'core:end', config: { outputKeys: ['total'] } },
+      },
+      [{ id: 'e1', from: 'start', to: 'end', type: 'unconditional' }],
+      'start',
+    );
+
+    const ctx = makeCtx({ a: 17, b: 25 });
+    await executeGraph('run-1', graph, ctx);
+
+    // The scheduler reads this to decide what the run returns.
+    expect((ctx as unknown as Record<string, unknown>)._runOutput).toEqual({ total: 42 });
+    // ...and the context itself is untouched — session saves and retry
+    // checkpoints depend on the unfiltered data.
+    expect(ctx.data).toMatchObject({ a: 17, b: 25 });
+  });
+
+  it('leaves the run output unset when the graph has no core:end', async () => {
+    const mockNode = { execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: {} }) };
+    mockRegistry.get.mockReturnValue(mockNode as any);
+
+    const graph = makeGraph({ a: { type: 'core:log', config: {} } }, [], 'a');
+    const ctx = makeCtx({ x: 1 });
+    await executeGraph('run-1', graph, ctx);
+
+    expect((ctx as unknown as Record<string, unknown>)._runOutput).toBeUndefined();
   });
 
   it('stops early when node returns _terminated: true', async () => {

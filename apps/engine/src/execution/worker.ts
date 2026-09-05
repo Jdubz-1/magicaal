@@ -146,6 +146,16 @@ async function executeNodeOnce(
       outputs: output.outputs,
       timestamp: new Date().toISOString(),
     });
+
+    // core:end declares what the run returns (its `outputKeys`). Stash it here
+    // rather than in the BFS loop: every execution path — normal nodes, fork
+    // and join branches, fan-out and reduce branches — funnels through this
+    // function, so one capture point covers them all. The scheduler reads it
+    // when the run completes; ctx.data itself stays untouched, because session
+    // saves and retry checkpoints need the unfiltered context.
+    if (nodeDef.type === 'core:end') {
+      (ctx as unknown as Record<string, unknown>)._runOutput = output.outputs;
+    }
   }
 
   return output;

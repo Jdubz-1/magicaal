@@ -28,6 +28,29 @@ describe('core:end', () => {
     expect(result.outputs).toEqual({ missing: undefined });
   });
 
+  it('strips engine-internal underscore keys when outputKeys is omitted', async () => {
+    const ctx = makeMockContext({
+      total: 42,
+      _transform_result: 42,
+      _sub_run_id: 'run_x',
+      _loop_continue: false,
+    });
+    const result = await coreEnd.execute(ctx, {});
+    expect(result.outputs).toEqual({ total: 42 });
+  });
+
+  it('keeps an internal key when it is explicitly listed in outputKeys', async () => {
+    const ctx = makeMockContext({ total: 42, _sub_run_id: 'run_x' });
+    const result = await coreEnd.execute(ctx, { outputKeys: ['total', '_sub_run_id'] });
+    expect(result.outputs).toEqual({ total: 42, _sub_run_id: 'run_x' });
+  });
+
+  it('does not mutate the context while filtering', async () => {
+    const ctx = makeMockContext({ total: 42, _transform_result: 42 });
+    await coreEnd.execute(ctx, {});
+    expect(ctx.data).toEqual({ total: 42, _transform_result: 42 });
+  });
+
   it('has the correct node type', () => {
     expect(coreEnd.type).toBe('core:end');
   });

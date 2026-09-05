@@ -90,6 +90,7 @@ export {
   DEFAULT_MAX_DEPTH,
   type EvaluateOptions,
 } from './utils/jsonata';
+export { isInternalKey, stripInternalKeys } from './utils/internal-keys';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ALL_NODES: NodeModule<any>[] = [
