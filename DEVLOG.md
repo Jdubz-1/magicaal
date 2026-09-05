@@ -25,6 +25,88 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-04 - Added an agent delete endpoint (archive, or purge)
+
+**Type:** Feature
+
+**Description:**
+There was no way to remove an agent through the API. Cleaning up two test
+agents earlier the same day meant opening the SQLite file directly and
+hand-writing deletes across nine referencing tables plus the separate telemetry
+database.
+
+Two things shaped the design. The endpoint was **already documented but never
+implemented** — `openapi/spec.ts` published `DELETE /v1/agents/{id}` with the
+summary "Archive an agent" and a 204, so the API reference advertised a route
+that 404'd. And `status: 'archived'` was declared in the schema enum but read
+and written nowhere. So DELETE archives by default, honouring that contract,
+with `?purge=true` for the hard removal the cleanup case actually needed —
+archiving alone leaves every row in place and keeps the UNIQUE handle taken.
+
+Deleting a **code-defined** agent is refused with 409: `syncAgent` looks agents
+up by handle and re-inserts any manifest entry it cannot find, so the delete
+would undo itself at the next API boot. The convention for "no longer in code"
+is the `stale` flag the sync sets itself.
+
+Deleting an agent with **runs in flight** is refused with 409. This mirrors the
+retention sweep, which already refuses to touch pending/running/suspended runs
+because a suspended run's checkpoint is its only resume state.
+
+The engine owns half of the work — the telemetry database, the BullMQ
+repeatable jobs, and `graphLoader`'s in-process cache are all out of the API's
+reach — so one internal teardown call does the active-run check, cron removal,
+cache invalidation, and (on purge) the telemetry history. The API calls it
+*before* touching any row, and does not swallow the failure the way the
+publish-time deploy/schedule calls do: if the engine cannot be reached, the
+delete fails rather than half-happening. Cache invalidation matters for archive
+as much as for purge, since `graphLoader.load` serves a cached graph without
+re-reading the row.
+
+**Changes:**
+- `apps/api/src/controllers/agents.controller.ts` — new `deleteAgent`; reuses
+  `getAgent`'s documented platform_admin bypass for the ownership lookup
+- `apps/api/src/routes/agents.ts` — `DELETE /:id`; the tenant_admin gate for
+  purge is inside the handler, since it depends on a query param
+- `apps/api/src/controllers/agents.controller.ts` — `listAgents` now hides
+  archived agents unless `?includeArchived=true`
+- `apps/engine/src/controllers/agent-teardown.controller.ts` — new; wired at
+  `DELETE /internal/agents/:id`
+- `apps/engine/src/db/telemetry-retention.ts` — extracted the chunked
+  run-plus-children delete out of `sweepTelemetry` as `deleteRunsWithChildren`,
+  reused by the new `purgeAgentTelemetry`; added `countActiveRuns`
+- `apps/engine/src/controllers/schedule.controller.ts` — extracted
+  `removeAgentSchedule`, shared with teardown
+- `apps/api/src/openapi/spec.ts` — documented `purge`, `includeArchived`, and
+  the 403/409/502 responses; `OpenApiOperation` gained an optional `description`
+- Tests: 9 delete cases in `apps/api/tests/integration/agents.test.ts`, plus
+  new `apps/engine/tests/route/agent-teardown.test.ts` and purge/active-run
+  coverage in `apps/engine/tests/unit/db/telemetry-retention.test.ts`
+
+**Impact:**
+Removing an agent is now an ordinary API call instead of a manual database
+operation, and the published API reference matches the implementation. The
+purge path deletes across all nine referencing tables in a single transaction —
+the first in the API — so a mid-sequence failure can no longer strand orphans.
+
+**Notes:**
+Live testing caught a bug the unit tests had endorsed: the first version read
+`err.response?.status` to detect the engine's 409, but `engineClient`'s response
+interceptor already flattens engine errors into a plain `Error` carrying
+`status`/`code` and drops `err.response`, so the check never matched and an
+active-run refusal surfaced as a 502. The integration test had passed only
+because it mocked the raw axios shape, which the interceptor guarantees callers
+never see. Both were corrected.
+
+`purgeAgentTelemetry` deletes non-terminal runs, unlike the retention sweep —
+safe only because teardown has already refused the purge if anything is in
+flight, and necessary so a purge cannot leave a run row behind with its steps
+already gone.
+
+No Studio/Admin UI affordance was added; the web app has no delete or archive
+control for agents today.
+
+---
+
 ### 2026-09-04 - Fixed three defects surfaced by a full live-stack test
 
 **Type:** Bugfix
