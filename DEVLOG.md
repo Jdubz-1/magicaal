@@ -25,6 +25,84 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-04 - Fixed three defects surfaced by a full live-stack test
+
+**Type:** Bugfix
+
+**Description:**
+Brought the whole stack up under Docker Compose and drove an agent end to end
+(create -> publish -> dispatch -> poll -> SSE) to check the platform after the
+docs rewrite. The run worked, but three defects fell out of it — each confirmed
+in the source, not just observed.
+
+First, `core:end`'s `outputKeys` never reached the run result. An agent
+declaring `outputKeys: ["total"]` returned `{a, b, total, _transform_result}`,
+because `scheduler.ts` handed `ctx.data` — the entire execution context — to
+`lifecycle.markRunComplete`, discarding what the end node selected. Every
+intermediate context key was therefore exposed to run callers over both
+`GET /v1/agents/:id/runs/:runId` and the SSE `run.completed` event, including to
+third parties holding nothing but an agent-scoped `ik_` invocation key.
+
+Second, an edge with a missing or misspelled `type` published cleanly and then
+turned the run into a silent no-op. `validateGraph` checked `from`/`to` and
+reachability but never `type`, while `resolveEdges` filters on it strictly — so
+the edge was dropped and the run reported `completed` having executed only the
+entry node, with no error anywhere. Reachability validation could not catch it
+because that check ignores `type` entirely. This was hit for real while
+authoring the test agent.
+
+Third, bearer tokens were being written to logs in plaintext. Both
+`requestLogger`s were a bare `pinoHttp({ logger })` with no `redact`, so
+pino-http's default serializer logged `req.headers` wholesale — `Authorization:
+Bearer <jwt>`, `cookie`, and the `x-internal-auth` engine<->API shared secret.
+An admin JWT was plainly readable in `docker compose logs`.
+
+**Changes:**
+- New: `packages/nodes/src/utils/internal-keys.ts` — `isInternalKey` /
+  `stripInternalKeys`, documenting the `_`-prefix convention for engine
+  bookkeeping keys; exported from `packages/nodes/src/index.ts`
+- `packages/nodes/src/nodes/core-end.ts` — with no `outputKeys`, returns the
+  context minus internal keys; an explicit selection is still honoured verbatim
+- `apps/engine/src/execution/worker.ts` — `executeNodeOnce` stashes a `core:end`
+  node's outputs on the context as `_runOutput`; one capture point covers the
+  normal, fork/join, and fan-out/reduce paths
+- `apps/engine/src/execution/scheduler.ts` — completes the run with that
+  declared output, falling back to the stripped context for graphs that end
+  without a `core:end` (e.g. `core:stop`)
+- `apps/api/src/lib/graph-validator.ts` — rejects an edge whose `type` is not
+  one of `unconditional | conditional | fallback` with a 400
+  `INVALID_GRAPH_EDGE_TYPE`
+- `apps/engine/src/execution/graph-utils.ts` — `resolveEdges` reads a missing
+  `type` as unconditional, matching what the compiler emits; this repairs graphs
+  already stored in the DB, which publish-time validation cannot reach
+- `apps/api/src/lib/logger.ts`, `apps/engine/src/lib/logger.ts` — exported
+  `LOG_REDACT` and applied it to the shared logger, covering `authorization`,
+  `cookie`, `x-internal-auth`, and response `set-cookie`
+- Tests: extended `packages/nodes/tests/unit/nodes/core-end.test.ts` and
+  `apps/engine/tests/unit/execution/worker.test.ts`; new
+  `apps/api/tests/unit/graph-validator.test.ts` and
+  `apps/api/tests/unit/logger-redaction.test.ts`
+
+**Impact:**
+Run output now means what the graph says it means, and stops leaking engine
+internals to invocation-plane callers. A graph that would silently do nothing is
+refused at publish, and already-published ones execute correctly rather than
+reporting a successful no-op. Credentials no longer reach log sinks — worth
+noting that any log bundle captured before this change may contain live tokens.
+
+**Notes:**
+`ctx.data` itself is deliberately left unfiltered: session persistence and
+retry/resume checkpoints depend on the full context, so filtering happens only
+at the run-output boundary. Redaction is configured on the shared logger rather
+than on `pinoHttp` because child loggers inherit `redact` paths, so one block
+per app also covers error logs and any direct `logger.info({ req })`.
+
+Follow-up, not done here: the dev `JWT_SECRET` and `MAGICAAL_MASTER_KEY` in the
+committed per-app `.env` files are worth rotating, since the API JWT has already
+been written to logs.
+
+---
+
 ### 2026-08-03 - Added AGENTS.md and a per-node reference for Graph-as-Code authoring
 
 **Type:** Documentation
