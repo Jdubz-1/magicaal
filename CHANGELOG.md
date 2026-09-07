@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and [Sem
 
 ---
 
+## [0.6.0] — 2026-09-07
+
+Phase 5 (Integrations & Marketplace), the hardening passes that followed it, and
+the platform-launch sign-off driven against a real Docker stack.
+
+### Added — Phase 5: Integrations & Marketplace
+
+- **14 first-wave integration packages** — Slack, GitHub, Jira, Gmail, Google Workspace, SendGrid, Stripe, Salesforce, HubSpot, Zendesk, Twilio, QuickBooks, BambooHR, Shopify — each shipping typed nodes, an auth schema, and a webhook signature verifier
+- **Integration trigger dispatch**: public `POST /v1/triggers/integrations/:service/:tenantSlug` receiver; authenticity established by the service's own webhook signature, verified in the engine
+- **Marketplace**: gated catalog/install API, Ed25519 package signature verification, Redis pub/sub hot-load with no restart, per-tenant entitlement gating on package node execution (`PACKAGE_NOT_ENTITLED`, failing closed), and per-package usage metering
+- **Air-gapped install**: `POST /v1/marketplace/licenses/bundle` accepts a signed `.mpack` bundle directly, for deployments with no Marketplace connectivity
+- **OAuth**: real `authorization_code` exchange with PKCE, a per-tenant `integration_oauth_apps` table, same-origin `redirectUri` validation, a browser-binding nonce, and engine-side token refresh persisted back through the API
+- **`@magicaal/sdk` Phase 4**: opt-in retry with backoff and `Retry-After` support, `listRuns()`, run cancellation
+- **Agent lifecycle**: `DELETE /v1/agents/:id` archives an agent; `?purge=true` removes it and every row referencing it, including its telemetry history
+
+### Fixed
+
+- **`core:end` outputKeys never reached the run output** — the scheduler completed runs with the whole execution context, so an agent declaring `outputKeys` still returned every intermediate key. Engine-internal `_`-prefixed keys were exposed to run callers over both the REST result and the SSE `run.completed` event, including to third parties holding only an agent-scoped invocation key.
+- **Edge `type` was unvalidated at publish and silently dropped at runtime** — a missing or misspelled type produced a run that reported `completed` having executed only the entry node, with no error anywhere. Publish now rejects invalid types; the engine reads a missing type as unconditional, which also repairs graphs already stored.
+- **Credentials were written to logs in plaintext** — both request loggers used a bare `pinoHttp({ logger })`, so pino-http's default serializer logged `Authorization: Bearer …`, `cookie`, and the internal engine↔API shared secret on every request.
+- **Untenanted telemetry route removed** (ISS-066) — dead code that would have returned another tenant's run and step data if ever wired up.
+
+### Changed
+
+- **CI runs across every workspace.** The previous matrix covered `apps/api` and `apps/engine` only, leaving 339 tests — `packages/nodes`, the 15 integration packages, `cli`, `sdk-client`, `web` — outside the merge gate entirely.
+- **npm packages are publishable.** `@magicaal/core`, `@magicaal/sdk-node`, and `@magicaal/nodes` are published alongside `@magicaal/sdk`, `@magicaal/compiler`, and `@magicaal/cli`. The SDK workspace is now named `@magicaal/sdk` directly rather than relying on `publishConfig.name`, which requires pnpm 11.15+ while this repo pins pnpm 9.
+- **The OpenAPI document is contract-tested** against the registered routes in both directions, closing 24 undocumented paths and one documented endpoint that no route served.
+
+---
+
 ## [0.5.0] — 2026-06-30
 
 This is the first public release of MagiCaal, covering the work completed across Phases 0–4. It establishes the full platform foundation: monorepo infrastructure, core execution engine, all built-in nodes, Model Router, Tool System, MCP integration, Graph-as-Code compiler and CLI, Session Manager, and the Caal AI assistant (Phase 1).
