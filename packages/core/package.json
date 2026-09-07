@@ -1,7 +1,20 @@
 {
   "name": "@magicaal/core",
   "version": "0.1.0",
-  "private": true,
   "description": "MagiCaal shared foundational TypeScript types",
-  "types": "src/index.ts"
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.10.0"
+  }
 }

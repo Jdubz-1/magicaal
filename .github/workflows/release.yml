@@ -82,8 +82,28 @@ jobs:
       - name: Install dependencies
         run: devbox run -- pnpm install --frozen-lockfile
 
+      # Dependency order matters: compiler imports ALL_NODES from nodes at
+      # runtime, and cli imports compiler.
       - name: Build packages
-        run: devbox run -- pnpm --filter @magicaal/sdk run build && devbox run -- pnpm --filter @magicaal/compiler run build && devbox run -- pnpm --filter @magicaal/cli run build
+        run: devbox run -- pnpm --filter @magicaal/core --filter @magicaal/sdk-node --filter @magicaal/nodes --filter @magicaal/sdk --filter @magicaal/compiler --filter @magicaal/cli run build
+
+      # Published in dependency order so each package's deps already exist on
+      # the registry. core and sdk-node ship zero runtime code but are
+      # referenced by the emitted declarations of nodes and compiler.
+      - name: Publish @magicaal/core
+        run: devbox run -- pnpm --filter @magicaal/core publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @magicaal/sdk-node
+        run: devbox run -- pnpm --filter @magicaal/sdk-node publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @magicaal/nodes
+        run: devbox run -- pnpm --filter @magicaal/nodes publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @magicaal/sdk
         run: devbox run -- pnpm --filter @magicaal/sdk publish --no-git-checks --access public

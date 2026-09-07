@@ -1,6 +1,6 @@
 # SDK Client (`@magicaal/sdk`)
 
-`packages/sdk-client` is the **published npm package** (published as `@magicaal/sdk`; the workspace name is `@magicaal/sdk-client`) for external applications consuming the MagiCaal API — distinct from `packages/sdk` (`@magicaal/sdk-node`), the internal node-authoring SDK. It ships a dual ESM/CJS build (`dist/esm`, `dist/cjs`, `dist/types`).
+`packages/sdk-client` is the **published npm package** (`@magicaal/sdk`) for external applications consuming the MagiCaal API — distinct from `packages/sdk` (`@magicaal/sdk-node`), the internal node-authoring SDK. It ships a dual ESM/CJS build (`dist/esm`, `dist/cjs`, `dist/types`).
 
 ## What It Wraps
 

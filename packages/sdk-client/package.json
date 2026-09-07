@@ -1,9 +1,8 @@
 {
-  "name": "@magicaal/sdk-client",
+  "name": "@magicaal/sdk",
   "version": "0.1.0",
   "description": "MagiCaal API consumer SDK",
   "publishConfig": {
-    "name": "@magicaal/sdk",
     "access": "public"
   },
   "exports": {

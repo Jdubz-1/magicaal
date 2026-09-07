@@ -70,7 +70,7 @@ All commands run from the **monorepo root**, inside the devbox shell:
 ```bash
 devbox run -- pnpm --filter @magicaal/engine run dev
 devbox run -- pnpm --filter @magicaal/web run dev
-devbox run -- pnpm --filter @magicaal/sdk-client run build
+devbox run -- pnpm --filter @magicaal/sdk run build
 devbox run -- pnpm --filter @magicaal/api run test
 ```
 

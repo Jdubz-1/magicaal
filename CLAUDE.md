@@ -19,7 +19,7 @@ magicaal/
 ├── packages/
 │   ├── core/                 # @magicaal/core — shared foundational types, no build step
 │   ├── sdk/                  # @magicaal/sdk-node — node authoring SDK (NodeModule, ExecutionContext)
-│   ├── sdk-client/           # @magicaal/sdk-client (published as @magicaal/sdk) — API consumer SDK
+│   ├── sdk-client/           # @magicaal/sdk — API consumer SDK (published to npm)
 │   └── integrations/
 │       └── caal/             # @magicaal/integration-caal — Caal AI assistant tool package
 │
@@ -72,7 +72,7 @@ Per-workspace pnpm commands — always prefix with `devbox run --` so the correc
 ```bash
 devbox run -- pnpm --filter @magicaal/api run dev
 devbox run -- pnpm --filter @magicaal/engine run dev
-devbox run -- pnpm --filter @magicaal/sdk-client run build
+devbox run -- pnpm --filter @magicaal/sdk run build
 devbox run -- pnpm install
 ```
 

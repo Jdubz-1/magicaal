@@ -74,7 +74,7 @@ jobs:
         run: pnpm --filter @magicaal/sdk-node run type-check
 
       - name: Build sdk-client (dual ESM/CJS)
-        run: pnpm --filter @magicaal/sdk-client run build
+        run: pnpm --filter @magicaal/sdk run build
 
       - name: Verify CJS build is importable
         run: node -e "require('./packages/sdk-client/dist/cjs/index.js'); console.log('CJS OK')"

@@ -1,7 +1,6 @@
 {
   "name": "@magicaal/cli",
   "version": "0.1.0",
-  "private": true,
   "description": "MagiCaal CLI \u2014 build, validate, and manage code-defined agents",
   "bin": {
     "magicaal": "./dist/index.js"
@@ -14,7 +13,6 @@
   },
   "dependencies": {
     "@magicaal/compiler": "workspace:*",
-    "@magicaal/core": "workspace:*",
     "commander": "^12.1.0",
     "glob": "^11.0.0",
     "reflect-metadata": "^0.2.2",
@@ -25,6 +23,13 @@
     "typescript": "^5.7.3",
     "@types/jest": "^29.5.14",
     "jest": "^29.7.0",
-    "ts-jest": "^29.2.5"
+    "ts-jest": "^29.2.5",
+    "@magicaal/core": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

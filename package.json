@@ -13,7 +13,7 @@
     "build:api":      "pnpm --filter @magicaal/api run build",
     "build:engine":   "pnpm --filter @magicaal/engine run build",
     "build:web":      "pnpm --filter @magicaal/web run build",
-    "build:sdk":      "pnpm --filter @magicaal/sdk-client run build",
+    "build:sdk":      "pnpm --filter @magicaal/sdk run build",
     "start:api":      "pnpm --filter @magicaal/api run start",
     "start:engine":   "pnpm --filter @magicaal/engine run start",
     "test:api":       "pnpm --filter @magicaal/api run test",

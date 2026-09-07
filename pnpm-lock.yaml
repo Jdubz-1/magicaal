@@ -376,9 +376,6 @@ importers:
       '@magicaal/compiler':
         specifier: workspace:*
         version: link:../compiler
-      '@magicaal/core':
-        specifier: workspace:*
-        version: link:../core
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -392,6 +389,9 @@ importers:
         specifier: ^4.19.2
         version: 4.22.3
     devDependencies:
+      '@magicaal/core':
+        specifier: workspace:*
+        version: link:../core
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
@@ -427,7 +427,14 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  packages/core: {}
+  packages/core:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
   packages/integrations/bamboohr:
     dependencies:
@@ -917,6 +924,13 @@ importers:
       '@magicaal/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
   packages/sdk-client:
     dependencies:
