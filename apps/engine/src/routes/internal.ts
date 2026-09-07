@@ -15,7 +15,6 @@ import { teardownAgent } from '../controllers/agent-teardown.controller';
 import {
   getTelemetry,
   getTokenUsage,
-  getRunDetail,
   getTrajectory,
   getRoutingEvents,
   getEvaluateScores,
@@ -56,7 +55,6 @@ internalRouter.get('/agents/:id/runs', listAgentRuns);
 
 internalRouter.get('/telemetry', getTelemetry);
 internalRouter.get('/telemetry/tokens', getTokenUsage);
-internalRouter.get('/telemetry/runs/:runId', getRunDetail);
 internalRouter.get('/telemetry/trajectory/:runId', getTrajectory);
 internalRouter.get('/telemetry/routing-events', getRoutingEvents);
 internalRouter.get('/telemetry/evaluate-scores', getEvaluateScores);

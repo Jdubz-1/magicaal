@@ -237,52 +237,6 @@ export const getEvaluateScores: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const getRunDetail: RequestHandler = async (req, res, next) => {
-  try {
-    const { runId } = req.params;
-
-    const runRows = await telemetryDb
-      .select()
-      .from(telemetryRuns)
-      .where(eq(telemetryRuns.id, runId));
-
-    const run = runRows[0];
-    if (!run) {
-      throw Object.assign(new Error('Run not found'), { status: 404 });
-    }
-
-    const steps = await telemetryDb
-      .select()
-      .from(telemetrySteps)
-      .where(eq(telemetrySteps.runId, runId));
-
-    res.json({
-      run: {
-        ...run,
-        output: run.outputJson ? JSON.parse(run.outputJson) : null,
-        error: run.errorJson ? JSON.parse(run.errorJson) : null,
-        input: run.inputJson ? JSON.parse(run.inputJson) : null,
-      },
-      steps: steps.map((s) => ({
-        ...s,
-        input: s.inputSnapshotJson ? JSON.parse(s.inputSnapshotJson) : null,
-        output: s.outputSnapshotJson ? JSON.parse(s.outputSnapshotJson) : null,
-        error: s.errorJson ? JSON.parse(s.errorJson) : null,
-        routingMeta: s.routingMetaJson ? JSON.parse(s.routingMetaJson) : null,
-      })),
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * GET /internal/telemetry/usage?since=<iso> — deployment-wide run count.
- *
- * Backs the API's Marketplace usage reporter. Aggregate only: no tenant IDs,
- * inputs, or outputs — the telemetry DB stays engine-owned, and only the count
- * leaves the deployment.
- */
 export const getUsageAggregate: RequestHandler = async (req, res, next) => {
   try {
     const { since } = req.query as { since?: string };
