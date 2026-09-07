@@ -8,16 +8,8 @@ on:
 
 jobs:
   lint-typecheck-test:
-    name: Lint, type-check, and test (${{ matrix.app }})
+    name: Lint, type-check, and test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - app: api
-            filter: '@magicaal/api'
-          - app: engine
-            filter: '@magicaal/engine'
 
     steps:
       - uses: actions/checkout@v4
@@ -34,14 +26,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Recursive rather than a per-app matrix: `pnpm -r run <script>` skips
+      # workspaces that don't declare the script, so new packages are covered
+      # the moment they add one. The previous api/engine matrix left 339 tests
+      # across nodes, the 15 integration packages, cli, sdk-client, and web
+      # outside CI entirely.
       - name: Lint
-        run: pnpm --filter ${{ matrix.filter }} run lint
+        run: pnpm -r run lint
 
       - name: Type-check
-        run: pnpm --filter ${{ matrix.filter }} run type-check
+        run: pnpm -r run type-check
 
       - name: Test
-        run: pnpm --filter ${{ matrix.filter }} run test
+        run: pnpm -r run test
+
+      # Coverage gates: apps/api at 80%, apps/engine on a ratchet just under
+      # its current floor (see apps/engine/jest.config.ts).
+      - name: Coverage (api)
+        run: pnpm --filter @magicaal/api run test:cov
+
+      - name: Coverage (engine)
+        run: pnpm --filter @magicaal/engine run test:cov
 
   build-packages:
     name: Build and verify packages
