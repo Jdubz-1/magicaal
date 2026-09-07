@@ -25,6 +25,98 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-07 - Pre-Phase-6 cleanup: release pipeline, CI coverage, contract drift
+
+**Type:** Infrastructure
+
+**Description:**
+An assessment of the repo against `.ai_docs/` ahead of Phase 6 found four
+problems sitting around the code rather than in it, plus four supporting items.
+All are fixed here. Phase 6 mounts the Docker socket for DooD, so it should not
+start on a CI pipeline covering 2 of 20 workspaces.
+
+**CI covered 2 of 20 workspaces.** The matrix ran `apps/api` and `apps/engine`
+only, leaving 339 passing tests — `packages/nodes` (155), the 15 integration
+packages (119), `cli`, `sdk-client`, `web` — outside the merge gate entirely.
+The largest test suite in the repo could go red unnoticed. This is the same
+shape of blind spot that hid ISS-063. Replaced with `pnpm -r run
+lint|type-check|test`, which skips workspaces lacking a script and so needs no
+allowlist.
+
+That required ESLint to work everywhere first. `apps/web` and `packages/nodes`
+declared lint scripts but shipped no config, so ESLint walked up to the root
+`.eslintrc.json` (`root: true`, ignoring `apps/` and `packages/`) and exited 2
+with "all of the files matching the glob 'src' are ignored" — neither had ever
+been linted. The 15 integration packages had no lint script at all. All 17 now
+have configs; the five real errors that surfaced are fixed.
+
+**The release pipeline would have failed on the first tag** and had never run —
+the repo has no tags. Four independent defects, described in the changes below.
+
+**The OpenAPI spec had drifted in both directions** and nothing checked it:
+`DELETE /v1/agents/{id}` was documented for months before the route existed, 24
+served routes were undocumented, and one documented endpoint had no route.
+
+**Changes:**
+- `.github/workflows/ci.yml` — recursive lint/type-check/test across every
+  workspace, plus coverage gates for both apps
+- `apps/engine/jest.config.ts` — coverage ratchet at 64/42, just under the
+  measured 65.07%/43.31% floor; `apps/api`'s 80% gate would fail here outright
+- New `.eslintrc.json` in `apps/web`, `packages/nodes`, and all 15 integration
+  packages, which also gained `lint` scripts
+- `apps/web` — Express Request augmentation moved to `src/types/express.d.ts`
+  (`no-namespace` exempts `.d.ts`, which is why `apps/api` never tripped it, and
+  CLAUDE.md's Auth Pattern already names that file); two unused `next` params
+  renamed
+- `packages/nodes` — dropped an unused `evaluate` import; annotated
+  `core-wait`'s deliberate `while (true)` poll loop
+- `.github/workflows/release.yml` — `--filter @magicaal/sdk` matched **no
+  workspace**; `publishConfig.name` requires pnpm >= 11.15 while this repo pins
+  pnpm 9, so the SDK would have published under the wrong name; five packages
+  were `private: true`, which `pnpm publish` refuses; and with no `.npmignore`
+  anywhere npm falls back to `.gitignore`, whose `**/dist/` rule would have
+  published `compiler`, `cli`, and `nodes` **without their `dist/`**
+- `packages/sdk-client` renamed to `@magicaal/sdk` in the workspace itself;
+  `packages/core` and `packages/sdk` gained their first build step
+- New `apps/api/tests/integration/openapi-contract.test.ts` — walks the composed
+  router, recovering mount paths from Express's compiled regexps, and diffs both
+  directions against `buildOpenApiSpec()`
+- `apps/api/src/openapi/spec.ts` — removed the phantom
+  `POST /v1/agents/{id}/sessions`; documented the 24 missing paths
+- Removed `getRunDetail` and its route (ISS-066) — untenanted and unreachable
+- `CHANGELOG.md` — new `[0.6.0]` section; `.github/workflows/dco.yml` — new
+
+**Impact:**
+1,019 tests across 21 workspaces now gate every merge, up from 677 across 2.
+The release pipeline is verified by dry run rather than assumed. The published
+API reference is enforced against the routes, so neither kind of drift can
+recur silently. Zero open issues remain in `MAGICAAL_ISSUES.md`.
+
+**Notes:**
+Two things were found mid-implementation that the plan had not anticipated.
+
+`@magicaal/core` is type-only *at runtime*, but its types leak into the emitted
+declarations of `compiler` and `nodes`, so publishing those without it would
+give consumers unresolved imports. `core` and `sdk-node` are therefore published
+too — six packages, not four. Both ship zero runtime code.
+
+`publishConfig.name` — the mechanism the SDK relied on to publish as
+`@magicaal/sdk` — was introduced in pnpm 11.15. This repo pins pnpm 9, so it
+would have silently not applied and the package would have published as
+`@magicaal/sdk-client`, contradicting every doc and the imports the CLI's
+`generate` command emits. The workspace was renamed instead.
+
+No release tag was cut: Track A B2 (npm org, Docker Hub org, `NPM_TOKEN`) is
+entirely unchecked, so a real publish cannot succeed yet. Verification stopped
+at `pnpm publish --dry-run` and `npm pack --dry-run` for all six packages.
+
+The new DCO workflow checks every commit in a PR. The ~100 existing commits on
+`DEV-main` carry no `Signed-off-by` trailer, so a `DEV-main` -> `main` pull
+request would be blocked until they are signed off (`git rebase --signoff`) or
+merged by direct push, which Track A B3 already reserves for the maintainer.
+
+---
+
 ### 2026-09-04 - Added an agent delete endpoint (archive, or purge)
 
 **Type:** Feature
