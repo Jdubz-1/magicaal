@@ -239,13 +239,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
         parameters: [pathParam('id')],
         responses: { '200': ok },
       },
-      post: {
-        tags: ['Sessions'],
-        summary: 'Create a session',
-        parameters: [pathParam('id')],
-        requestBody: jsonBody({ metadata: obj }),
-        responses: { '201': created },
-      },
     },
     '/v1/agents/{id}/sessions/{sid}': {
       get: {
@@ -791,6 +784,156 @@ export function buildOpenApiSpec(): Record<string, unknown> {
     },
     '/v1/telemetry/tokens': {
       get: { tags: ['Telemetry'], summary: 'Token usage aggregates', responses: { '200': ok } },
+    },
+
+    // ── Previously undocumented (added with the spec↔route contract test) ──
+    '/v1/agents/{id}/draft': {
+      post: {
+        tags: ['Agents'],
+        summary: 'Reopen the active version as a new draft',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/agents/{id}/sessions/migrate': {
+      post: {
+        tags: ['Sessions'],
+        summary: 'Batch-migrate this agent\'s sessions to the current context schema',
+        parameters: [pathParam('id')],
+        responses: { '200': ok },
+      },
+    },
+    '/v1/agents/{id}/sessions/{sid}/runs': {
+      get: {
+        tags: ['Sessions'],
+        summary: 'List runs linked to a session',
+        parameters: [pathParam('id'), pathParam('sid')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/agents/{id}/sessions/{sid}/reset': {
+      post: {
+        tags: ['Sessions'],
+        summary: 'Clear a session\'s context without deleting the session',
+        parameters: [pathParam('id'), pathParam('sid')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/sessions': {
+      get: {
+        tags: ['Sessions'],
+        summary: 'List sessions across the tenant',
+        responses: { '200': ok },
+      },
+    },
+    '/v1/llm/router-policies': {
+      get: { tags: ['Platform'], summary: 'List named model-router policies', responses: { '200': ok } },
+      post: {
+        tags: ['Platform'],
+        summary: 'Create a named model-router policy',
+        requestBody: jsonBody({ name: str, config: obj }, ['name', 'config']),
+        responses: { '201': created, '400': badRequest },
+      },
+    },
+    '/v1/llm/router-policies/{id}': {
+      patch: {
+        tags: ['Platform'],
+        summary: 'Update a named model-router policy',
+        parameters: [pathParam('id')],
+        requestBody: jsonBody({ name: str, config: obj }),
+        responses: { '200': ok, '404': notFound },
+      },
+      delete: {
+        tags: ['Platform'],
+        summary: 'Delete a named model-router policy',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent, '404': notFound },
+      },
+    },
+    '/v1/integrations/oauth/initiate': {
+      post: {
+        tags: ['Integrations'],
+        summary: 'Begin an OAuth authorization-code flow',
+        requestBody: jsonBody({ service: str, redirectUri: str }, ['service']),
+        responses: { '200': ok, '400': badRequest },
+      },
+    },
+    '/v1/integrations/oauth/{service}/callback': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'OAuth provider redirect target',
+        description:
+          'Public — the provider redirects the user\'s browser here with no bearer token. ' +
+          'The single-use state token and nonce cookie authenticate the call.',
+        security: [],
+        parameters: [pathParam('service')],
+        responses: { '302': { description: 'Redirect back to the app' }, '400': badRequest },
+      },
+    },
+    '/v1/integrations/connections/{id}/reconnect': {
+      post: {
+        tags: ['Integrations'],
+        summary: 'Re-run OAuth for an existing connection, keeping its id',
+        parameters: [pathParam('id')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/integrations/oauth-apps': {
+      get: { tags: ['Integrations'], summary: 'List per-tenant OAuth app credentials', responses: { '200': ok } },
+      put: {
+        tags: ['Integrations'],
+        summary: 'Upsert per-tenant OAuth app credentials',
+        requestBody: jsonBody({ service: str, clientId: str, clientSecret: str }, ['service', 'clientId', 'clientSecret']),
+        responses: { '200': ok, '400': badRequest },
+      },
+    },
+    '/v1/integrations/oauth-apps/{id}': {
+      delete: {
+        tags: ['Integrations'],
+        summary: 'Delete per-tenant OAuth app credentials',
+        parameters: [pathParam('id')],
+        responses: { '204': noContent, '404': notFound },
+      },
+    },
+    '/v1/telemetry/trajectory/{runId}': {
+      get: {
+        tags: ['Telemetry'],
+        summary: 'Agentic-loop trajectory for a run',
+        parameters: [pathParam('runId')],
+        responses: { '200': ok, '404': notFound },
+      },
+    },
+    '/v1/telemetry/routing-events': {
+      get: { tags: ['Telemetry'], summary: 'Model-router decision history', responses: { '200': ok } },
+    },
+    '/v1/telemetry/evaluate-scores': {
+      get: { tags: ['Telemetry'], summary: 'core:evaluate score history', responses: { '200': ok } },
+    },
+    '/v1/utils/evaluate': {
+      post: {
+        tags: ['Platform'],
+        summary: 'Evaluate a JSONata expression against sample context',
+        requestBody: jsonBody({ expression: str, data: obj }, ['expression']),
+        responses: { '200': ok, '400': badRequest },
+      },
+    },
+    '/v1/system/config': {
+      get: { tags: ['Platform'], summary: 'Effective platform configuration', responses: { '200': ok } },
+    },
+    '/v1/system/provider-pricing': {
+      get: { tags: ['Platform'], summary: 'Provider pricing table', responses: { '200': ok } },
+      post: {
+        tags: ['Platform'],
+        summary: 'Upsert provider pricing (tenant_admin)',
+        requestBody: jsonBody({ provider: str, model: str, pricing: obj }, ['provider', 'model']),
+        responses: { '200': ok, '403': forbidden },
+      },
+    },
+    '/v1/system/sync': {
+      get: { tags: ['Platform'], summary: 'Most recent boot-time sync event', responses: { '200': ok } },
+    },
+    '/v1/system/sync/log': {
+      get: { tags: ['Platform'], summary: 'Boot-time sync history', responses: { '200': ok } },
     },
     '/v1/openapi.json': {
       get: {
