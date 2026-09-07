@@ -1954,7 +1954,7 @@ adminRouter.post('/mcp-servers', async (req, res, next) => {
   }
 });
 
-adminRouter.post('/mcp-servers/:id/test', async (req, res, next) => {
+adminRouter.post('/mcp-servers/:id/test', async (req, res, _next) => {
   try {
     const api = createApiClient(req.accessToken);
     const { data } = await api.post<{ ok: boolean; tools: Array<{ name: string }> }>(`/v1/mcp-servers/${encodeURIComponent(req.params.id)}/test`);

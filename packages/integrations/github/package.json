@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
     "test": "jest",
     "test:cov": "jest --coverage"
   },

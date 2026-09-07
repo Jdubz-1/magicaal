@@ -118,6 +118,8 @@ export const coreWait: NodeModule<WaitConfig> = {
     const timeout = config.timeoutMs ?? DEFAULT_TIMEOUT;
     const expression = config.condition ?? 'true';
 
+    // Exit conditions (condition met, or timeout) are checked inside the body.
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       const met = await evaluateBoolean(expression, ctx.data);
       if (met) {

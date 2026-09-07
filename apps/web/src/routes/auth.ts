@@ -29,7 +29,7 @@ authRouter.get('/login', (_req, res) => {
   );
 });
 
-authRouter.post('/login', async (req, res, next) => {
+authRouter.post('/login', async (req, res, _next) => {
   try {
     const { email, password } = req.body as { email: string; password: string };
     const api = createApiClient();

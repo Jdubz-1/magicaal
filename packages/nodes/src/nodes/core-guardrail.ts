@@ -1,7 +1,6 @@
 import type { NodeModule } from '@magicaal/sdk-node';
 import type { ExecutionContext } from '@magicaal/sdk-node';
 import { evaluateBoolean } from '../utils/jsonata';
-import { evaluate } from '../utils/jsonata';
 
 type GuardrailMode = 'block-and-fail' | 'reroute-to-fallback' | 'redact-and-continue';
 

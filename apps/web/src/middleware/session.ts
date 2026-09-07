@@ -10,15 +10,6 @@ export interface SessionUser {
   role: string;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      session?: SessionUser;
-      accessToken?: string;
-    }
-  }
-}
-
 export const loadSession: RequestHandler = async (req, _res, next) => {
   const token = req.cookies?.access_token as string | undefined;
   if (token) {
