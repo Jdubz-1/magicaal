@@ -23,6 +23,8 @@
     "type-check:api":    "pnpm --filter @magicaal/api run type-check",
     "type-check:engine": "pnpm --filter @magicaal/engine run type-check",
     "format":         "prettier --write .",
-    "build":          "pnpm --recursive run build --if-present"
+    "build":          "pnpm --recursive run build --if-present",
+    "hooks:install":  "git config core.hooksPath .githooks",
+    "prepare":        "git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks || true"
   }
 }

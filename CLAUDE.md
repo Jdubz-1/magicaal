@@ -250,6 +250,18 @@ Commits carry exactly one trailer: the DCO `Signed-off-by:` line for the human
 author (`git commit -s`), which `.github/workflows/dco.yml` enforces on every
 PR commit.
 
+**This is enforced locally.** `.githooks/commit-msg` rejects any commit whose
+message carries AI attribution — co-author trailers naming a model, AI session
+trailers, "generated with X" credits, vendor bot addresses, or the 🤖 marker.
+The hook installs itself via the root `prepare` script on `pnpm install`; run
+`pnpm run hooks:install` to wire it up by hand (`git config core.hooksPath
+.githooks`).
+
+The patterns match attribution *constructs*, not bare model names, so ordinary
+work like `feat(engine): add Gemini provider adapter` passes untouched. Writing
+*about* the rule and quoting a forbidden trailer verbatim will trip it —
+paraphrase instead.
+
 Scopes: `api`, `engine`, `web`, `core`, `sdk`, `nodes`, `integrations`, `caal`, `compiler`, `cli`, `middleware`, `config`, `tests`, `docs`, `ci`, `docker`, `devbox`
 
 ```bash

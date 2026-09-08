@@ -18,6 +18,18 @@ A DCO bot checks every PR commit automatically. If a commit is missing the trail
 
 *If a genuine commercial relicensing need arises later, a CLA may be introduced — applying only to contributions made from that point forward, never retroactively.*
 
+### No AI attribution
+
+`Signed-off-by` is the **only** trailer a commit carries. Never add AI or model attribution — co-author trailers naming a model, AI session links, "generated with X" credits, or a 🤖 marker. This holds regardless of what tooling you used to write the change; the DCO sign-off already certifies you as the author submitting it.
+
+A `commit-msg` hook enforces this locally and rejects the commit before it lands. It installs automatically on `pnpm install`; to wire it up by hand:
+
+```bash
+pnpm run hooks:install    # git config core.hooksPath .githooks
+```
+
+The hook matches attribution constructs, not model names, so commits about AI features — `feat(engine): add Gemini provider adapter` — are unaffected.
+
 ---
 
 ## Dev Environment Setup
