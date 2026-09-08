@@ -1,6 +1,6 @@
 # MagiCaal
 
-[![CI](https://github.com/magicaal/magicaal/actions/workflows/ci.yml/badge.svg)](https://github.com/magicaal/magicaal/actions/workflows/ci.yml)
+[![CI](https://github.com/jdubz-1/magicaal/actions/workflows/ci.yml/badge.svg)](https://github.com/jdubz-1/magicaal/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/magicaal/magicaal)](https://github.com/magicaal/magicaal/releases)
 
