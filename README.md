@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/jdubz-1/magicaal/actions/workflows/ci.yml/badge.svg)](https://github.com/jdubz-1/magicaal/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/magicaal/magicaal)](https://github.com/magicaal/magicaal/releases)
+[![Release](https://img.shields.io/github/v/release/jdubz-1/magicaal)](https://github.com/jdubz-1/magicaal/releases)
 
 A self-hosted platform for building, deploying, and managing production-ready AI agents. Every agent is a directed graph of typed nodes — visual in the Studio canvas, or defined as TypeScript and compiled to the same runtime format.
 
@@ -20,7 +20,7 @@ A self-hosted platform for building, deploying, and managing production-ready AI
 Uses published Docker images — no build required.
 
 ```bash
-git clone https://github.com/magicaal/magicaal.git
+git clone https://github.com/jdubz-1/magicaal.git
 cd magicaal/deploy
 cp .env.example .env
 # Edit .env: set MAGICAAL_MASTER_KEY and JWT_SECRET (both occurrences) to random secrets
