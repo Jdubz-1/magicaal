@@ -2,16 +2,17 @@
   "name": "@magicaal/sdk-node",
   "version": "0.1.0",
   "description": "MagiCaal node authoring SDK \u2014 NodeModule, ExecutionContext, ProviderAdapter interfaces",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "dependencies": {
     "@magicaal/core": "workspace:*"
   },
-  "main": "dist/index.js",
   "files": [
     "dist"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts"
   },
   "scripts": {
     "build": "tsc --project tsconfig.build.json"

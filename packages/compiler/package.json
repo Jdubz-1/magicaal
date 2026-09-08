@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "MagiCaal agent graph compiler \u2014 TypeScript-first agent authoring",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "type-check": "tsc --noEmit"
@@ -21,6 +21,8 @@
     "dist"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts"
   }
 }
