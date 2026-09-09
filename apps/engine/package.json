@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/engine",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal Agent Execution Engine",
   "private": true,
   "main": "dist/index.js",

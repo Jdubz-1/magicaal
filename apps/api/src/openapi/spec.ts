@@ -951,7 +951,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       title: 'MagiCaal Platform API',
       description:
         'BFF API for the MagiCaal self-hosted AI agent platform. Authenticate with a platform JWT (Authorization: Bearer). Agent invocation additionally supports invocation keys.',
-      version: '0.5.0',
+      version: '0.6.0',
     },
     servers: [{ url: config.publicBaseUrl }],
     tags: [

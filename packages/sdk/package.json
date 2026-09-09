@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/sdk-node",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal node authoring SDK \u2014 NodeModule, ExecutionContext, ProviderAdapter interfaces",
   "types": "src/index.ts",
   "dependencies": {

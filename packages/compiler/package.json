@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/compiler",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal agent graph compiler \u2014 TypeScript-first agent authoring",
   "main": "dist/index.js",
   "types": "src/index.ts",

@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/integration-google-workspace",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "description": "MagiCaal google-workspace integration package",
   "main": "dist/index.js",

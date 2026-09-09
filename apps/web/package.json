@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/web",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal Studio + Admin web application",
   "private": true,
   "main": "dist/index.js",

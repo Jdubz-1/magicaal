@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/integration-slack",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "description": "MagiCaal Slack integration: message nodes, channel tools, Events API trigger",
   "main": "dist/index.js",

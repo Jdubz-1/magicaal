@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/cli",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal CLI \u2014 build, validate, and manage code-defined agents",
   "bin": {
     "magicaal": "./dist/index.js"

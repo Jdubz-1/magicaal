@@ -1,6 +1,6 @@
 {
   "name": "@magicaal/nodes",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "description": "MagiCaal built-in node implementations",
   "main": "dist/index.js",
   "types": "src/index.ts",
