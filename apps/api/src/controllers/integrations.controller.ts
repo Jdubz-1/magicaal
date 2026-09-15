@@ -14,6 +14,41 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+/** Columns returned when a connection is created — never the credentials. */
+export const connectionResponseColumns = {
+  id: integrationConnections.id,
+  service: integrationConnections.service,
+  displayName: integrationConnections.displayName,
+  authType: integrationConnections.authType,
+  status: integrationConnections.status,
+  createdAt: integrationConnections.createdAt,
+};
+
+/**
+ * An insertable connection row with credentials encrypted. Shared by manual
+ * creation and model-provider presets so both store credentials identically.
+ */
+export function newConnectionRow(input: {
+  tenantId: string;
+  service: string;
+  displayName: string;
+  authType: 'oauth2' | 'api_key';
+  credentials: Record<string, unknown>;
+}): typeof integrationConnections.$inferInsert {
+  const now = new Date();
+  return {
+    id: newId(),
+    tenantId: input.tenantId,
+    service: input.service,
+    displayName: input.displayName,
+    authType: input.authType,
+    credentialsEnc: encryptCredentials(JSON.stringify(input.credentials)),
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 /**
  * POST /internal/integrations/connections/:id/credentials — engine-internal
  * persistence of mid-run OAuth token refreshes. Requires X-Internal-Auth
@@ -137,30 +172,10 @@ export const createConnection: RequestHandler = async (req, res, next) => {
       );
     }
 
-    const credentialsEnc = encryptCredentials(JSON.stringify(credentials));
-    const now = new Date();
-
     const [created] = await db
       .insert(integrationConnections)
-      .values({
-        id: newId(),
-        tenantId,
-        service,
-        displayName,
-        authType,
-        credentialsEnc,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({
-        id: integrationConnections.id,
-        service: integrationConnections.service,
-        displayName: integrationConnections.displayName,
-        authType: integrationConnections.authType,
-        status: integrationConnections.status,
-        createdAt: integrationConnections.createdAt,
-      });
+      .values(newConnectionRow({ tenantId, service, displayName, authType, credentials }))
+      .returning(connectionResponseColumns);
 
     res.status(201).json(created);
   } catch (err) {
