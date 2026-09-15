@@ -6,6 +6,54 @@ import { resolveCredentials } from '../resolver/credential-resolver';
 import { ExecutionContextImpl } from '../execution/context';
 import { healthTracker } from '../router/health-tracker';
 import { circuitBreaker } from '../router/circuit-breaker';
+import { providerAdapterRegistry } from '../router/provider-adapter-registry';
+
+/**
+ * GET /internal/llm/providers. The model provider catalog — one descriptor
+ * per registered adapter — used for Admin presets and the Studio model picker.
+ */
+export const listProviders: RequestHandler = (_req, res, next) => {
+  try {
+    res.json(providerAdapterRegistry.listDescriptors());
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /internal/llm/providers/:provider/validate. Checks credentials against
+ * the provider before the API stores them. Credentials are never logged or
+ * echoed back.
+ */
+export const validateProviderCredentials: RequestHandler = async (req, res, next) => {
+  try {
+    const { provider } = req.params;
+    if (!providerAdapterRegistry.has(provider)) {
+      throw Object.assign(new Error(`Unknown model provider "${provider}"`), {
+        status: 404,
+        code: 'PROVIDER_NOT_FOUND',
+      });
+    }
+
+    const { credentials } = req.body as { credentials?: Record<string, unknown> };
+    const apiKey = credentials?.api_key;
+    if (typeof apiKey !== 'string' || apiKey.length === 0) {
+      throw Object.assign(new Error('credentials.api_key is required'), { status: 400 });
+    }
+
+    const adapter = providerAdapterRegistry.get(provider);
+    if (!adapter.validateCredentials) {
+      res.json({ ok: true });
+      return;
+    }
+
+    // Same shape credential-resolver.ts builds for api_key connections
+    const result = await adapter.validateCredentials({ type: 'apikey', apiKey, extra: credentials });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
 
 /**
  * GET /internal/llm/provider-health (ALIGN-024). Per-target router health:
