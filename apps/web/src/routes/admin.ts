@@ -845,6 +845,81 @@ adminRouter.post('/reviews/:runId/reject', async (req, res, next) => {
 
 // ─── Integration Connections ───────────────────────────────────────────────────
 
+/** A model provider catalog entry from GET /v1/llm/providers. */
+interface ProviderCatalogEntry {
+  provider: string;
+  displayName: string;
+  description: string;
+  apiKeyUrl?: string;
+  authFields: Array<{ key: string; label: string; type: 'string' | 'secret'; required?: boolean; description?: string }>;
+  models: Array<{ id: string; label: string; recommended?: boolean }>;
+}
+
+const CUSTOM_MODEL = '__custom';
+
+interface ProviderFormState {
+  error?: string;
+  /** Validation couldn't reach the provider — offer saving without verifying. */
+  unverifiable?: boolean;
+  values?: Record<string, string>;
+}
+
+function renderProviderForm(p: ProviderCatalogEntry, state: ProviderFormState = {}): string {
+  const v = state.values ?? {};
+  const recommended = p.models.find((m) => m.recommended) ?? p.models[0];
+  const selectedModel = v.model ?? recommended?.id ?? CUSTOM_MODEL;
+
+  const credentialInputs = p.authFields.map((f) => `
+    <div class="form-group">
+      <label>${escHtml(f.label)}${f.required ? '' : ' <span style="color:#64748b">(optional)</span>'}</label>
+      <input name="cred_${escHtml(f.key)}" type="${f.type === 'secret' ? 'password' : 'text'}" autocomplete="off"
+        ${f.required ? 'required' : ''} value="${escHtml(v[`cred_${f.key}`] ?? '')}" />
+      ${f.description ? `<div style="color:#64748b;font-size:0.75rem;margin-top:0.25rem">${escHtml(f.description)}</div>` : ''}
+    </div>`).join('');
+
+  const modelOptions = p.models.map((m) =>
+    `<option value="${escHtml(m.id)}"${m.id === selectedModel ? ' selected' : ''}>${escHtml(m.label)}${m.recommended ? ' (recommended)' : ''}</option>`,
+  ).join('') + `<option value="${CUSTOM_MODEL}"${selectedModel === CUSTOM_MODEL ? ' selected' : ''}>Other…</option>`;
+
+  return `
+    <div class="container" style="margin-top:1.5rem;max-width:600px">
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+        <a href="/admin/integrations" class="btn btn-ghost">&larr; Back</a>
+        <h1 style="margin:0;font-size:1.25rem">Connect ${escHtml(p.displayName)}</h1>
+      </div>
+      ${state.error ? `<div class="card" style="border-color:#7f2121;color:#fca5a5;margin-bottom:1rem">${escHtml(state.error)}</div>` : ''}
+      <form class="card" method="POST" action="/admin/integrations/providers/${encodeURIComponent(p.provider)}/create">
+        <p style="color:#94a3b8;font-size:0.875rem;margin-top:0">${escHtml(p.description)}</p>
+        <div class="form-group"><label>Display Name</label><input name="displayName" value="${escHtml(v.displayName ?? p.displayName)}" /></div>
+        ${credentialInputs}
+        ${p.apiKeyUrl ? `<p style="font-size:0.8125rem;margin-top:-0.5rem"><a href="${escHtml(p.apiKeyUrl)}" target="_blank" rel="noopener noreferrer">Get an API key &rarr;</a></p>` : ''}
+        <div class="form-group">
+          <label>Default Model</label>
+          <select name="model" id="provider-model-select">${modelOptions}</select>
+          <input name="customModel" id="provider-custom-model" placeholder="model id, e.g. ${escHtml(recommended?.id ?? '')}"
+            value="${escHtml(v.customModel ?? '')}" style="margin-top:0.5rem;display:${selectedModel === CUSTOM_MODEL ? 'block' : 'none'}" />
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" name="createPolicy" value="true" ${v.createPolicy === undefined || v.createPolicy === 'true' ? 'checked' : ''} /> Create a router policy using this model</label>
+          <input name="policyName" placeholder="${escHtml(p.provider)}-&lt;model&gt; (default)" value="${escHtml(v.policyName ?? '')}" style="margin-top:0.5rem" />
+          <div style="color:#64748b;font-size:0.75rem;margin-top:0.25rem">Select the policy for Caal or agents without writing router JSON.</div>
+        </div>
+        ${state.unverifiable ? `<div class="form-group"><label style="color:#fcd34d"><input type="checkbox" name="skipValidation" value="true" /> Save without verifying the key</label></div>` : ''}
+        <button type="submit" class="btn btn-primary">Verify &amp; Save</button>
+      </form>
+      <script>document.getElementById('provider-model-select')?.addEventListener('change',function(e){const c=document.getElementById('provider-custom-model');if(c)c.style.display=e.target.value==='${CUSTOM_MODEL}'?'block':'none';});</script>
+    </div>`;
+}
+
+async function loadProviderCatalog(api: ReturnType<typeof createApiClient>): Promise<ProviderCatalogEntry[]> {
+  try {
+    const { data } = await api.get<ProviderCatalogEntry[]>('/v1/llm/providers');
+    return data;
+  } catch {
+    return []; // engine unavailable — the manual form still works
+  }
+}
+
 adminRouter.get('/integrations', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
@@ -875,7 +950,12 @@ adminRouter.get('/integrations', async (req, res, next) => {
         </td>
       </tr>`).join('');
 
-    const rows = connections.map((c) => `
+    const providers = await loadProviderCatalog(api);
+    const providerIds = new Set(providers.map((p) => p.provider));
+    const providerConnections = connections.filter((c) => providerIds.has(c.service));
+    const otherConnections = connections.filter((c) => !providerIds.has(c.service));
+
+    const connectionRow = (c: (typeof connections)[number]): string => `
       <tr>
         <td>${escHtml(c.displayName)}</td>
         <td style="color:#94a3b8">${escHtml(c.service)}</td>
@@ -890,12 +970,58 @@ adminRouter.get('/integrations', async (req, res, next) => {
             <button class="btn btn-ghost" style="color:#fca5a5;border-color:#7f2121;font-size:0.75rem">Delete</button>
           </form>
         </td>
-      </tr>`).join('');
+      </tr>`;
+    const rows = otherConnections.map(connectionRow).join('');
+    const providerRows = providerConnections.map(connectionRow).join('');
+
+    const providerCards = providers.map((p) => {
+      const count = providerConnections.filter((c) => c.service === p.provider).length;
+      return `
+        <div class="card" style="display:flex;flex-direction:column;gap:0.5rem;margin:0">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <div style="font-weight:600">${escHtml(p.displayName)}</div>
+            ${count ? `<span style="color:#4ade80;font-size:0.75rem">Connected${count > 1 ? ` ×${count}` : ''}</span>` : ''}
+          </div>
+          <div style="color:#94a3b8;font-size:0.8125rem;flex:1">${escHtml(p.description)}</div>
+          <a href="/admin/integrations/providers/${encodeURIComponent(p.provider)}/create" class="btn ${count ? 'btn-ghost' : 'btn-primary'}" style="align-self:flex-start">${count ? '+ Add key' : 'Connect'}</a>
+        </div>`;
+    }).join('');
+
+    const connected = typeof req.query.connected === 'string' ? req.query.connected : '';
+    const policy = typeof req.query.policy === 'string' ? req.query.policy : '';
+    const flash = connected
+      ? `<div class="card" style="border-color:#166534;color:#4ade80;margin-bottom:1rem">Connected ${escHtml(connected)}.${policy ? ` Router policy <strong>${escHtml(policy)}</strong> created.` : ''}</div>`
+      : '';
 
     res.send(layout(`
       <div class="container" style="margin-top:1.5rem">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
-          <h1 style="margin:0;font-size:1.5rem">Integration Connections</h1>
+        <h1 style="margin:0 0 1.5rem;font-size:1.5rem">Integrations</h1>
+        ${flash}
+
+        <div style="margin-bottom:1rem">
+          <h2 style="margin:0;font-size:1.125rem">Model Providers</h2>
+          <div style="color:#64748b;font-size:0.8125rem;margin-top:0.25rem">
+            API keys for the LLM providers agents and Caal call. Pick a provider to connect it — no JSON required.
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1rem">
+          ${providerCards || '<div class="card" style="margin:0;color:#475569">Provider catalog unavailable — use a manual connection below.</div>'}
+          <div class="card" style="display:flex;flex-direction:column;gap:0.5rem;margin:0">
+            <div style="font-weight:600">Custom / other</div>
+            <div style="color:#94a3b8;font-size:0.8125rem;flex:1">Enter the service name, auth type, and credentials JSON manually.</div>
+            <a href="/admin/integrations/create" class="btn btn-ghost" style="align-self:flex-start">Manual setup</a>
+          </div>
+        </div>
+        ${providerRows ? `
+        <div class="card">
+          <table>
+            <thead><tr><th>Name</th><th>Provider</th><th>Auth Type</th><th>Status</th><th>Created</th><th></th></tr></thead>
+            <tbody>${providerRows}</tbody>
+          </table>
+        </div>` : ''}
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:2rem 0 1rem">
+          <h2 style="margin:0;font-size:1.125rem">Integration Connections</h2>
           <a href="/admin/integrations/create" class="btn btn-primary">+ Add Connection</a>
         </div>
         <div class="card">
@@ -921,6 +1047,97 @@ adminRouter.get('/integrations', async (req, res, next) => {
           </table>
         </div>
       </div>`, { title: 'Integrations — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/integrations/providers/:provider/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const provider = (await loadProviderCatalog(api)).find((p) => p.provider === req.params.provider);
+    if (!provider) {
+      res.status(404).send(layout(`<div class="container" style="margin-top:1.5rem"><h1>Unknown model provider</h1><a href="/admin/integrations" class="btn btn-ghost">&larr; Back</a></div>`,
+        { title: 'Not Found — Admin', user: { name: user.userId, role: user.role } }));
+      return;
+    }
+    res.send(layout(renderProviderForm(provider),
+      { title: `Connect ${provider.displayName} — Admin`, user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/integrations/providers/:provider/create', async (req, res, next) => {
+  try {
+    const api = createApiClient(req.accessToken);
+    const user = req.session!;
+    const provider = (await loadProviderCatalog(api)).find((p) => p.provider === req.params.provider);
+    if (!provider) {
+      res.redirect('/admin/integrations');
+      return;
+    }
+
+    const body = req.body as Record<string, string | undefined>;
+    const credentials: Record<string, string> = {};
+    for (const f of provider.authFields) {
+      const value = body[`cred_${f.key}`]?.trim();
+      if (value) credentials[f.key] = value;
+    }
+    const model = body.model === CUSTOM_MODEL ? body.customModel?.trim() : body.model;
+    const createPolicy = body.createPolicy === 'true';
+    const displayName = body.displayName?.trim() || provider.displayName;
+
+    const render = (state: ProviderFormState, status: number): void => {
+      res.status(status).send(layout(renderProviderForm(provider, state),
+        { title: `Connect ${provider.displayName} — Admin`, user: { name: user.userId, role: user.role } }));
+    };
+    // Non-secret values survive a failed submit; secrets only when the key may
+    // be fine (provider unreachable) so "save without verifying" needs no retyping.
+    const nonSecretValues = (): Record<string, string> => {
+      const values: Record<string, string> = {};
+      for (const k of ['displayName', 'model', 'customModel', 'policyName']) values[k] = body[k] ?? '';
+      values.createPolicy = createPolicy ? 'true' : 'false';
+      for (const f of provider.authFields) {
+        if (f.type !== 'secret') values[`cred_${f.key}`] = body[`cred_${f.key}`] ?? '';
+      }
+      return values;
+    };
+
+    if (createPolicy && !model) {
+      render({ error: 'Choose a model or enter a custom model id to create a router policy.', values: nonSecretValues() }, 400);
+      return;
+    }
+
+    try {
+      const { data } = await api.post<{ routerPolicy?: { name: string } }>(
+        `/v1/llm/providers/${encodeURIComponent(provider.provider)}/connections`,
+        {
+          displayName,
+          credentials,
+          skipValidation: body.skipValidation === 'true',
+          routerPolicy: createPolicy ? { create: true, model, name: body.policyName?.trim() || undefined } : undefined,
+        },
+      );
+      const query = new URLSearchParams({ connected: displayName });
+      if (data.routerPolicy) query.set('policy', data.routerPolicy.name);
+      res.redirect(`/admin/integrations?${query.toString()}`);
+    } catch (err) {
+      const apiErr = err as { response?: { status: number; data?: { error?: string } } };
+      const status = apiErr.response?.status;
+      if (status === 422) {
+        render({ error: 'The provider rejected this API key. Check it and try again.', values: nonSecretValues() }, 422);
+      } else if (status === 424) {
+        const values = nonSecretValues();
+        for (const [k, v] of Object.entries(credentials)) values[`cred_${k}`] = v;
+        render({ error: `Couldn't verify the key: ${apiErr.response?.data?.error ?? 'provider unreachable'}.`, unverifiable: true, values }, 424);
+      } else if (status === 400) {
+        render({ error: apiErr.response?.data?.error ?? 'Invalid input.', values: nonSecretValues() }, 400);
+      } else {
+        throw err;
+      }
+    }
   } catch (err) {
     next(err);
   }
@@ -1098,8 +1315,38 @@ adminRouter.get('/router-policies', async (req, res, next) => {
   }
 });
 
-adminRouter.get('/router-policies/create', (req, res) => {
+adminRouter.get('/router-policies/create', async (req, res, next) => {
+  try {
+  const api = createApiClient(req.accessToken);
   const user = req.session!;
+
+  // Quick build: pick a connected model provider + model instead of writing JSON
+  const providers = await loadProviderCatalog(api);
+  let connections: Array<{ id: string; service: string; displayName: string }> = [];
+  try {
+    const { data } = await api.get<typeof connections>('/v1/integrations/connections');
+    connections = data;
+  } catch { /* no connections yet */ }
+  const providerIds = new Set(providers.map((p) => p.provider));
+  const providerConnections = connections.filter((c) => providerIds.has(c.service));
+  // Embedded in a <script>: escape '<' so catalog text can't close the tag
+  const modelsJson = JSON.stringify(Object.fromEntries(providers.map((p) => [p.provider, p.models]))).replace(/</g, '\\u003c');
+
+  const quickBuild = providerConnections.length
+    ? `
+        <div class="form-group" style="border:1px solid #2d3148;border-radius:6px;padding:0.75rem">
+          <label>Quick build</label>
+          <select id="qb-connection">${providerConnections.map((c) =>
+            `<option value="${escHtml(c.id)}" data-provider="${escHtml(c.service)}">${escHtml(c.displayName)} (${escHtml(c.service)})</option>`).join('')}</select>
+          <select id="qb-model" style="margin-top:0.5rem"></select>
+          <button type="button" class="btn btn-ghost" id="qb-apply" style="margin-top:0.5rem">Fill config</button>
+        </div>
+        <script>(function(){const M=${modelsJson};const c=document.getElementById('qb-connection'),m=document.getElementById('qb-model');
+          function fill(){const p=c.selectedOptions[0]&&c.selectedOptions[0].dataset.provider;m.innerHTML='';(M[p]||[]).forEach(function(x){const o=document.createElement('option');o.value=x.id;o.textContent=x.label;if(x.recommended)o.selected=true;m.appendChild(o);});}
+          c.addEventListener('change',fill);fill();
+          document.getElementById('qb-apply').addEventListener('click',function(){const p=c.selectedOptions[0].dataset.provider;const cfg={strategy:'priority',targets:[{id:'primary',connectionId:c.value,provider:p,model:m.value}],triggers:[]};document.querySelector('textarea[name="config"]').value=JSON.stringify(cfg,null,2);const n=document.querySelector('input[name="name"]');if(n&&!n.value)n.value=p+'-'+m.value;});})();</script>`
+    : `<p style="color:#64748b;font-size:0.8125rem;margin-top:0">Tip: connect a model provider in <a href="/admin/integrations">Integrations</a> to build policies without writing JSON.</p>`;
+
   res.send(layout(`
     <div class="container" style="margin-top:1.5rem;max-width:600px">
       <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
@@ -1107,6 +1354,7 @@ adminRouter.get('/router-policies/create', (req, res) => {
         <h1 style="margin:0;font-size:1.25rem">Create Router Policy</h1>
       </div>
       <form class="card" method="POST" action="/admin/router-policies/create">
+        ${quickBuild}
         <div class="form-group"><label>Policy Name</label><input name="name" required placeholder="primary-openai" /></div>
         <div class="form-group">
           <label>Config (JSON — ModelRouterConfig)</label>
@@ -1118,6 +1366,9 @@ adminRouter.get('/router-policies/create', (req, res) => {
         <button type="submit" class="btn btn-primary">Save Policy</button>
       </form>
     </div>`, { title: 'Create Policy — Admin', user: { name: user.userId, role: user.role } }));
+  } catch (err) {
+    next(err);
+  }
 });
 
 adminRouter.post('/router-policies/create', async (req, res, next) => {
