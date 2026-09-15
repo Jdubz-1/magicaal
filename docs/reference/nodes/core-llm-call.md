@@ -14,7 +14,7 @@ Calls a language model via the configured [Model Router](../../developer-guide/a
 | `userMessageKey` | `string` | No | Context key holding a pre-assembled user message string (e.g. built by an upstream `core:transform`). **Takes precedence over `userMessage` when set.** |
 | `messagesKey` | `string` | No | Context key containing a `CanonicalMessage[]` for multi-turn conversations — overrides `userMessage`/`userMessageKey` |
 | `injectSessionHistory` | `string` | No | Context key holding a `CanonicalMessage[]` from a prior session; prepended before the current message |
-| `router` | `ModelRouterConfig` | No | Inline router config; overrides the graph's `defaultRouter` |
+| `router` | `ModelRouterConfig` | No | Inline router config; overrides the graph's `defaultRouter`. Studio renders a provider connection + model picker (Advanced mode for raw JSON) |
 | `maxTokens` | `number` | No | |
 | `temperature` | `number` | No | |
 | `outputSchema` | `object` (JSON Schema) | No | Enables structured output — the response is validated and auto-retried on malformed JSON |

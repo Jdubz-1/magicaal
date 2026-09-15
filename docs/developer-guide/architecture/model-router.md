@@ -6,6 +6,16 @@ The Model Router (`apps/engine/src/router/`) is the provider-agnostic layer ever
 
 `src/router/adapters/` — one file per provider (`openai.ts`, `anthropic.ts`, `google.ts`), each implementing the `ProviderAdapter` interface from `@magicaal/sdk-node` to translate a canonical request/response shape to/from that provider's API. `src/router/provider-adapter-registry.ts` holds the active set; new providers register here (a new `ProviderAdapter` is one of the changes that requires an RFC — see [CONTRIBUTING.md](../../../CONTRIBUTING.md#what-requires-an-rfc)).
 
+## Connecting Model Providers
+
+Each adapter may declare a `descriptor` (`ProviderDescriptor`: display name, auth fields, curated `models`) and a `validateCredentials` check. The engine serves the catalog at `GET /internal/llm/providers` (proxied as `GET /v1/llm/providers`), so the UI renders from adapters rather than hardcoding providers:
+
+- **Admin → Integrations → Model Providers** — pick a provider, paste a key, choose a suggested (or custom) model. `POST /v1/llm/providers/:provider/connections` validates the key against the provider's token-free list-models endpoint (422 if rejected, 424 if unreachable — resubmit with `skipValidation`), stores it as an Integration Connection (`service` = provider id), and optionally creates a single-target router policy.
+- **Admin → Router Policies → Create** — "Quick build" fills the config JSON from a connected provider + model.
+- **Studio** — `core:llm-call`'s `router` field (`format: 'model-router'`) renders connection + model dropdowns; routers with multiple targets or triggers open in Advanced (JSON) mode unchanged.
+
+No migration is involved: a connection is treated as a model provider when its `service` matches a registered adapter. The generic "+ Add Connection" form still works for manual setup.
+
 ## Routing Strategies
 
 A `ModelRouterConfig`'s `strategy` (from `@magicaal/core`'s `ModelRouterStrategy`) is one of:
