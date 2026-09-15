@@ -25,6 +25,50 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-15 - Model provider presets, key validation, and Studio model picker
+
+**Type:** Feature
+
+**Description:**
+Connecting an LLM provider meant typing a service name, auth type, and raw
+credentials JSON in the generic connection form, then hand-writing router JSON
+with a pasted connection UUID. Model providers are now a first-class,
+catalog-driven kind of integration: pick a provider, paste a key, choose a
+suggested model, and the key is verified and a router policy created for you.
+Manual entry remains available.
+
+**Changes:**
+- `packages/sdk/src/provider.ts` — `ProviderDescriptor` (display metadata, auth
+  fields, curated models) and optional `descriptor` / `validateCredentials` on
+  `ProviderAdapter`
+- `apps/engine/src/router/adapters/{anthropic,openai,google}.ts` — descriptors and
+  token-free key checks against each provider's list-models endpoint
+  (`adapters/validate.ts`); Google's key sent by header, not URL
+- `apps/engine` — `GET /internal/llm/providers`, `POST /internal/llm/providers/:provider/validate`
+- `apps/api` — `GET /v1/llm/providers`; `POST /v1/llm/providers/:provider/connections`
+  validates (422 rejected key / 424 unreachable, `skipValidation` to override),
+  stores the connection, and optionally creates a router policy in one transaction.
+  Connection and policy row builders shared with the manual endpoints
+- `apps/web/src/routes/admin.ts` — Model Providers section on Integrations,
+  per-provider connect form, "Quick build" on Create Router Policy
+- `apps/web/src/canvas/components/ModelRouterSelect.svelte` — connection + model
+  dropdowns for `core:llm-call` `router` (`format: 'model-router'`), with an
+  Advanced JSON mode that opens automatically for multi-target routers
+- Tests: `apps/engine/tests/route/llm-providers.test.ts`,
+  `apps/api/tests/integration/llm-providers.test.ts`; OpenAPI spec updated
+
+**Impact:**
+Setting up a provider takes one form instead of two JSON documents, and bad keys
+are caught at save time instead of as "No credentials for target" mid-run. No
+schema migration: a connection is a model provider when its `service` matches a
+registered adapter. New adapters appear in Admin and Studio automatically.
+
+**Notes:**
+Curated model lists live in the adapter descriptors and need occasional updates;
+any other model id can be entered as a custom model.
+
+---
+
 ### 2026-09-07 - Pre-Phase-6 cleanup: release pipeline, CI coverage, contract drift
 
 **Type:** Infrastructure
