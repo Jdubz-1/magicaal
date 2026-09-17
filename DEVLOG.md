@@ -25,6 +25,43 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-17 - Fix Caal being unreachable and unrunnable from Studio
+
+**Type:** Bugfix
+
+**Description:**
+Asking Caal anything in Studio returned `Caal invoke failed: 404`, and the
+underlying agent could not have run even once the request arrived. Three
+independent faults, found together while testing a local Docker stack.
+
+**Changes:**
+- `apps/web/src/canvas/components/{CaalPanel,PromptVersionPanel,SessionContextPanel,TestCasesPanel}.svelte`
+  — the `/api` proxy already prepends `/v1` (`apps/web/src/app.ts`), so these ten
+  call sites reached the API as `/v1/v1/...` and 404'd. Guarded by
+  `apps/web/tests/unit/canvas-api-paths.test.ts`
+- `apps/api/src/sync/boot-sync.ts` — code-defined agents were seeded
+  `status: 'draft', enabled: false`, which `graph-loader` refuses
+  (`status='active' AND enabled=1`). They live in the `_platform` tenant while
+  agent mutations are tenant-scoped, so no API call could activate them — Caal
+  was unrunnable on every install. Now seeded active/enabled, with rows already
+  stuck at draft/disabled repaired on sync; an agent an operator deliberately
+  disabled is left alone
+- `apps/engine/src/execution/scheduler.ts` — graph load sat ahead of the
+  worker's try/catch, so an unloadable agent left the run `pending` and callers
+  polled to their own timeout (2 min for the Caal endpoint) instead of seeing
+  `AGENT_NOT_FOUND`
+
+**Impact:**
+Caal works out of the box: Studio reaches the endpoint, boot sync leaves the
+agent runnable, and a run that cannot start now fails immediately with its real
+error. Caal's off switch remains `caal_configuration.enabled`.
+
+**Notes:**
+The scheduler path is covered live rather than by unit test — the failure is in
+the BullMQ processor, which the existing worker tests don't drive.
+
+---
+
 ### 2026-09-07 - Pre-Phase-6 cleanup: release pipeline, CI coverage, contract drift
 
 **Type:** Infrastructure
