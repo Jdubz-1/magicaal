@@ -66,6 +66,16 @@ independent faults, found together while testing a local Docker stack.
   `credentialTenantId` (the authenticated caller's tenant) and the resolver
   honors it **only** when the run itself belongs to `_platform`, so an ordinary
   tenant's run can never read another tenant's credentials
+- `apps/engine/src/resolver/credential-resolver.ts` — that tenant fix was
+  unreachable: `collectConnectionIds` walked only graph-level routers, while
+  `resolveRouterConfig` also accepts a per-dispatch override and a tenant
+  policy. Caal's policy arrives per-dispatch, so no connection was ever
+  fetched and every target was skipped as uncredentialed — the same
+  `All router targets exhausted` with no lookup attempted. Collection now
+  covers all four router levels. `dispatchSubRun` forwards
+  `credentialTenantId` so a platform run's children resolve the same way.
+  Resume/cron re-enqueues and the summarize path keep the old blind spot;
+  both are recorded in `docs/developer-guide/architecture/model-router.md`
 - `apps/web/src/routes/admin.ts` — Admin → System → Caal assigned that `null`
   over its `{}` default (a 200 never hits the surrounding catch) and threw
   `Cannot read properties of null (reading 'generationMode')`. The page failed

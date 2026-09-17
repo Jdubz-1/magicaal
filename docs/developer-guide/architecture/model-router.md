@@ -6,6 +6,12 @@ The Model Router (`apps/engine/src/router/`) is the provider-agnostic layer ever
 
 `src/router/adapters/` — one file per provider (`openai.ts`, `anthropic.ts`, `google.ts`), each implementing the `ProviderAdapter` interface from `@magicaal/sdk-node` to translate a canonical request/response shape to/from that provider's API. `src/router/provider-adapter-registry.ts` holds the active set; new providers register here (a new `ProviderAdapter` is one of the changes that requires an RFC — see [CONTRIBUTING.md](../../../CONTRIBUTING.md#what-requires-an-rfc)).
 
+## Credential Collection
+
+`resolveRouterConfig` may take a router from four levels — a locked tenant policy, the per-dispatch override (`RunParams.runRouterOverride`), the node's inline `router`, the graph's `defaultRouter` — so `resolver/credential-resolver.ts` collects connection ids from **all four** before execution. Credentials are resolved once, ahead of the graph run; a target whose connection was never collected is skipped at call time with `No credentials for target, skipping`, and a router whose targets are all skipped fails the run with `All router targets exhausted`.
+
+Known gaps, each needing its own change: a resumed run (`execution/resume.ts`) and a cron re-enqueue rebuild their job data and drop `routerOverride`/`credentialTenantId` — `routerOverride` is not persisted on `telemetry_runs`, so preserving it across a resume needs a schema change. Session-overflow summarization (`/internal/llm/summarize`) receives the graph `defaultRouter` and the session's own tenant, so it cannot route or resolve credentials for a platform agent; Caal does not reach it today because its context schema evicts rather than summarizes.
+
 ## Routing Strategies
 
 A `ModelRouterConfig`'s `strategy` (from `@magicaal/core`'s `ModelRouterStrategy`) is one of:
