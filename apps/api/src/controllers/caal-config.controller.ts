@@ -4,12 +4,34 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/client';
 import { caalConfiguration } from '../db/schema';
 
+/**
+ * Field defaults for a tenant that has never saved Caal settings. Shared by the
+ * GET response and the insert branch of upsertCaalConfig so the "unsaved" view
+ * and the first saved row cannot drift apart.
+ */
+export const CAAL_CONFIG_DEFAULTS = {
+  enabled: true,
+  modelOverride: null,
+  routerPolicyId: null,
+  generationMode: 'complete',
+  confirmationMode: 'confirm_structural',
+  showReasoning: false,
+  systemPromptSuffix: null,
+  preferredConnections: null,
+  allowedOperations: null,
+} as const;
+
 export const getCaalConfig: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
     const rows = await db.select().from(caalConfiguration).where(eq(caalConfiguration.tenantId, tenantId));
     if (!rows[0]) {
-      res.json(null);
+      // The row is created lazily on first PATCH. Returning null here made
+      // every caller null-check an object-shaped response — the Admin Caal
+      // page did not, and crashed before it could render the form that would
+      // have created the row. Unsaved tenants get the defaults they behave
+      // under instead, with id/timestamps null to mark the row as absent.
+      res.json({ id: null, tenantId, ...CAAL_CONFIG_DEFAULTS, createdAt: null, updatedAt: null });
       return;
     }
     res.json(rows[0]);
@@ -63,13 +85,13 @@ export const upsertCaalConfig: RequestHandler = async (req, res, next) => {
       await db.insert(caalConfiguration).values({
         id: crypto.randomUUID(),
         tenantId,
-        enabled: enabled ?? true,
-        modelOverride: modelOverride ?? null,
-        routerPolicyId: routerPolicyId ?? null,
-        generationMode: generationMode ?? 'complete',
-        confirmationMode: confirmationMode ?? 'confirm_structural',
-        showReasoning: showReasoning ?? false,
-        systemPromptSuffix: systemPromptSuffix ?? null,
+        enabled: enabled ?? CAAL_CONFIG_DEFAULTS.enabled,
+        modelOverride: modelOverride ?? CAAL_CONFIG_DEFAULTS.modelOverride,
+        routerPolicyId: routerPolicyId ?? CAAL_CONFIG_DEFAULTS.routerPolicyId,
+        generationMode: generationMode ?? CAAL_CONFIG_DEFAULTS.generationMode,
+        confirmationMode: confirmationMode ?? CAAL_CONFIG_DEFAULTS.confirmationMode,
+        showReasoning: showReasoning ?? CAAL_CONFIG_DEFAULTS.showReasoning,
+        systemPromptSuffix: systemPromptSuffix ?? CAAL_CONFIG_DEFAULTS.systemPromptSuffix,
         preferredConnections: preferredConnections ? JSON.stringify(preferredConnections) : null,
         allowedOperations: allowedOperations ? JSON.stringify(allowedOperations) : null,
         createdAt: now,

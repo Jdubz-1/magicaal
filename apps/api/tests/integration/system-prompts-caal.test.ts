@@ -333,14 +333,28 @@ describe('prompt versions', () => {
 // ── caal ──────────────────────────────────────────────────────────────────────
 
 describe('Caal configuration', () => {
-  it('returns null before configuration, then inserts and updates in place', async () => {
+  it('returns defaults before configuration, then inserts and updates in place', async () => {
     const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
 
+    // No row yet: the response is object-shaped (callers read fields off it
+    // without a null check) and carries the defaults the tenant behaves under,
+    // with id/timestamps null to mark the row as unsaved.
     const empty = await request(app)
       .get('/v1/caal/config')
       .set('Authorization', `Bearer ${token}`);
     expect(empty.status).toBe(200);
-    expect(empty.body).toBeNull();
+    expect(empty.body).toMatchObject({
+      id: null,
+      tenantId,
+      enabled: true,
+      generationMode: 'complete',
+      confirmationMode: 'confirm_structural',
+      showReasoning: false,
+      routerPolicyId: null,
+      modelOverride: null,
+      createdAt: null,
+      updatedAt: null,
+    });
 
     const created = await request(app)
       .patch('/v1/caal/config')
