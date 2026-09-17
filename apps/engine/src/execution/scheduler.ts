@@ -58,7 +58,27 @@ export function startScheduler(): void {
         return;
       }
 
-      let graph = await graphLoader.load(agentId, tenantId);
+      let graph: Awaited<ReturnType<typeof graphLoader.load>>;
+      try {
+        graph = await graphLoader.load(agentId, tenantId);
+      } catch (err) {
+        // Graph load sits ahead of the main try/catch, so without this a run
+        // whose agent is missing, inactive, or unloadable stays `pending`
+        // forever — callers (the Caal endpoint, the SDK) poll until their own
+        // timeout instead of seeing the real error.
+        await lifecycle.markRunFailed(
+          runId,
+          {
+            code: (err as { code?: string }).code ?? 'GRAPH_LOAD_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+            retryable: false,
+          },
+          new ExecutionContextImpl({ runId, agentId, tenantId, triggerType, input }),
+        );
+        if (sessionId) await releaseSessionLock(sessionId, runId).catch(() => {});
+        drainRunTally(runId);
+        throw err;
+      }
 
       const graphDefaultRouter =
         graph.config?.defaultRouter && typeof graph.config.defaultRouter === 'object'
