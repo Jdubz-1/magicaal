@@ -133,8 +133,14 @@ async function syncAgent(
       handle: entry.handle,
       description: definition.description,
       authoringMode: 'code-defined',
-      status: 'draft',
-      enabled: false,
+      // Code-defined agents live in the _platform tenant, and agent mutations
+      // are tenant-scoped — so an agent seeded as draft/disabled can never be
+      // activated through the API, and graph-loader (status='active' AND
+      // enabled=1) refuses to run it. Their definition is code-owned and
+      // already reviewed, so they arrive runnable. Caal's own off switch is
+      // caal_configuration.enabled.
+      status: 'active',
+      enabled: true,
       stale: false,
       currentVersionId: versionId,
       createdAt: now,
@@ -160,6 +166,18 @@ async function syncAgent(
     result.inserted++;
     logger.info({ handle: entry.handle, agentId }, 'Inserted new code-defined agent');
   } else if (existing.currentVersionId) {
+    // Repair rows seeded before code-defined agents were activated on insert:
+    // they sit at draft/disabled with no API path able to reach them. Only that
+    // exact combination is repaired, so an operator's deliberate disable of an
+    // active agent is left alone.
+    if (existing.status === 'draft' && !existing.enabled) {
+      await db
+        .update(agents)
+        .set({ status: 'active', enabled: true, updatedAt: now })
+        .where(eq(agents.id, existing.id));
+      logger.info({ handle: entry.handle }, 'Activated code-defined agent seeded as draft');
+    }
+
     // Check if hash has changed
     const versionRows = await db
       .select({ contentHash: agentVersions.contentHash, versionNumber: agentVersions.versionNumber })

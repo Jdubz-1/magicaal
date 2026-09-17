@@ -104,6 +104,12 @@ describe('bootTimeSync — syncConfig override semantics (ALIGN-005)', () => {
     });
   });
 
+  it('seeds code-defined agents runnable — graph-loader requires active + enabled', async () => {
+    const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
+    expect(agentRow.status).toBe('active');
+    expect(agentRow.enabled).toBe(true);
+  });
+
   it('locked fields take the code value; admin-set overridable fields are preserved', async () => {
     const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
 
@@ -138,5 +144,32 @@ describe('bootTimeSync — syncConfig override semantics (ALIGN-005)', () => {
     // A new version was cut for the changed definition
     const versions = await db.select().from(agentVersions).where(eq(agentVersions.agentId, agentRow.id));
     expect(versions).toHaveLength(2);
+  });
+
+  it('activates a row left at draft/disabled by an earlier seed', async () => {
+    const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
+    await db
+      .update(agents)
+      .set({ status: 'draft', enabled: false })
+      .where(eq(agents.id, agentRow.id));
+
+    await bootTimeSync(agentsDir);
+
+    const repaired = (await db.select().from(agents).where(eq(agents.id, agentRow.id)))[0]!;
+    expect(repaired.status).toBe('active');
+    expect(repaired.enabled).toBe(true);
+  });
+
+  it('leaves an agent an operator deliberately disabled alone', async () => {
+    const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
+    await db
+      .update(agents)
+      .set({ status: 'active', enabled: false })
+      .where(eq(agents.id, agentRow.id));
+
+    await bootTimeSync(agentsDir);
+
+    const after = (await db.select().from(agents).where(eq(agents.id, agentRow.id)))[0]!;
+    expect(after.enabled).toBe(false);
   });
 });
