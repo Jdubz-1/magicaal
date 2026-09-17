@@ -50,6 +50,17 @@ independent faults, found together while testing a local Docker stack.
   worker's try/catch, so an unloadable agent left the run `pending` and callers
   polled to their own timeout (2 min for the Caal endpoint) instead of seeing
   `AGENT_NOT_FOUND`
+- `apps/api/src/controllers/caal-config.controller.ts` — `GET /v1/caal/config`
+  answered a tenant with no saved settings with `200 null`. The row is created
+  lazily on first `PATCH`, and only `ensurePlatformTenant` seeds one (for
+  `_platform` alone), so every real tenant saw it. It now returns the defaults
+  the tenant behaves under, `id`/timestamps null, from a `CAAL_CONFIG_DEFAULTS`
+  constant shared with the insert branch
+- `apps/web/src/routes/admin.ts` — Admin → System → Caal assigned that `null`
+  over its `{}` default (a 200 never hits the surrounding catch) and threw
+  `Cannot read properties of null (reading 'generationMode')`. The page failed
+  before rendering the only form that creates the row, so Caal's router policy
+  could not be set through the UI at all. Now `data ?? {}`
 
 **Impact:**
 Caal works out of the box: Studio reaches the endpoint, boot sync leaves the
