@@ -18,6 +18,14 @@ export interface RunParams {
   /** Per-dispatch router override (e.g. Caal's caal_configuration.routerPolicyId). */
   runRouterOverride?: ModelRouterConfig | null;
   sessionId?: string;
+  /**
+   * Tenant whose integration connections back this run's credentials, when that
+   * is not the run's own tenant. Set by the API for platform-tenant agents
+   * (Caal) invoked by a tenant user, whose router policy and connection belong
+   * to that user's tenant. Honored only for platform-tenant runs — see
+   * credential-resolver.
+   */
+  credentialTenantId?: string | null;
 }
 
 export interface CollectedMetric {
@@ -38,6 +46,7 @@ export class ExecutionContextImpl implements ExecutionContext {
   readonly graphDefaultRouter?: ModelRouterConfig | null;
   readonly tenantRouterPolicy?: ModelRouterConfig | null;
   readonly runRouterOverride?: ModelRouterConfig | null;
+  readonly credentialTenantId?: string | null;
 
   private _tokenUsage: TokenUsage = {
     promptTokens: 0,
@@ -61,6 +70,7 @@ export class ExecutionContextImpl implements ExecutionContext {
     this.graphDefaultRouter = params.graphDefaultRouter;
     this.tenantRouterPolicy = params.tenantRouterPolicy;
     this.runRouterOverride = params.runRouterOverride;
+    this.credentialTenantId = params.credentialTenantId;
   }
 
   get<T = unknown>(key: string): T | undefined {

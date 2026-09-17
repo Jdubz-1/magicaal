@@ -20,6 +20,30 @@ function getDb(): Database.Database {
   return sqlite;
 }
 
+/** Mirrors PLATFORM_TENANT_ID in apps/api/src/platform/bootstrap.ts. */
+const PLATFORM_TENANT_ID = '_platform';
+
+/**
+ * Which tenant's connections this run resolves credentials against.
+ *
+ * Normally the run's own tenant. The one exception is a platform-tenant agent
+ * (Caal) invoked by a tenant user: it executes as `_platform`, but the router
+ * policy that selected its model is the invoker's and points at the invoker's
+ * connection, so `_platform` owns no credential to run with. The API sets
+ * `credentialTenantId` to the authenticated caller's tenant for those
+ * dispatches.
+ *
+ * Deliberately narrow: honored only when the run itself belongs to the platform
+ * tenant, so an ordinary tenant's run can never read another tenant's
+ * credentials even if the field reaches the queue.
+ */
+function credentialTenantFor(ctx: ExecutionContextImpl): string {
+  if (ctx.tenantId === PLATFORM_TENANT_ID && ctx.credentialTenantId) {
+    return ctx.credentialTenantId;
+  }
+  return ctx.tenantId;
+}
+
 interface StoredConnection {
   credentials_enc: string;
   auth_type: 'oauth2' | 'api_key';
@@ -179,6 +203,7 @@ export async function resolveCredentials(
   if (connectionIds.size === 0) return;
 
   const db = getDb();
+  const tenantId = credentialTenantFor(ctx);
 
   for (const connectionId of connectionIds) {
     try {
@@ -188,10 +213,10 @@ export async function resolveCredentials(
            FROM integration_connections
            WHERE id = ? AND tenant_id = ?`,
         )
-        .get(connectionId, ctx.tenantId) as StoredConnection | undefined;
+        .get(connectionId, tenantId) as StoredConnection | undefined;
 
       if (!row) {
-        logger.warn({ connectionId }, 'Integration connection not found for tenant');
+        logger.warn({ connectionId, tenantId }, 'Integration connection not found for tenant');
         continue;
       }
 
@@ -222,7 +247,9 @@ export async function resolveCredentials(
         resolved = await maybeRefreshOAuth(
           connectionId,
           row.service,
-          ctx.tenantId,
+          // The connection's owner, so the API's ownership check accepts the
+          // refreshed token written back for it.
+          tenantId,
           rawCreds,
           resolved,
         );

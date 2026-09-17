@@ -41,13 +41,15 @@ interface RunJobData {
   enqueuedAt?: number;
   /** Per-dispatch router override — e.g. Caal's caal_configuration.routerPolicyId. */
   routerOverride?: ModelRouterConfig | null;
+  /** Tenant owning the connections this run's credentials resolve against. */
+  credentialTenantId?: string | null;
 }
 
 export function startScheduler(): void {
   const worker = new Worker<RunJobData>(
     'runs.trigger',
     async (job) => {
-      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId, nodeAttempts = {}, routerOverride } = job.data;
+      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId, nodeAttempts = {}, routerOverride, credentialTenantId } = job.data;
 
       // Cancelled while still queued — the cancel endpoint already marked the
       // run; consume the flag and never start executing.
@@ -94,6 +96,7 @@ export function startScheduler(): void {
         graphDefaultRouter,
         runRouterOverride: routerOverride ?? null,
         sessionId,
+        credentialTenantId: credentialTenantId ?? null,
       });
 
       // Concurrency admission (ALIGN-003): per-tenant cap — the tenant's own

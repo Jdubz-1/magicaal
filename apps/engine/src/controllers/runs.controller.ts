@@ -70,7 +70,17 @@ interface RunCaller {
 
 export const dispatchRun: RequestHandler = async (req, res, next) => {
   try {
-    const { agentId, tenantId, triggerType = 'api', input = {}, sessionId, sessionMetadata, caller, routerOverride } = req.body as {
+    const {
+      agentId,
+      tenantId,
+      triggerType = 'api',
+      input = {},
+      sessionId,
+      sessionMetadata,
+      caller,
+      routerOverride,
+      credentialTenantId,
+    } = req.body as {
       agentId: string;
       tenantId: string;
       triggerType?: string;
@@ -79,6 +89,8 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       sessionMetadata?: Record<string, unknown>;
       caller?: RunCaller;
       routerOverride?: ModelRouterConfig | null;
+      /** Tenant whose connections back this run's credentials — platform agents only. */
+      credentialTenantId?: string | null;
     };
 
     if (!agentId || !tenantId) {
@@ -130,6 +142,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
         sessionId,
         ...(sessionMetadata && { sessionMetadata }),
         ...(routerOverride && { routerOverride }),
+        ...(credentialTenantId && { credentialTenantId }),
       });
     } catch (err) {
       // The run never made it into the queue — don't leave the session locked.
