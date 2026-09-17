@@ -150,6 +150,10 @@ export class ExecutionContextImpl implements ExecutionContext {
         // the child run loads the same session and accumulates back into it
         // (when its own session config is enabled).
         ...(this.sessionId && { sessionId: this.sessionId }),
+        // A child of a platform-tenant run resolves credentials against the
+        // same tenant as its parent — without this it inherits tenantId
+        // (_platform) alone and finds no connection, exactly as the parent would.
+        ...(this.credentialTenantId && { credentialTenantId: this.credentialTenantId }),
         caller: { kind: 'platform', strategy: 'sub-graph' },
       }),
     });

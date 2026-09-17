@@ -171,7 +171,20 @@ function addRouterTargets(ids: Set<string>, router: unknown): void {
   }
 }
 
-function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
+/**
+ * Every connection a run might need credentials for.
+ *
+ * router-engine's resolveRouterConfig picks a router from four levels — locked
+ * tenant policy, per-dispatch override, node, graph — so collection has to
+ * cover all four. Collecting only the graph ones is how a Caal run reached its
+ * LLM node with an empty credential map: its policy arrives per-dispatch
+ * (ctx.runRouterOverride), never in the compiled graph, so nothing was fetched
+ * and every target was skipped as uncredentialed.
+ */
+function collectConnectionIds(
+  graph: AgentGraphDefinition,
+  ctx: ExecutionContextImpl,
+): Set<string> {
   const ids = new Set<string>();
   for (const node of Object.values(graph.nodes)) {
     const cfg = node.config as Record<string, unknown>;
@@ -187,6 +200,13 @@ function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
   for (const policy of Object.values(graph.routerPolicies ?? {})) {
     addRouterTargets(ids, policy);
   }
+  // Dispatch-level routers, which live on the run rather than the graph:
+  // the caller's override (Caal's caal_configuration.routerPolicyId) and a
+  // tenant policy, which outranks the override when locked. Nothing populates
+  // tenantRouterPolicy yet — collected here so wiring it cannot reintroduce
+  // this same gap.
+  addRouterTargets(ids, ctx.runRouterOverride);
+  addRouterTargets(ids, ctx.tenantRouterPolicy);
   return ids;
 }
 
@@ -199,7 +219,7 @@ export async function resolveCredentials(
     return;
   }
 
-  const connectionIds = collectConnectionIds(graph);
+  const connectionIds = collectConnectionIds(graph, ctx);
   if (connectionIds.size === 0) return;
 
   const db = getDb();
