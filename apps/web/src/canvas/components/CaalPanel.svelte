@@ -89,7 +89,7 @@
             : { status: $runState.status, output: $runState.output, error: $runState.error },
       };
 
-      const res = await fetch('/api/v1/caal/invoke', {
+      const res = await fetch('/api/caal/invoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -204,7 +204,7 @@
       // reconstructs the namespaced session ID itself from {tenant, user,
       // agentId}. Passing the already-namespaced sessionId here double-wraps
       // it and the lookup never matches (ISS-069).
-      const res = await fetch(`/api/v1/caal/sessions/${encodeURIComponent(agentId)}`);
+      const res = await fetch(`/api/caal/sessions/${encodeURIComponent(agentId)}`);
       if (res.ok) {
         const data = await res.json() as { contextEntries: { messages?: CaalMessage[] } };
         historyMessages = data.contextEntries?.messages ?? [];

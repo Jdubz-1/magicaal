@@ -56,7 +56,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases`);
+      const res = await fetch(`/api/agents/${agentId}/test-cases`);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json() as { testCases: TestCase[] };
       testCases = data.testCases ?? [];
@@ -72,7 +72,7 @@
     suiteResult = null;
     error = null;
     try {
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases/run`, { method: 'POST' });
+      const res = await fetch(`/api/agents/${agentId}/test-cases/run`, { method: 'POST' });
       if (!res.ok) throw new Error(`${res.status}`);
       suiteResult = await res.json() as SuiteResult;
       await loadTestCases();
@@ -92,7 +92,7 @@
         assertion.threshold = newCase.assertionThreshold;
       }
 
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases`, {
+      const res = await fetch(`/api/agents/${agentId}/test-cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -112,7 +112,7 @@
 
   async function deleteTestCase(id: string) {
     try {
-      await fetch(`/api/v1/agents/${agentId}/test-cases/${id}`, { method: 'DELETE' });
+      await fetch(`/api/agents/${agentId}/test-cases/${id}`, { method: 'DELETE' });
       await loadTestCases();
     } catch { /* non-fatal */ }
   }
