@@ -56,6 +56,16 @@ independent faults, found together while testing a local Docker stack.
   `_platform` alone), so every real tenant saw it. It now returns the defaults
   the tenant behaves under, `id`/timestamps null, from a `CAAL_CONFIG_DEFAULTS`
   constant shared with the insert branch
+- `apps/api/src/controllers/caal.controller.ts`,
+  `apps/engine/src/{controllers/runs.controller.ts,execution/{scheduler,context}.ts,resolver/credential-resolver.ts}`
+  — with a router policy finally selectable, Caal runs failed at the model call:
+  `No credentials for target, skipping` → `All router targets exhausted`. Caal
+  executes as `_platform`, but the policy that chose its model is the invoking
+  tenant's and points at that tenant's connection, and the resolver looked
+  connections up under the run's own tenant. The dispatch now carries
+  `credentialTenantId` (the authenticated caller's tenant) and the resolver
+  honors it **only** when the run itself belongs to `_platform`, so an ordinary
+  tenant's run can never read another tenant's credentials
 - `apps/web/src/routes/admin.ts` — Admin → System → Caal assigned that `null`
   over its `{}` default (a 200 never hits the surrounding catch) and threw
   `Cannot read properties of null (reading 'generationMode')`. The page failed
