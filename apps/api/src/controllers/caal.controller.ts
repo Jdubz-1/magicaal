@@ -84,6 +84,10 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
       caller: { kind: 'platform', strategy: 'caal' },
       sessionId,
       ...(caalConfig.routerOverride && { routerOverride: caalConfig.routerOverride }),
+      // The run executes as _platform, but the router policy that chose its
+      // model is this tenant's and points at this tenant's connection — so
+      // credentials resolve against the invoker, not the platform tenant.
+      credentialTenantId: tenantId,
       input: {
         message,
         graphState: graphState ?? null,

@@ -461,6 +461,9 @@ describe('Caal invocation', () => {
     );
     // the caller's real identity travels as input, not as the run tenant
     expect(body.input._invokerTenantId).toBe(tenantId);
+    // …and as the credential tenant: the run executes as _platform, but its
+    // router policy points at the invoking tenant's connection
+    expect(body.credentialTenantId).toBe(tenantId);
   }, 20_000);
 
   it('403s with CAAL_DISABLED when the calling tenant has disabled Caal (ISS-073)', async () => {
