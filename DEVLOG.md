@@ -84,6 +84,19 @@ independent faults, found together while testing a local Docker stack.
   cron re-enqueue spreads the original job data rather than rebuilding it.
   Fork/fan-out branch contexts and the summarize path keep the old blind spot,
   both recorded in `docs/developer-guide/architecture/model-router.md`
+- `apps/api/src/controllers/sessions.controller.ts`, `agents/caal.agent.ts`,
+  `packages/nodes/src/nodes/core-llm-call.ts` — with sessions finally reused
+  across turns, every message after the first failed with
+  `LLM_CALL_FAILED: Cannot read properties of undefined (reading 'map')`. The
+  turn's messages were accumulated twice — the `session-write` expression
+  re-appended `$.sessionMessages` and the session layer's `append` then stored
+  that whole array as one element — so `messages` held a list of turn-arrays
+  that `core:llm-call` spread back into the request as non-messages, crashing
+  the provider adapter. `append` now adds an array value's items (and the
+  first write runs the same path as later ones, so dedupe/`maxItems` apply to
+  it and `maxItems` counts entries); Caal writes only the new turn; and
+  `core:llm-call` flattens one level of legacy history rather than crashing on
+  it
 - `apps/web/src/canvas/components/{CaalPanel,TestCasesPanel}.svelte` — three
   panel bugs the URL fix above made reachable, each a response the panel read
   wrongly: Caal echoed the API's already-namespaced `sessionId` back as a
