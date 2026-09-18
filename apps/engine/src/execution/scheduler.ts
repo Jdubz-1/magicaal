@@ -313,14 +313,17 @@ export function startScheduler(): void {
   const scheduledWorker = new Worker<RunJobData>(
     'runs.scheduled',
     async (job) => {
-      // Re-enqueue to the trigger queue so the same processor handles execution
-      const { agentId, tenantId, input } = job.data;
+      // Re-enqueue to the trigger queue so the same processor handles
+      // execution. Spread rather than rebuilt: listing fields by hand is how
+      // routerOverride and credentialTenantId got dropped on this path.
       await runTriggerQueue.add('run', {
+        ...job.data,
         runId: `run_${crypto.randomUUID()}`,
-        agentId,
-        tenantId,
         triggerType: 'cron',
-        input: input ?? {},
+        input: job.data.input ?? {},
+        // A cron tick starts a fresh run, never a resumption
+        resumeFromNodeId: undefined,
+        nodeAttempts: undefined,
       });
     },
     { connection: redis, concurrency: 5 },

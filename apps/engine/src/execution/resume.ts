@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import type { ModelRouterConfig } from '@magicaal/core';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
@@ -82,6 +83,18 @@ export async function resumeRun(
     .set({ status: 'pending' })
     .where(eq(telemetryRuns.id, runId));
 
+  // Dispatch-level fields the original job carried, parked in the checkpoint
+  // by markRunSuspended. Pulled back out of the context so they reach the job
+  // rather than the resumed run's input.
+  const {
+    _dispatch_router_override: routerOverride,
+    _dispatch_credential_tenant: credentialTenantId,
+    ...restoredContext
+  } = checkpointData as Record<string, unknown> & {
+    _dispatch_router_override?: ModelRouterConfig;
+    _dispatch_credential_tenant?: string;
+  };
+
   // Re-enqueue with restored checkpoint. sessionId comes from the telemetry
   // row (ALIGN-010) — without it the resumed run would lose its session and
   // never release the session lock.
@@ -90,9 +103,11 @@ export async function resumeRun(
     agentId: run.agentId,
     tenantId: run.tenantId,
     triggerType: run.triggerType,
-    input: checkpointData,
+    input: restoredContext,
     resumeFromNodeId: run.suspendedNodeId ?? undefined,
     sessionId: run.sessionId ?? undefined,
+    ...(routerOverride && { routerOverride }),
+    ...(credentialTenantId && { credentialTenantId }),
   });
 
   logger.info({ runId, suspendedNodeId: run.suspendedNodeId }, 'Run queued for resume');
