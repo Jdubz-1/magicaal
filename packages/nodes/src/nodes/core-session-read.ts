@@ -34,6 +34,12 @@ export const coreSessionRead: NodeModule<SessionReadConfig> = {
   async execute(ctx: ExecutionContext, config: SessionReadConfig) {
     const outputs: Record<string, unknown> = {};
     for (const [targetKey, sessionKey] of Object.entries(config.reads)) {
+      // An identity mapping is a no-op: the loaded session value is already in
+      // the context under that key. Writing it back would record it as a write
+      // by this run, and an `append` key would then be appended onto itself on
+      // every run — the same double-accumulation that nested Caal's history.
+      if (targetKey === sessionKey) continue;
+
       const value = ctx.get(sessionKey);
       if (value !== undefined) {
         ctx.set(targetKey, value);
