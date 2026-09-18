@@ -25,6 +25,42 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-18 - Fix Caal's tool-calling nodes being rejected by the provider
+
+**Type:** Bugfix
+
+**Description:**
+With intent routing fixed, Caal's `suggest` and `modify` quick actions reached
+their own nodes and failed there with `Anthropic error 400`; `explain` kept
+working because its node sends no tools. Two defects in the same request, plus
+an error path that hid both.
+
+**Changes:**
+- `apps/engine/src/execution/tool-executor.ts` — tool names travel to the
+  provider, and Anthropic requires `^[a-zA-Z0-9_-]{1,128}$`. Every MagiCaal
+  tool id is dotted (`caal.graph.read`), so the first one rejected the whole
+  request. Names are now sanitized at this boundary (`toApiToolName`,
+  `mapToolsByApiName`) and dispatch matches the returned call against the
+  sanitized key — renaming at the source would have broken graph `toolEdges`,
+  compiled agents and stored graphs. Collisions take a numeric suffix
+- `packages/integrations/caal/src/tools/{graph,platform}.ts` — six tools
+  declared `config: {}`, which a provider rejects for having no declared type;
+  they now use the no-argument shape `{ type: 'object', properties: {} }`.
+  `assembleTools` also normalizes a typeless schema, so one malformed
+  third-party node cannot fail an entire run
+- `apps/engine/src/router/adapters/provider-error.ts` — all three adapters
+  threw `"<Provider> error <status>"` and discarded the response body, which is
+  where the rejected field is named; the body (truncated) now travels with the
+  error, `status` and `_providerError` unchanged for `translateError` and the
+  circuit breaker
+
+**Impact:**
+Caal's suggest and modify paths can run. Any agent whose tool ids are namespaced
+with dots or colons — the pattern the node registry encourages — was equally
+affected. Provider rejections now say which field they rejected.
+
+---
+
 ### 2026-09-17 - Fix Caal being unreachable and unrunnable from Studio
 
 **Type:** Bugfix
