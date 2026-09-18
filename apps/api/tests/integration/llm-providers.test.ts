@@ -166,6 +166,42 @@ describe('POST /v1/llm/providers/:provider/connections', () => {
     expect((await tenantRows(tenantId)).connections).toHaveLength(1);
   });
 
+  it('409s instead of 500ing when the generated policy name is taken', async () => {
+    // named_router_policies is UNIQUE(tenant_id, name) and the generated name is
+    // `${provider}-${model}` — a second key for the same provider repeated it,
+    // rolled the transaction back, and surfaced as a 500 with the key lost.
+    const { token, tenantId } = await createUserAndLogin(app, 'tenant_admin');
+    const body = { credentials: { api_key: KEY }, routerPolicy: { create: true, model: 'claude-sonnet-5' } };
+
+    const first = await connect(token, body);
+    expect(first.status).toBe(201);
+
+    const second = await connect(token, body);
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('POLICY_NAME_TAKEN');
+    expect(second.body.error).toContain('anthropic-claude-sonnet-5');
+
+    // The clash rolled back cleanly — no orphan connection from the second try
+    const { connections, policies } = await tenantRows(tenantId);
+    expect(connections).toHaveLength(1);
+    expect(policies).toHaveLength(1);
+  });
+
+  it('keeps the key out of the error when the engine is unreachable', async () => {
+    // A transport-level failure used to rethrow the raw AxiosError, whose
+    // config.data carries the plaintext key straight into errorHandler's log.
+    const { token } = await createUserAndLogin(app, 'tenant_admin');
+    engineClient.post.mockRejectedValue(
+      Object.assign(new Error('connect ECONNREFUSED'), { config: { data: JSON.stringify({ credentials: { api_key: KEY } }) } }),
+    );
+
+    const res = await connect(token, { credentials: { api_key: KEY } });
+
+    expect(res.status).toBe(424);
+    expect(res.body.code).toBe('PROVIDER_UNREACHABLE');
+    expect(JSON.stringify(res.body)).not.toContain(KEY);
+  });
+
   it('404s for a provider not in the catalog', async () => {
     const { token } = await createUserAndLogin(app, 'tenant_admin');
 

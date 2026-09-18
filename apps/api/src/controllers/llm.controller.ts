@@ -14,6 +14,12 @@ function newId(): string {
 
 type RouterPolicyRow = typeof namedRouterPolicies.$inferSelect;
 
+/** better-sqlite3 surfaces a unique-index violation by code, not by message. */
+function isUniqueConstraintError(err: unknown): boolean {
+  const code = (err as { code?: string }).code;
+  return code === 'SQLITE_CONSTRAINT_UNIQUE' || code === 'SQLITE_CONSTRAINT_PRIMARYKEY';
+}
+
 function newRouterPolicyRow(input: {
   tenantId: string;
   name: string;
@@ -96,10 +102,27 @@ export const createProviderConnection: RequestHandler = async (req, res, next) =
     }
 
     if (!skipValidation) {
-      const { data: result } = await engineClient.post<CredentialValidationResult>(
-        `/internal/llm/providers/${encodeURIComponent(provider)}/validate`,
-        { credentials },
-      );
+      // Own try/catch: this request body carries the plaintext key, and an
+      // error that never reaches engine-client's response interceptor (a
+      // refused connection, a timeout, a non-JSON 502) is logged whole by
+      // errorHandler — pino copies err.config.data with it.
+      let result: CredentialValidationResult;
+      try {
+        ({ data: result } = await engineClient.post<CredentialValidationResult>(
+          `/internal/llm/providers/${encodeURIComponent(provider)}/validate`,
+          { credentials },
+        ));
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        throw Object.assign(
+          new Error(
+            status
+              ? `Could not verify the key with the provider (engine responded ${status})`
+              : 'Could not verify the key with the provider (engine unreachable)',
+          ),
+          { status: 424, code: 'PROVIDER_UNREACHABLE' },
+        );
+      }
       if (!result.ok) {
         const invalid = result.reason === 'invalid_key';
         throw Object.assign(
@@ -113,7 +136,7 @@ export const createProviderConnection: RequestHandler = async (req, res, next) =
 
     // Synchronous better-sqlite3 transaction: a failed policy insert must not
     // leave a half-configured provider behind.
-    const created = db.transaction((tx) => {
+    const runInsert = () => db.transaction((tx) => {
       const connection = tx
         .insert(integrationConnections)
         .values(
@@ -150,6 +173,25 @@ export const createProviderConnection: RequestHandler = async (req, res, next) =
       }
       return { connection, policy };
     });
+
+    // named_router_policies is UNIQUE(tenant_id, name), and the generated
+    // `${provider}-${model}` repeats for a second key on the same provider —
+    // which rolled the whole transaction back and surfaced as a 500 with the
+    // key discarded. Report it as a conflict the caller can act on.
+    let created: ReturnType<typeof runInsert>;
+    try {
+      created = runInsert();
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        throw Object.assign(
+          new Error(
+            `A router policy named "${routerPolicy?.name?.trim() || `${provider}-${model}`}" already exists — give this one a different name`,
+          ),
+          { status: 409, code: 'POLICY_NAME_TAKEN' },
+        );
+      }
+      throw err;
+    }
 
     res.status(201).json({
       connection: created.connection,
