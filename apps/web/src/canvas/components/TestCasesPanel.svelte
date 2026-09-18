@@ -55,6 +55,8 @@
 
   let expanded = false;
   let loading = false;
+  /** Agent whose cases have been fetched — guards the reactive load below. */
+  let loadedForAgent: string | null = null;
   let running = false;
   let testCases: TestCase[] = [];
   let suiteResult: SuiteResult | null = null;
@@ -91,6 +93,9 @@
     } catch (err) {
       error = (err as Error).message;
     } finally {
+      // Marked on failure too — a failed load must not re-trigger the
+      // reactive statement below in a loop.
+      loadedForAgent = agentId;
       loading = false;
     }
   }
@@ -145,7 +150,10 @@
     } catch { /* non-fatal */ }
   }
 
-  $: if (expanded && testCases.length === 0 && !loading) void loadTestCases();
+  // Keyed on the agent, not on testCases.length: an agent with no cases left
+  // the length at 0, so the old condition re-arms the moment `loading` returns
+  // to false and hammers the endpoint. Changing agent re-arms it naturally.
+  $: if (expanded && loadedForAgent !== agentId && !loading) void loadTestCases();
 
   function passRate(result: SuiteResult): string {
     return `${result.passed}/${result.total}`;
