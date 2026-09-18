@@ -203,6 +203,31 @@ are caught at save time instead of as "No credentials for target" mid-run. No
 schema migration: a connection is a model provider when its `service` matches a
 registered adapter. New adapters appear in Admin and Studio automatically.
 
+**Review follow-ups:**
+- `apps/web/src/canvas/components/ModelRouterSelect.svelte` — `emit()` read
+  `selectedConnection`, a `$:` value not yet recomputed when the caller had just
+  assigned `connectionId`: the first pick wrote no router at all (the UI showed
+  a model the saved graph did not use) and switching connections could save the
+  previous id. The connection is now passed in. `isSimple`/`router` are derived
+  reactively too, so an Advanced-JSON edit is no longer overwritten by the next
+  dropdown change
+- `apps/engine/src/router/adapters/validate.ts` — Gemini answers a bad key with
+  `400 API_KEY_INVALID` (403 means a valid key lacking permission), which was
+  reported as "provider unreachable" and offered a save-anyway; a 400 naming the
+  key is now `invalid_key`
+- `apps/api/src/controllers/llm.controller.ts` — a second key for the same
+  provider regenerated the policy name `${provider}-${model}`, hit
+  `UNIQUE(tenant_id, name)`, rolled the transaction back and surfaced as a 500
+  with the key discarded; it is a 409 `POLICY_NAME_TAKEN` now. The validate call
+  also has its own catch: a transport-level failure rethrew the raw AxiosError,
+  whose `config.data` carries the plaintext key into the error log
+  (`LOG_REDACT` covers those paths as well now)
+- `apps/web/src/routes/admin.ts` — the 424 re-render echoed the key into the
+  form's `value="…"`; it now asks for the key again. A catalog failure on POST
+  reports itself instead of silently redirecting with the submission discarded
+- `apps/engine/src/controllers/llm.controller.ts` — required credential fields
+  come from the descriptor's `authFields` rather than a hardcoded `api_key`
+
 **Notes:**
 Curated model lists live in the adapter descriptors and need occasional updates;
 any other model id can be entered as a custom model.
