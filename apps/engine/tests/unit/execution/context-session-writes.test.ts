@@ -58,6 +58,15 @@ describe('ExecutionContextImpl.sessionWrites', () => {
     expect(ctx.sessionWrites()).toEqual({ content: 'answer' });
   });
 
+  it('reports written keys for the worker to carry back from a fork branch', () => {
+    const ctx = ctxWith({ seeded: true });
+    ctx.set('loaded', 'baseline');
+    ctx.resetWriteTracking();
+    ctx.set('branchResult', 42);
+
+    expect(ctx.writtenKeys()).toEqual(['branchResult']);
+  });
+
   it('omits a written key that was later deleted from the context', () => {
     const ctx = ctxWith();
     ctx.set('scratch', 'value');

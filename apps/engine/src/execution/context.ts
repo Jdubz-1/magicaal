@@ -6,6 +6,7 @@ import { sseManager } from '../sse/sse-manager';
 import { routedLLMCall, resolveRouterConfig } from '../router/router-engine';
 import { config } from '../config';
 import { mcpRegistry } from '../mcp/mcp-registry';
+import { PLATFORM_TENANT_ID } from '../lib/platform';
 
 export interface RunParams {
   runId: string;
@@ -110,6 +111,15 @@ export class ExecutionContextImpl implements ExecutionContext {
     return writes;
   }
 
+  /**
+   * Keys this context recorded as writes. The worker uses it to carry a fork
+   * branch's own writes back onto the parent without marking the whole branch
+   * snapshot — which would re-mark the loaded session baseline.
+   */
+  writtenKeys(): string[] {
+    return [...this._writtenKeys];
+  }
+
   async evaluate(expression: string): Promise<unknown> {
     return evaluate(expression, this.data);
   }
@@ -184,8 +194,16 @@ export class ExecutionContextImpl implements ExecutionContext {
         // (_platform) alone and finds no connection, exactly as the parent would.
         // The router travels with it: a credential tenant on its own leaves the
         // child with connections it can resolve but no target to use them for.
-        ...(this.credentialTenantId && { credentialTenantId: this.credentialTenantId }),
-        ...(this.runRouterOverride && { routerOverride: this.runRouterOverride }),
+        //
+        // Platform runs only, matching the one place the credential
+        // substitution is honoured (credential-resolver). A run override
+        // outranks a node's own inline router, so forwarding it from an
+        // ordinary tenant's run would silently replace a child agent's
+        // deliberate model choice.
+        ...(this.tenantId === PLATFORM_TENANT_ID && {
+          ...(this.credentialTenantId && { credentialTenantId: this.credentialTenantId }),
+          ...(this.runRouterOverride && { routerOverride: this.runRouterOverride }),
+        }),
         caller: { kind: 'platform', strategy: 'sub-graph' },
       }),
     });

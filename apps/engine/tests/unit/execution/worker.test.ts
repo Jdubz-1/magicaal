@@ -122,6 +122,50 @@ describe('resolveEdges', () => {
 });
 
 describe('executeGraph', () => {
+  it('carries a fork branch\'s own writes back as writes, not the whole snapshot', async () => {
+    // A branch context is seeded with a copy of the parent's data, so marking
+    // the merged snapshot wholesale would count the loaded session baseline as
+    // written and append it onto itself. Only the branch's writes may carry.
+    const passthrough = { execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: {} }) };
+    const branchA = {
+      execute: jest.fn().mockImplementation((c: { set: (k: string, v: unknown) => void }) => {
+        c.set('branchA', 'a');
+        return Promise.resolve({ status: 'complete', outputs: {} });
+      }),
+    };
+
+    mockRegistry.get.mockImplementation((type: string) => {
+      if (type === 'branch-a') return branchA as any;
+      return passthrough as any;
+    });
+
+    const graph = makeGraph(
+      {
+        fork: { type: 'core:fork', config: {} },
+        a: { type: 'branch-a', config: {} },
+        b: { type: 'core:log', config: {} },
+        join: { type: 'core:join', config: { mergeStrategy: 'merge' } },
+      },
+      [
+        { id: 'e1', from: 'fork', to: 'a', type: 'unconditional' },
+        { id: 'e2', from: 'fork', to: 'b', type: 'unconditional' },
+        { id: 'e3', from: 'a', to: 'join', type: 'unconditional' },
+        { id: 'e4', from: 'b', to: 'join', type: 'unconditional' },
+      ],
+      'fork',
+    );
+
+    const ctx = makeCtx();
+    ctx.set('messages', ['loaded']);
+    ctx.resetWriteTracking();
+
+    await executeGraph('run-1', graph, ctx);
+
+    const writes = ctx.sessionWrites();
+    expect(writes.branchA).toBe('a');
+    expect(writes.messages).toBeUndefined();
+  });
+
   it('executes a linear start → end graph', async () => {
     const mockStart = { execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: { x: 1 } }) };
     const mockEnd = { execute: jest.fn().mockResolvedValue({ status: 'complete', outputs: { x: 1 } }) };

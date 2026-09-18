@@ -7,6 +7,7 @@ import { isExpired, refreshOAuthToken } from '@magicaal/integration-core';
 import { integrationRegistry } from '../registry/integration-registry';
 import { config } from '../config';
 import { logger } from '../lib/logger';
+import { PLATFORM_TENANT_ID } from '../lib/platform';
 
 // Shared read-only connection to the primary DB (same pattern as graph-loader)
 let sqlite: Database.Database | null = null;
@@ -19,9 +20,6 @@ function getDb(): Database.Database {
   }
   return sqlite;
 }
-
-/** Mirrors PLATFORM_TENANT_ID in apps/api/src/platform/bootstrap.ts. */
-const PLATFORM_TENANT_ID = '_platform';
 
 /**
  * Which tenant's connections this run resolves credentials against.
