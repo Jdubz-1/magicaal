@@ -464,6 +464,51 @@ describe('Caal invocation', () => {
     // …and as the credential tenant: the run executes as _platform, but its
     // router policy points at the invoking tenant's connection
     expect(body.credentialTenantId).toBe(tenantId);
+    // the graph routes on $.intent; absent means the graph's default branch
+    expect(body.input.intent).toBe('question');
+  }, 20_000);
+
+  it('forwards a known intent and falls back to the default branch otherwise', async () => {
+    // Studio's quick actions carry an intent; without it reaching the run input
+    // every message fell through intent-router to build-explain-message.
+    const { token } = await createUserAndLogin(app, 'developer');
+    await ensurePlatformTenant();
+
+    // handle is globally unique — reuse the row if an earlier case made it
+    const existing = await db.select().from(agents).where(eq(agents.handle, 'caal-assistant'));
+    if (!existing[0]) {
+      await db.insert(agents).values({
+        id: crypto.randomUUID(),
+        tenantId: PLATFORM_TENANT_ID,
+        name: 'Caal',
+        handle: 'caal-assistant',
+        status: 'active',
+        authoringMode: 'code-defined',
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    engineClient.post.mockResolvedValue({ data: { runId: 'caal-run' } });
+    engineClient.get.mockResolvedValue({
+      data: { status: 'completed', output: { reply: 'ok' } },
+    });
+
+    await request(app)
+      .post('/v1/caal/invoke')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'improve this', agentId: 'agent-7', intent: 'suggest' });
+    const [, suggested] = engineClient.post.mock.calls[0];
+    expect(suggested.input.intent).toBe('suggest');
+
+    engineClient.post.mockClear();
+    await request(app)
+      .post('/v1/caal/invoke')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'hello', agentId: 'agent-7', intent: 'not-a-branch' });
+    const [, unknown] = engineClient.post.mock.calls[0];
+    expect(unknown.input.intent).toBe('question');
   }, 20_000);
 
   it('403s with CAAL_DISABLED when the calling tenant has disabled Caal (ISS-073)', async () => {
