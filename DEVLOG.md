@@ -112,6 +112,27 @@ independent faults, found together while testing a local Docker stack.
   before rendering the only form that creates the row, so Caal's router policy
   could not be set through the UI at all. Now `data ?? {}`
 
+**Review follow-ups** (second review of the PR):
+- `apps/engine/src/execution/{context,scheduler}.ts` — the session save posted
+  the whole run context, so once `append` concatenated items, any key the run
+  had not rewritten was appended onto itself; a Caal turn failing before
+  `session-write` doubled its stored history. The context now tracks written
+  keys, the scheduler resets that tracking after loading the session, and both
+  saves send `ctx.sessionWrites()`
+- `apps/engine/src/execution/resume.ts` — reviewer `modifications` were merged
+  before the reserved `_dispatch_*` keys were taken out, so an approver could
+  inject a credential tenant onto the resumed job
+- `apps/engine/src/execution/context.ts` — `dispatchSubRun` forwarded the
+  credential tenant without the router override, leaving a child able to
+  authenticate but with nothing to route
+- `apps/api/src/sync/boot-sync.ts` — the handle lookup was still unscoped, so a
+  tenant agent sharing a code-defined handle had its version, name and config
+  repointed on the next hash change; the sync now refuses the collision and
+  records it in `SyncResult.errors`
+- `apps/web/src/canvas/components/TestCasesPanel.svelte` — the reactive load
+  keyed off `testCases.length`, so an agent with no cases re-fetched forever
+  once the URL fix made the endpoint reachable
+
 **Impact:**
 Caal works out of the box: Studio reaches the endpoint, boot sync leaves the
 agent runnable, and a run that cannot start now fails immediately with its real

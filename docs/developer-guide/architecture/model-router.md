@@ -12,6 +12,10 @@ The Model Router (`apps/engine/src/router/`) is the provider-agnostic layer ever
 
 Dispatch-level fields must survive every re-enqueue. A suspended run parks them in its checkpoint (`lifecycle.markRunSuspended` writes `_dispatch_router_override` / `_dispatch_credential_tenant`, which `execution/resume.ts` strips back out into the job), and the retry and cron paths spread the original job data rather than rebuilding it field by field — rebuilding is how these were dropped in the first place.
 
+The credential-tenant substitution is all-or-nothing: once a run carries `credentialTenantId`, **every** connection it resolves — graph-level targets included — is looked up under that tenant, not just the one the override names. Sub-runs inherit both the credential tenant and the router override together (`ExecutionContextImpl.dispatchSubRun`), since either alone leaves the child unable to route or unable to authenticate.
+
+Only what a run writes is saved back to its session. The scheduler resets the context's write tracking once the stored session is loaded, so the load is a baseline: an `append` key the run never rewrote is not re-sent and cannot be concatenated onto itself when a run fails or suspends before its `core:session-write` node.
+
 Two known gaps remain, each needing its own change:
 
 - **Fork and fan-out branches** (`execution/worker.ts`) build a branch `ExecutionContextImpl` that copies `graphDefaultRouter` and `tenantRouterPolicy` but not `runRouterOverride` or `credentialTenantId` (the fork branch copies no routers or credentials at all). A run whose only router is the per-dispatch override would fail with `ROUTER_NOT_CONFIGURED` inside such a branch even though its credentials were resolved. Not reachable today: Caal's graph has no fork or fan-out node.
