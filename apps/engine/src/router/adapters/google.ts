@@ -8,6 +8,7 @@ import type {
   ModelRouterTarget,
   RouterTriggerCondition,
 } from '@magicaal/core';
+import { providerError } from './provider-error';
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -150,11 +151,7 @@ export const googleAdapter: ProviderAdapter = {
     });
 
     if (!response.ok) {
-      const err = Object.assign(new Error(`Google error ${response.status}`), {
-        status: response.status,
-        _providerError: true,
-      });
-      throw err;
+      throw await providerError('Google', response);
     }
 
     const data = (await response.json()) as GeminiResponse;
