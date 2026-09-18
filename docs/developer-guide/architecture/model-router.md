@@ -14,6 +14,8 @@ Dispatch-level fields must survive every re-enqueue. A suspended run parks them 
 
 The credential-tenant substitution is all-or-nothing: once a run carries `credentialTenantId`, **every** connection it resolves — graph-level targets included — is looked up under that tenant, not just the one the override names. Sub-runs inherit both the credential tenant and the router override together (`ExecutionContextImpl.dispatchSubRun`), since either alone leaves the child unable to route or unable to authenticate.
 
+A fork branch's own writes carry back to the parent (its branch context tracks them separately from the parent snapshot it was seeded with), so a `core:session-write` inside a branch persists under the `merge`/`last-wins` join strategies. Under `collect` the branch data is stored wholesale under the join's `collectKey` and never merged into the parent, so such a write does not persist — unchanged by this work.
+
 Only what a run writes is saved back to its session. The scheduler resets the context's write tracking once the stored session is loaded, so the load is a baseline: an `append` key the run never rewrote is not re-sent and cannot be concatenated onto itself when a run fails or suspends before its `core:session-write` node.
 
 Two known gaps remain, each needing its own change:

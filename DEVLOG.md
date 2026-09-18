@@ -133,6 +133,29 @@ independent faults, found together while testing a local Docker stack.
   keyed off `testCases.length`, so an agent with no cases re-fetched forever
   once the URL fix made the endpoint reachable
 
+**Third-review follow-ups:**
+- `agents/caal.agent.ts` — `core:session-write` only evaluates a value when the
+  string starts with `$`, so the bare `[...]` array the single-accumulation fix
+  introduced was stored as its own template text: the session filled with
+  copies of that string, `core:llm-call` dropped them as non-messages, and Caal
+  had no memory at all. Wrapped as `$append([], [...])`, with the CLI assertion
+  tightened (substring containment held for the unevaluated literal) and a new
+  `core:session-write` suite pinning the `$`-prefix contract
+- `apps/api/src/controllers/caal.controller.ts` — `intent` never reached the run
+  input, so every message fell through `intent-router` to the explain branch
+  and Studio's quick actions did nothing; forwarded now, restricted to the
+  graph's own cases
+- `packages/nodes/src/nodes/core-session-read.ts` — an identity `reads` mapping
+  re-marked the loaded value as a run write, re-creating the double-append for
+  any agent that maps a key to itself
+- `apps/engine/src/execution/worker.ts` — a fork branch's writes are carried
+  back as writes (only its own, not the parent snapshot it was seeded with), so
+  a branch `core:session-write` still persists under `merge`/`last-wins`
+- `apps/engine/src/execution/context.ts` — sub-run dispatch forwards the
+  credential tenant and router override only for platform-tenant runs; a run
+  override outranks a node's inline router, so inheriting one would have
+  replaced a child agent's own model choice
+
 **Impact:**
 Caal works out of the box: Studio reaches the endpoint, boot sync leaves the
 agent runnable, and a run that cannot start now fails immediately with its real
