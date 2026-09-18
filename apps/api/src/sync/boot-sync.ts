@@ -167,10 +167,22 @@ async function syncAgent(
     logger.info({ handle: entry.handle, agentId }, 'Inserted new code-defined agent');
   } else if (existing.currentVersionId) {
     // Repair rows seeded before code-defined agents were activated on insert:
-    // they sit at draft/disabled with no API path able to reach them. Only that
-    // exact combination is repaired, so an operator's deliberate disable of an
-    // active agent is left alone.
-    if (existing.status === 'draft' && !existing.enabled) {
+    // they sit at draft/disabled with no API path able to reach them (agent
+    // mutations are tenant-scoped and 404 for _platform).
+    //
+    // Scoped to code-defined platform rows on purpose: `agents.handle` is
+    // globally unique and tenants choose their own handles, so a tenant's
+    // Studio agent that happens to share this handle must never be force-
+    // enabled by a boot.
+    //
+    // Note this also reverts a direct DB edit that set status='draft' with
+    // enabled=0 — the shape an operator would reach for, since no API can
+    // disable a code-defined agent. Caal's supported off switch is
+    // caal_configuration.enabled; for other code-defined agents, disable by
+    // removing them from agents.manifest.json.
+    const isCodeDefinedPlatformAgent =
+      existing.authoringMode === 'code-defined' && existing.tenantId === PLATFORM_TENANT_ID;
+    if (isCodeDefinedPlatformAgent && existing.status === 'draft' && !existing.enabled) {
       await db
         .update(agents)
         .set({ status: 'active', enabled: true, updatedAt: now })

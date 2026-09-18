@@ -160,6 +160,29 @@ describe('bootTimeSync — syncConfig override semantics (ALIGN-005)', () => {
     expect(repaired.enabled).toBe(true);
   });
 
+  it("never activates a tenant's own agent that shares the handle", async () => {
+    // agents.handle is globally unique and tenants choose their own handles,
+    // so a Studio agent sitting at draft/disabled must not be force-enabled
+    // by a boot just because its handle matches a code-defined one.
+    const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
+    await db
+      .update(agents)
+      .set({ authoringMode: 'studio', tenantId: agentRow.tenantId, status: 'draft', enabled: false })
+      .where(eq(agents.id, agentRow.id));
+
+    await bootTimeSync(agentsDir);
+
+    const after = (await db.select().from(agents).where(eq(agents.id, agentRow.id)))[0]!;
+    expect(after.status).toBe('draft');
+    expect(after.enabled).toBe(false);
+
+    // restore for the checks that follow
+    await db
+      .update(agents)
+      .set({ authoringMode: 'code-defined' })
+      .where(eq(agents.id, agentRow.id));
+  });
+
   it('leaves an agent an operator deliberately disabled alone', async () => {
     const agentRow = (await db.select().from(agents).where(eq(agents.handle, HANDLE)))[0]!;
     await db
