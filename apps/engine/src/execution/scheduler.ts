@@ -169,6 +169,9 @@ export function startScheduler(): void {
             for (const [key, value] of loaded.contextEntries) {
               ctx.set(key, value);
             }
+            // Loaded values are the baseline, not this run's writes — saving
+            // them back would append every list onto itself.
+            ctx.resetWriteTracking();
             const isChildRun = triggerType === 'sub-graph' || triggerType === 'handoff';
             await sessionManager.recordRunLink(sessionId, runId, isChildRun);
           } catch (err) {
@@ -189,7 +192,7 @@ export function startScheduler(): void {
 
         // Save session context after graph execution
         if (sessionId && sessionConfig?.enabled) {
-          await sessionManager.saveSession(sessionId, runId, ctx.data, sessionConfig, graphDefaultRouter);
+          await sessionManager.saveSession(sessionId, runId, ctx.sessionWrites(), sessionConfig, graphDefaultRouter);
         }
 
         if (ctx.isSuspended) {
@@ -261,7 +264,7 @@ export function startScheduler(): void {
         // Still attempt session save on non-session errors so partial progress is preserved
         if (sessionId && graph.config?.session && code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
           await sessionManager
-            .saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig, graphDefaultRouter)
+            .saveSession(sessionId, runId, ctx.sessionWrites(), graph.config.session as SessionConfig, graphDefaultRouter)
             .catch(() => {});
         }
 

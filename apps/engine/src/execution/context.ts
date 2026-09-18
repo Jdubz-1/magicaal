@@ -59,6 +59,8 @@ export class ExecutionContextImpl implements ExecutionContext {
   private _suspendReviewId: string | undefined;
   private _suspendedNodeId: string | undefined;
   private _resumeAt: number | undefined;
+  /** Context keys written during this run — see sessionWrites(). */
+  private readonly _writtenKeys = new Set<string>();
 
   constructor(params: RunParams) {
     this.runId = params.runId;
@@ -79,6 +81,33 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   set(key: string, value: unknown): void {
     this.data[key] = value;
+    this._writtenKeys.add(key);
+  }
+
+  /**
+   * Forget writes recorded so far. The scheduler calls this once the stored
+   * session has been loaded into the context, so the loaded values count as
+   * the baseline rather than as writes by this run.
+   */
+  resetWriteTracking(): void {
+    this._writtenKeys.clear();
+  }
+
+  /**
+   * What this run actually wrote, for the session save.
+   *
+   * Posting the whole context back re-sent every loaded key, and an `append`
+   * key the run never rewrote was then concatenated onto itself — a run that
+   * failed before its session-write node doubled the stored list on each
+   * attempt. Keys seeded from the run input never pass through set(), so a
+   * resumed run does not re-save its checkpoint either.
+   */
+  sessionWrites(): Record<string, unknown> {
+    const writes: Record<string, unknown> = {};
+    for (const key of this._writtenKeys) {
+      if (key in this.data) writes[key] = this.data[key];
+    }
+    return writes;
   }
 
   async evaluate(expression: string): Promise<unknown> {
@@ -153,7 +182,10 @@ export class ExecutionContextImpl implements ExecutionContext {
         // A child of a platform-tenant run resolves credentials against the
         // same tenant as its parent — without this it inherits tenantId
         // (_platform) alone and finds no connection, exactly as the parent would.
+        // The router travels with it: a credential tenant on its own leaves the
+        // child with connections it can resolve but no target to use them for.
         ...(this.credentialTenantId && { credentialTenantId: this.credentialTenantId }),
+        ...(this.runRouterOverride && { routerOverride: this.runRouterOverride }),
         caller: { kind: 'platform', strategy: 'sub-graph' },
       }),
     });
