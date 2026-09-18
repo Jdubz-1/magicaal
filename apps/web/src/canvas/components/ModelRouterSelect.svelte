@@ -33,18 +33,25 @@
 
   // Simple mode can only represent a single priority target with no triggers;
   // anything richer stays in Advanced so existing graphs are never rewritten.
-  const router = (value ?? null) as { strategy?: string; targets?: RouterTarget[]; triggers?: unknown[] } | null;
-  const isEmpty = !router || Object.keys(router).length === 0;
-  const isSimple =
+  // Derived from `value` rather than captured once: an Advanced-JSON edit can
+  // turn a representable router into one the picker cannot express, and a
+  // frozen flag left the "← Model picker" button showing so the next dropdown
+  // change silently replaced the pasted config.
+  $: router = (value ?? null) as { strategy?: string; targets?: RouterTarget[]; triggers?: unknown[] } | null;
+  $: isEmpty = !router || Object.keys(router).length === 0;
+  $: isSimple =
     isEmpty ||
     ((router?.strategy ?? 'priority') === 'priority' &&
       (router?.targets?.length ?? 0) === 1 &&
       (router?.triggers?.length ?? 0) === 0);
-  let advanced = !isSimple;
 
-  const initial = isSimple && !isEmpty ? router?.targets?.[0] : undefined;
-  let connectionId = initial?.connectionId ?? '';
-  let modelChoice = initial?.model ?? '';
+  let advanced = false;
+  // Anything the picker cannot represent forces Advanced and keeps it there.
+  $: if (!isSimple) advanced = true;
+
+  const initialTarget = (value as { targets?: RouterTarget[] } | null)?.targets?.[0];
+  let connectionId = initialTarget?.connectionId ?? '';
+  let modelChoice = initialTarget?.model ?? '';
   let customModel = '';
 
   $: selectedConnection = connections.find((c) => c.id === connectionId);
@@ -73,14 +80,25 @@
     }
   });
 
-  function emit() {
-    const model = modelChoice === CUSTOM ? customModel.trim() : modelChoice;
-    if (!selectedConnection || !model) return;
+  /**
+   * The connection is passed in rather than read from `selectedConnection`:
+   * that is a `$:` value, recomputed on the update flush, so a caller that has
+   * just assigned `connectionId` still sees the previous one — which wrote no
+   * router at all on the first pick, and the old connection's id when
+   * switching between two.
+   */
+  function emit(conn: Connection | undefined, model: string) {
+    if (!conn || !model) return;
     onChange({
       strategy: 'priority',
-      targets: [{ id: 'primary', connectionId: selectedConnection.id, provider: selectedConnection.service, model }],
+      targets: [{ id: 'primary', connectionId: conn.id, provider: conn.service, model }],
       triggers: [],
     });
+  }
+
+  /** Emit for a change that leaves the selected connection alone. */
+  function emitCurrent() {
+    emit(selectedConnection, modelChoice === CUSTOM ? customModel.trim() : modelChoice);
   }
 
   function selectConnection(id: string) {
@@ -89,12 +107,13 @@
       onChange(undefined); // fall back to the graph defaultRouter
       return;
     }
-    const prov = providers.find((p) => p.provider === connections.find((c) => c.id === id)?.service);
+    const conn = connections.find((c) => c.id === id);
+    const prov = providers.find((p) => p.provider === conn?.service);
     const stillValid = modelChoice === CUSTOM || prov?.models.some((m) => m.id === modelChoice);
     if (!stillValid) {
       modelChoice = (prov?.models.find((m) => m.recommended) ?? prov?.models[0])?.id ?? CUSTOM;
     }
-    emit();
+    emit(conn, modelChoice === CUSTOM ? customModel.trim() : modelChoice);
   }
 </script>
 
@@ -119,14 +138,14 @@
   </select>
 
   {#if selectedProvider}
-    <select {disabled} bind:value={modelChoice} on:change={emit} class="spaced">
+    <select {disabled} bind:value={modelChoice} on:change={emitCurrent} class="spaced">
       {#each selectedProvider.models as m}
         <option value={m.id}>{m.label}{m.recommended ? ' (recommended)' : ''}</option>
       {/each}
       <option value={CUSTOM}>Custom model…</option>
     </select>
     {#if modelChoice === CUSTOM}
-      <input class="spaced" type="text" placeholder="model id" {disabled} bind:value={customModel} on:blur={emit} />
+      <input class="spaced" type="text" placeholder="model id" {disabled} bind:value={customModel} on:blur={emitCurrent} />
     {/if}
   {/if}
 
