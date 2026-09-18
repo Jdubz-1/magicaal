@@ -34,6 +34,60 @@ describe('core:llm-call', () => {
     expect(ctx.llmCall).toHaveBeenCalled();
   });
 
+  it('prepends stored session history as prior turns', async () => {
+    const ctx = makeMockContext({
+      history: [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'answer' },
+      ],
+    });
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('ok'));
+
+    await coreLLMCall.execute(ctx, {
+      userMessage: 'second',
+      outputKey: 'answer',
+      injectSessionHistory: 'history',
+    });
+
+    const [request] = (ctx.llmCall as jest.Mock).mock.calls[0] as [{ messages: unknown[] }];
+    expect(request.messages).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'answer' },
+      { role: 'user', content: 'second' },
+    ]);
+  });
+
+  it('flattens legacy nested history and drops entries that are not messages', async () => {
+    // Sessions written before `append` concatenated array values hold a list of
+    // turn-arrays; spreading those into the request handed the provider adapter
+    // entries with no role/content and crashed it.
+    const ctx = makeMockContext({
+      history: [
+        [
+          { role: 'user', content: 'first' },
+          { role: 'assistant', content: 'answer' },
+        ],
+        null,
+        'not-a-message',
+      ],
+    });
+    (ctx.llmCall as jest.Mock).mockResolvedValue(makeMockResponse('ok'));
+
+    await coreLLMCall.execute(ctx, {
+      userMessage: 'second',
+      outputKey: 'answer',
+      injectSessionHistory: 'history',
+    });
+
+    const [request] = (ctx.llmCall as jest.Mock).mock.calls[0] as [{ messages: Array<Record<string, unknown>> }];
+    expect(request.messages).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'answer' },
+      { role: 'user', content: 'second' },
+    ]);
+    expect(request.messages.every((m) => 'role' in m && 'content' in m)).toBe(true);
+  });
+
   it('parses JSON when outputSchema is set', async () => {
     const ctx = makeMockContext({});
     (ctx.llmCall as jest.Mock).mockResolvedValue(

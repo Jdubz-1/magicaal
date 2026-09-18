@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import type { ModelRouterConfig } from '@magicaal/core';
 import { telemetryDb } from '../db/telemetry-client';
 import { telemetryRuns } from '../db/telemetry-schema';
 import { runTriggerQueue } from '../queue/client';
@@ -66,15 +67,40 @@ export async function resumeRun(
     ? (JSON.parse(run.checkpointJson) as Record<string, unknown>)
     : {};
 
-  // Apply any modifications from the reviewer
+  // Dispatch-level fields the original job carried, parked in the checkpoint by
+  // markRunSuspended. Taken out before the reviewer's modifications are applied:
+  // merging first would let an approver set these keys themselves and have them
+  // promoted onto the job, pointing a platform-tenant run's credential
+  // resolution at a tenant of their choosing.
+  const {
+    _dispatch_router_override: routerOverride,
+    _dispatch_credential_tenant: credentialTenantId,
+    ...restoredContext
+  } = checkpointData as Record<string, unknown> & {
+    _dispatch_router_override?: ModelRouterConfig;
+    _dispatch_credential_tenant?: string;
+  };
+
+  // Apply any modifications from the reviewer, minus those reserved keys
   if (resolution.modifications) {
-    Object.assign(checkpointData, resolution.modifications);
+    const {
+      _dispatch_router_override: injectedRouter,
+      _dispatch_credential_tenant: injectedTenant,
+      ...safeModifications
+    } = resolution.modifications;
+    if (injectedRouter !== undefined || injectedTenant !== undefined) {
+      logger.warn(
+        { runId },
+        'Review modifications tried to set reserved dispatch keys — ignored',
+      );
+    }
+    Object.assign(restoredContext, safeModifications);
   }
 
   // Inject approval result into context so the human-review node's downstream
   // edges can route on review outcome
-  checkpointData._review_approved = true;
-  checkpointData._review_modifications = resolution.modifications ?? null;
+  restoredContext._review_approved = true;
+  restoredContext._review_modifications = resolution.modifications ?? null;
 
   // Reset status to pending so the run can be re-dispatched
   await telemetryDb
@@ -90,9 +116,11 @@ export async function resumeRun(
     agentId: run.agentId,
     tenantId: run.tenantId,
     triggerType: run.triggerType,
-    input: checkpointData,
+    input: restoredContext,
     resumeFromNodeId: run.suspendedNodeId ?? undefined,
     sessionId: run.sessionId ?? undefined,
+    ...(routerOverride && { routerOverride }),
+    ...(credentialTenantId && { credentialTenantId }),
   });
 
   logger.info({ runId, suspendedNodeId: run.suspendedNodeId }, 'Run queued for resume');

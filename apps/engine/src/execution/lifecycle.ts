@@ -127,7 +127,16 @@ export const lifecycle = {
         status: 'suspended',
         reviewId,
         suspendedNodeId: suspendedNodeId ?? null,
-        checkpointJson: JSON.stringify(ctx.data),
+        // Dispatch-level fields ride along in the checkpoint: resume rebuilds
+        // its job from this row, and without them a resumed run loses its
+        // router and credential tenant and fails on its first LLM call.
+        // Reserved `_`-prefixed keys, stripped again by resume before the
+        // context is restored (and by stripInternalKeys on any output).
+        checkpointJson: JSON.stringify({
+          ...ctx.data,
+          ...(ctx.runRouterOverride && { _dispatch_router_override: ctx.runRouterOverride }),
+          ...(ctx.credentialTenantId && { _dispatch_credential_tenant: ctx.credentialTenantId }),
+        }),
       })
       .where(eq(telemetryRuns.id, runId));
     sseManager.broadcast(runId, 'run.suspended', {

@@ -25,6 +25,148 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-17 - Fix Caal being unreachable and unrunnable from Studio
+
+**Type:** Bugfix
+
+**Description:**
+Asking Caal anything in Studio returned `Caal invoke failed: 404`, and the
+underlying agent could not have run even once the request arrived. Three
+independent faults, found together while testing a local Docker stack.
+
+**Changes:**
+- `apps/web/src/canvas/components/{CaalPanel,PromptVersionPanel,SessionContextPanel,TestCasesPanel}.svelte`
+  — the `/api` proxy already prepends `/v1` (`apps/web/src/app.ts`), so these ten
+  call sites reached the API as `/v1/v1/...` and 404'd. Guarded by
+  `apps/web/tests/unit/canvas-api-paths.test.ts`
+- `apps/api/src/sync/boot-sync.ts` — code-defined agents were seeded
+  `status: 'draft', enabled: false`, which `graph-loader` refuses
+  (`status='active' AND enabled=1`). They live in the `_platform` tenant while
+  agent mutations are tenant-scoped, so no API call could activate them — Caal
+  was unrunnable on every install. Now seeded active/enabled, with rows already
+  stuck at draft/disabled repaired on sync — scoped to code-defined rows in the
+  `_platform` tenant, since `agents.handle` is globally unique and a tenant's
+  own Studio agent could otherwise be force-enabled by a boot. An agent left
+  `active` with `enabled=0` is untouched, but a direct DB edit that also sets
+  `status='draft'` is reverted on the next boot: the supported off switches are
+  `caal_configuration.enabled` for Caal, and removal from
+  `agents.manifest.json` for any other code-defined agent
+- `apps/engine/src/execution/scheduler.ts` — graph load sat ahead of the
+  worker's try/catch, so an unloadable agent left the run `pending` and callers
+  polled to their own timeout (2 min for the Caal endpoint) instead of seeing
+  `AGENT_NOT_FOUND`
+- `apps/api/src/controllers/caal-config.controller.ts` — `GET /v1/caal/config`
+  answered a tenant with no saved settings with `200 null`. The row is created
+  lazily on first `PATCH`, and only `ensurePlatformTenant` seeds one (for
+  `_platform` alone), so every real tenant saw it. It now returns the defaults
+  the tenant behaves under, `id`/timestamps null, from a `CAAL_CONFIG_DEFAULTS`
+  constant shared with the insert branch
+- `apps/api/src/controllers/caal.controller.ts`,
+  `apps/engine/src/{controllers/runs.controller.ts,execution/{scheduler,context}.ts,resolver/credential-resolver.ts}`
+  — with a router policy finally selectable, Caal runs failed at the model call:
+  `No credentials for target, skipping` → `All router targets exhausted`. Caal
+  executes as `_platform`, but the policy that chose its model is the invoking
+  tenant's and points at that tenant's connection, and the resolver looked
+  connections up under the run's own tenant. The dispatch now carries
+  `credentialTenantId` (the authenticated caller's tenant) and the resolver
+  honors it **only** when the run itself belongs to `_platform`, so an ordinary
+  tenant's run can never read another tenant's credentials
+- `apps/engine/src/resolver/credential-resolver.ts` — that tenant fix was
+  unreachable: `collectConnectionIds` walked only graph-level routers, while
+  `resolveRouterConfig` also accepts a per-dispatch override and a tenant
+  policy. Caal's policy arrives per-dispatch, so no connection was ever
+  fetched and every target was skipped as uncredentialed — the same
+  `All router targets exhausted` with no lookup attempted. Collection now
+  covers all four router levels. `dispatchSubRun` forwards
+  `credentialTenantId` so a platform run's children resolve the same way.
+  Dispatch fields now also survive a suspension: `markRunSuspended` parks them
+  in the checkpoint and `resume.ts` strips them back out into the job, and the
+  cron re-enqueue spreads the original job data rather than rebuilding it.
+  Fork/fan-out branch contexts and the summarize path keep the old blind spot,
+  both recorded in `docs/developer-guide/architecture/model-router.md`
+- `apps/api/src/controllers/sessions.controller.ts`, `agents/caal.agent.ts`,
+  `packages/nodes/src/nodes/core-llm-call.ts` — with sessions finally reused
+  across turns, every message after the first failed with
+  `LLM_CALL_FAILED: Cannot read properties of undefined (reading 'map')`. The
+  turn's messages were accumulated twice — the `session-write` expression
+  re-appended `$.sessionMessages` and the session layer's `append` then stored
+  that whole array as one element — so `messages` held a list of turn-arrays
+  that `core:llm-call` spread back into the request as non-messages, crashing
+  the provider adapter. `append` now adds an array value's items (and the
+  first write runs the same path as later ones, so dedupe/`maxItems` apply to
+  it and `maxItems` counts entries); Caal writes only the new turn; and
+  `core:llm-call` flattens one level of legacy history rather than crashing on
+  it
+- `apps/web/src/canvas/components/{CaalPanel,TestCasesPanel}.svelte` — three
+  panel bugs the URL fix above made reachable, each a response the panel read
+  wrongly: Caal echoed the API's already-namespaced `sessionId` back as a
+  *client* id, so `invokeCaal` re-wrapped it and every turn started a fresh
+  session (no memory, and history could never match); history read
+  `contextEntries.messages` where `getCaalSession` returns `messages` at the
+  top level; and the test-case list read `data.testCases` where the endpoint
+  returns a bare array of rows carrying `assertionsJson`/`lastResult` as JSON
+  strings
+- `apps/web/src/routes/admin.ts` — Admin → System → Caal assigned that `null`
+  over its `{}` default (a 200 never hits the surrounding catch) and threw
+  `Cannot read properties of null (reading 'generationMode')`. The page failed
+  before rendering the only form that creates the row, so Caal's router policy
+  could not be set through the UI at all. Now `data ?? {}`
+
+**Review follow-ups** (second review of the PR):
+- `apps/engine/src/execution/{context,scheduler}.ts` — the session save posted
+  the whole run context, so once `append` concatenated items, any key the run
+  had not rewritten was appended onto itself; a Caal turn failing before
+  `session-write` doubled its stored history. The context now tracks written
+  keys, the scheduler resets that tracking after loading the session, and both
+  saves send `ctx.sessionWrites()`
+- `apps/engine/src/execution/resume.ts` — reviewer `modifications` were merged
+  before the reserved `_dispatch_*` keys were taken out, so an approver could
+  inject a credential tenant onto the resumed job
+- `apps/engine/src/execution/context.ts` — `dispatchSubRun` forwarded the
+  credential tenant without the router override, leaving a child able to
+  authenticate but with nothing to route
+- `apps/api/src/sync/boot-sync.ts` — the handle lookup was still unscoped, so a
+  tenant agent sharing a code-defined handle had its version, name and config
+  repointed on the next hash change; the sync now refuses the collision and
+  records it in `SyncResult.errors`
+- `apps/web/src/canvas/components/TestCasesPanel.svelte` — the reactive load
+  keyed off `testCases.length`, so an agent with no cases re-fetched forever
+  once the URL fix made the endpoint reachable
+
+**Third-review follow-ups:**
+- `agents/caal.agent.ts` — `core:session-write` only evaluates a value when the
+  string starts with `$`, so the bare `[...]` array the single-accumulation fix
+  introduced was stored as its own template text: the session filled with
+  copies of that string, `core:llm-call` dropped them as non-messages, and Caal
+  had no memory at all. Wrapped as `$append([], [...])`, with the CLI assertion
+  tightened (substring containment held for the unevaluated literal) and a new
+  `core:session-write` suite pinning the `$`-prefix contract
+- `apps/api/src/controllers/caal.controller.ts` — `intent` never reached the run
+  input, so every message fell through `intent-router` to the explain branch
+  and Studio's quick actions did nothing; forwarded now, restricted to the
+  graph's own cases
+- `packages/nodes/src/nodes/core-session-read.ts` — an identity `reads` mapping
+  re-marked the loaded value as a run write, re-creating the double-append for
+  any agent that maps a key to itself
+- `apps/engine/src/execution/worker.ts` — a fork branch's writes are carried
+  back as writes (only its own, not the parent snapshot it was seeded with), so
+  a branch `core:session-write` still persists under `merge`/`last-wins`
+- `apps/engine/src/execution/context.ts` — sub-run dispatch forwards the
+  credential tenant and router override only for platform-tenant runs; a run
+  override outranks a node's inline router, so inheriting one would have
+  replaced a child agent's own model choice
+
+**Impact:**
+Caal works out of the box: Studio reaches the endpoint, boot sync leaves the
+agent runnable, and a run that cannot start now fails immediately with its real
+error. Caal's off switch remains `caal_configuration.enabled`.
+
+**Notes:**
+The scheduler path is covered live rather than by unit test — the failure is in
+the BullMQ processor, which the existing worker tests don't drive.
+
+---
+
 ### 2026-09-07 - Pre-Phase-6 cleanup: release pipeline, CI coverage, contract drift
 
 **Type:** Infrastructure

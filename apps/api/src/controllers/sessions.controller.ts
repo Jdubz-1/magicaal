@@ -465,14 +465,20 @@ export const internalSaveSession: RequestHandler = async (req, res, next) => {
       const existing = existingRows[0];
 
       const entry = schemaEntry as ContextSchemaEntry;
-      let finalValue: unknown;
 
-      if (!existing) {
-        finalValue = entry.type === 'append' ? [newValue] : newValue;
-      } else {
-        const current = JSON.parse(existing.valueJson) as unknown;
-        finalValue = await accumulateValue(current, newValue, entry, tenantId, defaultRouter);
-      }
+      // One accumulation path for the first write and every later one: the
+      // first-write shortcut this replaces wrapped the value itself, so an
+      // array value was nested exactly as it was on the append path, and
+      // dedupe/maxItems never applied to it. accumulateValue handles an absent
+      // current for all three types.
+      const current = existing ? (JSON.parse(existing.valueJson) as unknown) : undefined;
+      let finalValue: unknown = await accumulateValue(
+        current,
+        newValue,
+        entry,
+        tenantId,
+        defaultRouter,
+      );
 
       // maxTokens budget applies after accumulation, whatever the type
       finalValue = await enforceTokenBudget(finalValue, entry, tenantId, defaultRouter);
@@ -636,7 +642,14 @@ async function accumulateValue(
     return newValue;
   }
   // append: accumulate → dedupe → maxItems overflow (§14.4 order)
-  let arr = Array.isArray(current) ? [...current, newValue] : [newValue];
+  //
+  // An array value appends its *items*, not itself: a turn that produces several
+  // entries (Caal writes a user and an assistant message per turn) is the normal
+  // shape, and nesting it made the stored value a list of turn-arrays — which
+  // core:llm-call then spread back into the request as non-messages, crashing
+  // the provider adapter. maxItems therefore counts items, as documented.
+  const incoming = Array.isArray(newValue) ? newValue : [newValue];
+  let arr = Array.isArray(current) ? [...current, ...incoming] : [...incoming];
   if (entry.deduplicateBy) {
     arr = dedupeByField(arr, entry.deduplicateBy);
   }

@@ -12,6 +12,8 @@ Reads values from the **persisted session context** into the run context. Sessio
 
 Only keys with a defined value in the loaded session are written; missing session keys are silently skipped (not an error).
 
+An **identity mapping** (`{ messages: 'messages' }`) is a deliberate no-op: the loader already placed that value in the run context under the same key, and re-writing it would record it as a write by this run — which for an `append` key means it is appended onto the stored list again on every run. Map to a different name, as the example below does, whenever a node needs the value under its own key.
+
 ## Example
 
 ```typescript

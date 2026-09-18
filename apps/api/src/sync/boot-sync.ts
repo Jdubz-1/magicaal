@@ -122,6 +122,21 @@ async function syncAgent(
   const existing = existingRows[0];
   const now = new Date();
 
+  // `agents.handle` is globally unique and tenants choose their own handles, so
+  // a row matching this handle is not necessarily this code-defined agent. Bail
+  // before touching it: the caller records this in SyncResult.errors and moves
+  // on to the next agent, so the collision is visible without a boot failure
+  // and without repointing a tenant's agent at a graph it never authored.
+  if (
+    existing &&
+    !(existing.authoringMode === 'code-defined' && existing.tenantId === PLATFORM_TENANT_ID)
+  ) {
+    throw new Error(
+      `Handle "${entry.handle}" belongs to a ${existing.authoringMode} agent in tenant ` +
+        `${existing.tenantId} — refusing to sync the code-defined agent over it`,
+    );
+  }
+
   if (!existing) {
     // New code-defined agent
     const agentId = crypto.randomUUID();
@@ -133,8 +148,14 @@ async function syncAgent(
       handle: entry.handle,
       description: definition.description,
       authoringMode: 'code-defined',
-      status: 'draft',
-      enabled: false,
+      // Code-defined agents live in the _platform tenant, and agent mutations
+      // are tenant-scoped — so an agent seeded as draft/disabled can never be
+      // activated through the API, and graph-loader (status='active' AND
+      // enabled=1) refuses to run it. Their definition is code-owned and
+      // already reviewed, so they arrive runnable. Caal's own off switch is
+      // caal_configuration.enabled.
+      status: 'active',
+      enabled: true,
       stale: false,
       currentVersionId: versionId,
       createdAt: now,
@@ -160,6 +181,26 @@ async function syncAgent(
     result.inserted++;
     logger.info({ handle: entry.handle, agentId }, 'Inserted new code-defined agent');
   } else if (existing.currentVersionId) {
+    // Repair rows seeded before code-defined agents were activated on insert:
+    // they sit at draft/disabled with no API path able to reach them (agent
+    // mutations are tenant-scoped and 404 for _platform).
+    //
+    // Only this agent's own row reaches here — the guard above rejected any
+    // handle collision with a tenant's agent.
+    //
+    // Note this also reverts a direct DB edit that set status='draft' with
+    // enabled=0 — the shape an operator would reach for, since no API can
+    // disable a code-defined agent. Caal's supported off switch is
+    // caal_configuration.enabled; for other code-defined agents, disable by
+    // removing them from agents.manifest.json.
+    if (existing.status === 'draft' && !existing.enabled) {
+      await db
+        .update(agents)
+        .set({ status: 'active', enabled: true, updatedAt: now })
+        .where(eq(agents.id, existing.id));
+      logger.info({ handle: entry.handle }, 'Activated code-defined agent seeded as draft');
+    }
+
     // Check if hash has changed
     const versionRows = await db
       .select({ contentHash: agentVersions.contentHash, versionNumber: agentVersions.versionNumber })

@@ -259,7 +259,12 @@ export async function executeGraph(
       }
 
       ctx.emit('node.completed', { runId, nodeId: nodeDef.id, nodeType: nodeDef.type, stepId, outputs: output.outputs, timestamp: new Date().toISOString() });
-      if (output.outputs) Object.assign(ctx.data, output.outputs);
+      // Through set() rather than Object.assign: a node may declare its result
+      // in `outputs` instead of calling ctx.set (an SDK-supported pattern), and
+      // the session save only persists keys the context recorded as writes.
+      if (output.outputs) {
+        for (const [key, value] of Object.entries(output.outputs)) ctx.set(key, value);
+      }
 
       const nextNodes = await resolveEdges(graph.edges, nodeId, ctx.data);
       queue.push(...nextNodes.filter((n) => !visited.has(n)));
@@ -321,17 +326,21 @@ export async function executeGraph(
             branchQueue.push(...bNext.filter((n) => !branchVisited.has(n) && n !== joinNodeId));
           }
 
-          return branchCtx.data;
+          return { data: branchCtx.data, writtenKeys: branchCtx.writtenKeys() };
         }),
       );
 
       // Merge branch outputs into main context
       if (mergeStrategy === 'collect') {
-        ctx.set(collectKey, branchDataSnapshots);
+        ctx.set(collectKey, branchDataSnapshots.map((b) => b.data));
       } else {
         // 'merge' and 'last-wins' both apply sequentially; 'merge' is semantically the same here
-        for (const branchData of branchDataSnapshots) {
-          Object.assign(ctx.data, branchData);
+        for (const branch of branchDataSnapshots) {
+          Object.assign(ctx.data, branch.data);
+          // A branch snapshot is a copy of the whole parent context, so only the
+          // branch's own writes are re-marked — marking all of it would count
+          // the loaded session baseline as written and append it onto itself.
+          for (const key of branch.writtenKeys) ctx.set(key, ctx.data[key]);
         }
       }
       ctx.set('_fork_branch_count', branchDataSnapshots.length);

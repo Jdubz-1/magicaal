@@ -7,6 +7,7 @@ import { isExpired, refreshOAuthToken } from '@magicaal/integration-core';
 import { integrationRegistry } from '../registry/integration-registry';
 import { config } from '../config';
 import { logger } from '../lib/logger';
+import { PLATFORM_TENANT_ID } from '../lib/platform';
 
 // Shared read-only connection to the primary DB (same pattern as graph-loader)
 let sqlite: Database.Database | null = null;
@@ -18,6 +19,27 @@ function getDb(): Database.Database {
     sqlite.pragma('journal_mode = WAL');
   }
   return sqlite;
+}
+
+/**
+ * Which tenant's connections this run resolves credentials against.
+ *
+ * Normally the run's own tenant. The one exception is a platform-tenant agent
+ * (Caal) invoked by a tenant user: it executes as `_platform`, but the router
+ * policy that selected its model is the invoker's and points at the invoker's
+ * connection, so `_platform` owns no credential to run with. The API sets
+ * `credentialTenantId` to the authenticated caller's tenant for those
+ * dispatches.
+ *
+ * Deliberately narrow: honored only when the run itself belongs to the platform
+ * tenant, so an ordinary tenant's run can never read another tenant's
+ * credentials even if the field reaches the queue.
+ */
+function credentialTenantFor(ctx: ExecutionContextImpl): string {
+  if (ctx.tenantId === PLATFORM_TENANT_ID && ctx.credentialTenantId) {
+    return ctx.credentialTenantId;
+  }
+  return ctx.tenantId;
 }
 
 interface StoredConnection {
@@ -147,7 +169,20 @@ function addRouterTargets(ids: Set<string>, router: unknown): void {
   }
 }
 
-function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
+/**
+ * Every connection a run might need credentials for.
+ *
+ * router-engine's resolveRouterConfig picks a router from four levels — locked
+ * tenant policy, per-dispatch override, node, graph — so collection has to
+ * cover all four. Collecting only the graph ones is how a Caal run reached its
+ * LLM node with an empty credential map: its policy arrives per-dispatch
+ * (ctx.runRouterOverride), never in the compiled graph, so nothing was fetched
+ * and every target was skipped as uncredentialed.
+ */
+function collectConnectionIds(
+  graph: AgentGraphDefinition,
+  ctx: ExecutionContextImpl,
+): Set<string> {
   const ids = new Set<string>();
   for (const node of Object.values(graph.nodes)) {
     const cfg = node.config as Record<string, unknown>;
@@ -163,6 +198,13 @@ function collectConnectionIds(graph: AgentGraphDefinition): Set<string> {
   for (const policy of Object.values(graph.routerPolicies ?? {})) {
     addRouterTargets(ids, policy);
   }
+  // Dispatch-level routers, which live on the run rather than the graph:
+  // the caller's override (Caal's caal_configuration.routerPolicyId) and a
+  // tenant policy, which outranks the override when locked. Nothing populates
+  // tenantRouterPolicy yet — collected here so wiring it cannot reintroduce
+  // this same gap.
+  addRouterTargets(ids, ctx.runRouterOverride);
+  addRouterTargets(ids, ctx.tenantRouterPolicy);
   return ids;
 }
 
@@ -175,10 +217,11 @@ export async function resolveCredentials(
     return;
   }
 
-  const connectionIds = collectConnectionIds(graph);
+  const connectionIds = collectConnectionIds(graph, ctx);
   if (connectionIds.size === 0) return;
 
   const db = getDb();
+  const tenantId = credentialTenantFor(ctx);
 
   for (const connectionId of connectionIds) {
     try {
@@ -188,10 +231,10 @@ export async function resolveCredentials(
            FROM integration_connections
            WHERE id = ? AND tenant_id = ?`,
         )
-        .get(connectionId, ctx.tenantId) as StoredConnection | undefined;
+        .get(connectionId, tenantId) as StoredConnection | undefined;
 
       if (!row) {
-        logger.warn({ connectionId }, 'Integration connection not found for tenant');
+        logger.warn({ connectionId, tenantId }, 'Integration connection not found for tenant');
         continue;
       }
 
@@ -222,7 +265,9 @@ export async function resolveCredentials(
         resolved = await maybeRefreshOAuth(
           connectionId,
           row.service,
-          ctx.tenantId,
+          // The connection's owner, so the API's ownership check accepts the
+          // refreshed token written back for it.
+          tenantId,
           rawCreds,
           resolved,
         );

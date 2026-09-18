@@ -537,6 +537,34 @@ describe('internal session endpoints (engine → API)', () => {
       expect(await contextOf(sid, 'messages')).toEqual(['a', 'b']);
     });
 
+    it('append: an array value appends its items, not itself', async () => {
+      // A turn that writes several entries at once (Caal stores a user and an
+      // assistant message per turn) must land flat — nesting them made
+      // core:llm-call feed arrays back to the provider as messages.
+      await save({ messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }] }, { messages: { type: 'append' } });
+      expect(await contextOf(sid, 'messages')).toEqual([
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'hello' },
+      ]);
+
+      await save({ messages: [{ role: 'user', content: 'again' }] }, { messages: { type: 'append' } });
+      expect(await contextOf(sid, 'messages')).toHaveLength(3);
+    });
+
+    it('append: maxItems counts items, not writes', async () => {
+      const schema = { m: { type: 'append', maxItems: 3 } };
+      await save({ m: ['a', 'b'] }, schema);
+      await save({ m: ['c', 'd'] }, schema);
+      expect(await contextOf(sid, 'm')).toEqual(['b', 'c', 'd']);
+    });
+
+    it('append: an empty array leaves the stored list unchanged', async () => {
+      const schema = { m: { type: 'append' } };
+      await save({ m: ['a'] }, schema);
+      await save({ m: [] }, schema);
+      expect(await contextOf(sid, 'm')).toEqual(['a']);
+    });
+
     it('append: evicts oldest past maxItems by default', async () => {
       const schema = { m: { type: 'append', maxItems: 2 } };
       await save({ m: 'a' }, schema);

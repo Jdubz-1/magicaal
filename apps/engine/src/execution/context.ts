@@ -6,6 +6,7 @@ import { sseManager } from '../sse/sse-manager';
 import { routedLLMCall, resolveRouterConfig } from '../router/router-engine';
 import { config } from '../config';
 import { mcpRegistry } from '../mcp/mcp-registry';
+import { PLATFORM_TENANT_ID } from '../lib/platform';
 
 export interface RunParams {
   runId: string;
@@ -18,6 +19,14 @@ export interface RunParams {
   /** Per-dispatch router override (e.g. Caal's caal_configuration.routerPolicyId). */
   runRouterOverride?: ModelRouterConfig | null;
   sessionId?: string;
+  /**
+   * Tenant whose integration connections back this run's credentials, when that
+   * is not the run's own tenant. Set by the API for platform-tenant agents
+   * (Caal) invoked by a tenant user, whose router policy and connection belong
+   * to that user's tenant. Honored only for platform-tenant runs — see
+   * credential-resolver.
+   */
+  credentialTenantId?: string | null;
 }
 
 export interface CollectedMetric {
@@ -38,6 +47,7 @@ export class ExecutionContextImpl implements ExecutionContext {
   readonly graphDefaultRouter?: ModelRouterConfig | null;
   readonly tenantRouterPolicy?: ModelRouterConfig | null;
   readonly runRouterOverride?: ModelRouterConfig | null;
+  readonly credentialTenantId?: string | null;
 
   private _tokenUsage: TokenUsage = {
     promptTokens: 0,
@@ -50,6 +60,8 @@ export class ExecutionContextImpl implements ExecutionContext {
   private _suspendReviewId: string | undefined;
   private _suspendedNodeId: string | undefined;
   private _resumeAt: number | undefined;
+  /** Context keys written during this run — see sessionWrites(). */
+  private readonly _writtenKeys = new Set<string>();
 
   constructor(params: RunParams) {
     this.runId = params.runId;
@@ -61,6 +73,7 @@ export class ExecutionContextImpl implements ExecutionContext {
     this.graphDefaultRouter = params.graphDefaultRouter;
     this.tenantRouterPolicy = params.tenantRouterPolicy;
     this.runRouterOverride = params.runRouterOverride;
+    this.credentialTenantId = params.credentialTenantId;
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -69,6 +82,42 @@ export class ExecutionContextImpl implements ExecutionContext {
 
   set(key: string, value: unknown): void {
     this.data[key] = value;
+    this._writtenKeys.add(key);
+  }
+
+  /**
+   * Forget writes recorded so far. The scheduler calls this once the stored
+   * session has been loaded into the context, so the loaded values count as
+   * the baseline rather than as writes by this run.
+   */
+  resetWriteTracking(): void {
+    this._writtenKeys.clear();
+  }
+
+  /**
+   * What this run actually wrote, for the session save.
+   *
+   * Posting the whole context back re-sent every loaded key, and an `append`
+   * key the run never rewrote was then concatenated onto itself — a run that
+   * failed before its session-write node doubled the stored list on each
+   * attempt. Keys seeded from the run input never pass through set(), so a
+   * resumed run does not re-save its checkpoint either.
+   */
+  sessionWrites(): Record<string, unknown> {
+    const writes: Record<string, unknown> = {};
+    for (const key of this._writtenKeys) {
+      if (key in this.data) writes[key] = this.data[key];
+    }
+    return writes;
+  }
+
+  /**
+   * Keys this context recorded as writes. The worker uses it to carry a fork
+   * branch's own writes back onto the parent without marking the whole branch
+   * snapshot — which would re-mark the loaded session baseline.
+   */
+  writtenKeys(): string[] {
+    return [...this._writtenKeys];
   }
 
   async evaluate(expression: string): Promise<unknown> {
@@ -140,6 +189,21 @@ export class ExecutionContextImpl implements ExecutionContext {
         // the child run loads the same session and accumulates back into it
         // (when its own session config is enabled).
         ...(this.sessionId && { sessionId: this.sessionId }),
+        // A child of a platform-tenant run resolves credentials against the
+        // same tenant as its parent — without this it inherits tenantId
+        // (_platform) alone and finds no connection, exactly as the parent would.
+        // The router travels with it: a credential tenant on its own leaves the
+        // child with connections it can resolve but no target to use them for.
+        //
+        // Platform runs only, matching the one place the credential
+        // substitution is honoured (credential-resolver). A run override
+        // outranks a node's own inline router, so forwarding it from an
+        // ordinary tenant's run would silently replace a child agent's
+        // deliberate model choice.
+        ...(this.tenantId === PLATFORM_TENANT_ID && {
+          ...(this.credentialTenantId && { credentialTenantId: this.credentialTenantId }),
+          ...(this.runRouterOverride && { routerOverride: this.runRouterOverride }),
+        }),
         caller: { kind: 'platform', strategy: 'sub-graph' },
       }),
     });
