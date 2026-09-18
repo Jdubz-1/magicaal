@@ -93,6 +93,27 @@ describe('resumeRun — dispatch fields survive suspension', () => {
     expect(job.sessionId).toBe('session-1');
   });
 
+  it('ignores reserved dispatch keys supplied as reviewer modifications', async () => {
+    // An approver must not be able to point a platform-tenant run's credential
+    // resolution at a tenant of their choosing by naming the reserved keys.
+    suspendedRun({ userPrompt: 'hello', _dispatch_credential_tenant: 'tenant-a' });
+
+    await resumeRun('run-1', {
+      action: 'approve',
+      modifications: {
+        _dispatch_credential_tenant: 'tenant-victim',
+        _dispatch_router_override: { strategy: 'priority', targets: [], triggers: [] },
+      },
+    });
+
+    const [, job] = addJob.mock.calls[0] as [string, { input: Record<string, unknown> }] &
+      [string, Record<string, unknown>];
+    expect(job.credentialTenantId).toBe('tenant-a');
+    expect(job.routerOverride).toBeUndefined();
+    expect(job.input._dispatch_credential_tenant).toBeUndefined();
+    expect(job.input._dispatch_router_override).toBeUndefined();
+  });
+
   it('applies reviewer modifications alongside the restored context', async () => {
     suspendedRun({ userPrompt: 'hello', _dispatch_credential_tenant: 'tenant-a' });
 

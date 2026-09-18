@@ -67,25 +67,11 @@ export async function resumeRun(
     ? (JSON.parse(run.checkpointJson) as Record<string, unknown>)
     : {};
 
-  // Apply any modifications from the reviewer
-  if (resolution.modifications) {
-    Object.assign(checkpointData, resolution.modifications);
-  }
-
-  // Inject approval result into context so the human-review node's downstream
-  // edges can route on review outcome
-  checkpointData._review_approved = true;
-  checkpointData._review_modifications = resolution.modifications ?? null;
-
-  // Reset status to pending so the run can be re-dispatched
-  await telemetryDb
-    .update(telemetryRuns)
-    .set({ status: 'pending' })
-    .where(eq(telemetryRuns.id, runId));
-
-  // Dispatch-level fields the original job carried, parked in the checkpoint
-  // by markRunSuspended. Pulled back out of the context so they reach the job
-  // rather than the resumed run's input.
+  // Dispatch-level fields the original job carried, parked in the checkpoint by
+  // markRunSuspended. Taken out before the reviewer's modifications are applied:
+  // merging first would let an approver set these keys themselves and have them
+  // promoted onto the job, pointing a platform-tenant run's credential
+  // resolution at a tenant of their choosing.
   const {
     _dispatch_router_override: routerOverride,
     _dispatch_credential_tenant: credentialTenantId,
@@ -94,6 +80,33 @@ export async function resumeRun(
     _dispatch_router_override?: ModelRouterConfig;
     _dispatch_credential_tenant?: string;
   };
+
+  // Apply any modifications from the reviewer, minus those reserved keys
+  if (resolution.modifications) {
+    const {
+      _dispatch_router_override: injectedRouter,
+      _dispatch_credential_tenant: injectedTenant,
+      ...safeModifications
+    } = resolution.modifications;
+    if (injectedRouter !== undefined || injectedTenant !== undefined) {
+      logger.warn(
+        { runId },
+        'Review modifications tried to set reserved dispatch keys — ignored',
+      );
+    }
+    Object.assign(restoredContext, safeModifications);
+  }
+
+  // Inject approval result into context so the human-review node's downstream
+  // edges can route on review outcome
+  restoredContext._review_approved = true;
+  restoredContext._review_modifications = resolution.modifications ?? null;
+
+  // Reset status to pending so the run can be re-dispatched
+  await telemetryDb
+    .update(telemetryRuns)
+    .set({ status: 'pending' })
+    .where(eq(telemetryRuns.id, runId));
 
   // Re-enqueue with restored checkpoint. sessionId comes from the telemetry
   // row (ALIGN-010) — without it the resumed run would lose its session and
