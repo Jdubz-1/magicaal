@@ -20,6 +20,25 @@
     createdAt: string;
   }
 
+  /** A row exactly as `GET /v1/agents/:id/test-cases` stores and returns it. */
+  interface TestCaseRow {
+    id: string;
+    name: string;
+    inputJson: string;
+    assertionsJson: string;
+    lastResult: string | null;
+    createdAt: string;
+  }
+
+  function parseJson<T>(raw: string | null | undefined): T | null {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
   interface TestCaseResult {
     passed: boolean;
     assertions: { type: string; key: string; passed: boolean; reason?: string }[];
@@ -58,8 +77,17 @@
     try {
       const res = await fetch(`/api/agents/${agentId}/test-cases`);
       if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json() as { testCases: TestCase[] };
-      testCases = data.testCases ?? [];
+      // listTestCases returns the rows as stored: a bare array, with
+      // assertions and the last result held as JSON strings.
+      const rows = await res.json() as TestCaseRow[];
+      testCases = rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        inputJson: row.inputJson,
+        assertions: parseJson<Assertion[]>(row.assertionsJson) ?? [],
+        lastResult: parseJson<TestCaseResult>(row.lastResult),
+        createdAt: row.createdAt,
+      }));
     } catch (err) {
       error = (err as Error).message;
     } finally {

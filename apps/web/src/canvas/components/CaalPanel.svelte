@@ -75,7 +75,12 @@
         message: text,
         graphState: graphSnapshot,
         selectedNodeIds: $selectedNode ? [$selectedNode.id] : [],
-        sessionId: sessionId ?? undefined,
+        // Deliberately NOT sending the sessionId the API returned: invokeCaal
+        // treats the field as a *client* id and namespaces it again, so
+        // echoing back the server's already-namespaced value nested one
+        // wrapper deeper on every turn and started a fresh session each
+        // message (ISS-069, same double-wrap as loadHistory below). agentId
+        // alone gives a stable per-user, per-agent session across turns.
         // Without this, invokeCaal's session-ID suffix falls back to
         // 'global', and every agent a user edits shares one Caal session
         // bucket instead of one per agent — also needed for loadHistory()'s
@@ -206,8 +211,10 @@
       // it and the lookup never matches (ISS-069).
       const res = await fetch(`/api/caal/sessions/${encodeURIComponent(agentId)}`);
       if (res.ok) {
-        const data = await res.json() as { contextEntries: { messages?: CaalMessage[] } };
-        historyMessages = data.contextEntries?.messages ?? [];
+        // getCaalSession returns the context keys flattened, not nested under
+        // contextEntries: { sessionId, messages, proposalHistory, lastProposal }
+        const data = await res.json() as { messages?: CaalMessage[] };
+        historyMessages = data.messages ?? [];
         showHistory = true;
       }
     } catch { /* non-fatal */ }
