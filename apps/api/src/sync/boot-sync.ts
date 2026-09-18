@@ -122,6 +122,21 @@ async function syncAgent(
   const existing = existingRows[0];
   const now = new Date();
 
+  // `agents.handle` is globally unique and tenants choose their own handles, so
+  // a row matching this handle is not necessarily this code-defined agent. Bail
+  // before touching it: the caller records this in SyncResult.errors and moves
+  // on to the next agent, so the collision is visible without a boot failure
+  // and without repointing a tenant's agent at a graph it never authored.
+  if (
+    existing &&
+    !(existing.authoringMode === 'code-defined' && existing.tenantId === PLATFORM_TENANT_ID)
+  ) {
+    throw new Error(
+      `Handle "${entry.handle}" belongs to a ${existing.authoringMode} agent in tenant ` +
+        `${existing.tenantId} — refusing to sync the code-defined agent over it`,
+    );
+  }
+
   if (!existing) {
     // New code-defined agent
     const agentId = crypto.randomUUID();
@@ -170,19 +185,15 @@ async function syncAgent(
     // they sit at draft/disabled with no API path able to reach them (agent
     // mutations are tenant-scoped and 404 for _platform).
     //
-    // Scoped to code-defined platform rows on purpose: `agents.handle` is
-    // globally unique and tenants choose their own handles, so a tenant's
-    // Studio agent that happens to share this handle must never be force-
-    // enabled by a boot.
+    // Only this agent's own row reaches here — the guard above rejected any
+    // handle collision with a tenant's agent.
     //
     // Note this also reverts a direct DB edit that set status='draft' with
     // enabled=0 — the shape an operator would reach for, since no API can
     // disable a code-defined agent. Caal's supported off switch is
     // caal_configuration.enabled; for other code-defined agents, disable by
     // removing them from agents.manifest.json.
-    const isCodeDefinedPlatformAgent =
-      existing.authoringMode === 'code-defined' && existing.tenantId === PLATFORM_TENANT_ID;
-    if (isCodeDefinedPlatformAgent && existing.status === 'draft' && !existing.enabled) {
+    if (existing.status === 'draft' && !existing.enabled) {
       await db
         .update(agents)
         .set({ status: 'active', enabled: true, updatedAt: now })

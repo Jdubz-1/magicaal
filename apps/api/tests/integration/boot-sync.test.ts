@@ -170,11 +170,38 @@ describe('bootTimeSync — syncConfig override semantics (ALIGN-005)', () => {
       .set({ authoringMode: 'studio', tenantId: agentRow.tenantId, status: 'draft', enabled: false })
       .where(eq(agents.id, agentRow.id));
 
-    await bootTimeSync(agentsDir);
+    const versionsBefore = await db
+      .select()
+      .from(agentVersions)
+      .where(eq(agentVersions.agentId, agentRow.id));
+
+    // A changed definition is the case that used to repoint the row wholesale
+    writeAgentFiles(
+      agentsDir,
+      definitionWith(
+        { type: 'cron', expression: '45 * * * *' },
+        { maxParallel: 1, queueTimeout: 1000 },
+        { maxAttempts: 2, backoff: 'fixed', delayMs: 10 },
+      ),
+    );
+
+    const result = await bootTimeSync(agentsDir);
+
+    // Reported, not silently skipped, and not applied
+    expect(result.errors.join(' ')).toContain(HANDLE);
+    expect(result.updated).toBe(0);
 
     const after = (await db.select().from(agents).where(eq(agents.id, agentRow.id)))[0]!;
     expect(after.status).toBe('draft');
     expect(after.enabled).toBe(false);
+    expect(after.currentVersionId).toBe(agentRow.currentVersionId);
+    expect(after.name).toBe(agentRow.name);
+
+    const versionsAfter = await db
+      .select()
+      .from(agentVersions)
+      .where(eq(agentVersions.agentId, agentRow.id));
+    expect(versionsAfter).toHaveLength(versionsBefore.length);
 
     // restore for the checks that follow
     await db
