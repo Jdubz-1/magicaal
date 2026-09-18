@@ -1075,7 +1075,17 @@ adminRouter.post('/integrations/providers/:provider/create', async (req, res, ne
     const user = req.session!;
     const provider = (await loadProviderCatalog(api)).find((p) => p.provider === req.params.provider);
     if (!provider) {
-      res.redirect('/admin/integrations');
+      // The catalog is served by the engine, so an empty one usually means the
+      // engine is momentarily unavailable rather than a bad provider id. A bare
+      // redirect discarded the submitted credentials and looked identical to
+      // cancelling — say what happened instead.
+      res.status(503).send(layout(`
+        <div class="container" style="margin-top:1.5rem;max-width:600px">
+          <h1 style="font-size:1.25rem">Couldn't load the model provider catalog</h1>
+          <p style="color:#94a3b8">Nothing was saved. The engine may be restarting — go back and try again.</p>
+          <a href="/admin/integrations" class="btn btn-ghost">&larr; Integrations</a>
+        </div>`,
+        { title: 'Catalog unavailable — Admin', user: { name: user.userId, role: user.role } }));
       return;
     }
 
@@ -1129,9 +1139,19 @@ adminRouter.post('/integrations/providers/:provider/create', async (req, res, ne
       if (status === 422) {
         render({ error: 'The provider rejected this API key. Check it and try again.', values: nonSecretValues() }, 422);
       } else if (status === 424) {
-        const values = nonSecretValues();
-        for (const [k, v] of Object.entries(credentials)) values[`cred_${k}`] = v;
-        render({ error: `Couldn't verify the key: ${apiErr.response?.data?.error ?? 'provider unreachable'}.`, unverifiable: true, values }, 424);
+        // Deliberately not echoing the key back into the form: it would sit in
+        // a value="…" attribute of the rendered HTML, which can land in a
+        // back/forward cache, a shared proxy cache or history state.
+        render({
+          error: `Couldn't verify the key: ${apiErr.response?.data?.error ?? 'provider unreachable'}. Paste the key again to retry, or to save it without verifying.`,
+          unverifiable: true,
+          values: nonSecretValues(),
+        }, 424);
+      } else if (status === 409) {
+        render({
+          error: apiErr.response?.data?.error ?? 'That router policy name is already taken — choose another.',
+          values: nonSecretValues(),
+        }, 409);
       } else if (status === 400) {
         render({ error: apiErr.response?.data?.error ?? 'Invalid input.', values: nonSecretValues() }, 400);
       } else {
