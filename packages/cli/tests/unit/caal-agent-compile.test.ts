@@ -73,6 +73,13 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     const sw = node('session-write');
     const writes = sw.config.writes as Record<string, string>;
 
+    // Every write must be an expression: core:session-write only evaluates a
+    // string that starts with '$', so a bare [...] literal is stored as its own
+    // template text and the session fills with copies of that string.
+    for (const [key, expr] of Object.entries(writes)) {
+      expect(`${key}=${expr.trim()[0]}`).toBe(`${key}=$`);
+    }
+
     // The turn's own two messages, and nothing else: the session layer's
     // `append` concatenates them. Re-appending the stored key here accumulated
     // twice and stored a list of turn-arrays, which core:llm-call then fed
