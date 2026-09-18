@@ -44,8 +44,13 @@ independent faults, found together while testing a local Docker stack.
   (`status='active' AND enabled=1`). They live in the `_platform` tenant while
   agent mutations are tenant-scoped, so no API call could activate them — Caal
   was unrunnable on every install. Now seeded active/enabled, with rows already
-  stuck at draft/disabled repaired on sync; an agent an operator deliberately
-  disabled is left alone
+  stuck at draft/disabled repaired on sync — scoped to code-defined rows in the
+  `_platform` tenant, since `agents.handle` is globally unique and a tenant's
+  own Studio agent could otherwise be force-enabled by a boot. An agent left
+  `active` with `enabled=0` is untouched, but a direct DB edit that also sets
+  `status='draft'` is reverted on the next boot: the supported off switches are
+  `caal_configuration.enabled` for Caal, and removal from
+  `agents.manifest.json` for any other code-defined agent
 - `apps/engine/src/execution/scheduler.ts` — graph load sat ahead of the
   worker's try/catch, so an unloadable agent left the run `pending` and callers
   polled to their own timeout (2 min for the Caal endpoint) instead of seeing
@@ -74,8 +79,20 @@ independent faults, found together while testing a local Docker stack.
   `All router targets exhausted` with no lookup attempted. Collection now
   covers all four router levels. `dispatchSubRun` forwards
   `credentialTenantId` so a platform run's children resolve the same way.
-  Resume/cron re-enqueues and the summarize path keep the old blind spot;
-  both are recorded in `docs/developer-guide/architecture/model-router.md`
+  Dispatch fields now also survive a suspension: `markRunSuspended` parks them
+  in the checkpoint and `resume.ts` strips them back out into the job, and the
+  cron re-enqueue spreads the original job data rather than rebuilding it.
+  Fork/fan-out branch contexts and the summarize path keep the old blind spot,
+  both recorded in `docs/developer-guide/architecture/model-router.md`
+- `apps/web/src/canvas/components/{CaalPanel,TestCasesPanel}.svelte` — three
+  panel bugs the URL fix above made reachable, each a response the panel read
+  wrongly: Caal echoed the API's already-namespaced `sessionId` back as a
+  *client* id, so `invokeCaal` re-wrapped it and every turn started a fresh
+  session (no memory, and history could never match); history read
+  `contextEntries.messages` where `getCaalSession` returns `messages` at the
+  top level; and the test-case list read `data.testCases` where the endpoint
+  returns a bare array of rows carrying `assertionsJson`/`lastResult` as JSON
+  strings
 - `apps/web/src/routes/admin.ts` — Admin → System → Caal assigned that `null`
   over its `{}` default (a 200 never hits the surrounding catch) and threw
   `Cannot read properties of null (reading 'generationMode')`. The page failed

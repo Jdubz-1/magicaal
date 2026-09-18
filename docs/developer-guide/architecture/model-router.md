@@ -10,7 +10,12 @@ The Model Router (`apps/engine/src/router/`) is the provider-agnostic layer ever
 
 `resolveRouterConfig` may take a router from four levels — a locked tenant policy, the per-dispatch override (`RunParams.runRouterOverride`), the node's inline `router`, the graph's `defaultRouter` — so `resolver/credential-resolver.ts` collects connection ids from **all four** before execution. Credentials are resolved once, ahead of the graph run; a target whose connection was never collected is skipped at call time with `No credentials for target, skipping`, and a router whose targets are all skipped fails the run with `All router targets exhausted`.
 
-Known gaps, each needing its own change: a resumed run (`execution/resume.ts`) and a cron re-enqueue rebuild their job data and drop `routerOverride`/`credentialTenantId` — `routerOverride` is not persisted on `telemetry_runs`, so preserving it across a resume needs a schema change. Session-overflow summarization (`/internal/llm/summarize`) receives the graph `defaultRouter` and the session's own tenant, so it cannot route or resolve credentials for a platform agent; Caal does not reach it today because its context schema evicts rather than summarizes.
+Dispatch-level fields must survive every re-enqueue. A suspended run parks them in its checkpoint (`lifecycle.markRunSuspended` writes `_dispatch_router_override` / `_dispatch_credential_tenant`, which `execution/resume.ts` strips back out into the job), and the retry and cron paths spread the original job data rather than rebuilding it field by field — rebuilding is how these were dropped in the first place.
+
+Two known gaps remain, each needing its own change:
+
+- **Fork and fan-out branches** (`execution/worker.ts`) build a branch `ExecutionContextImpl` that copies `graphDefaultRouter` and `tenantRouterPolicy` but not `runRouterOverride` or `credentialTenantId` (the fork branch copies no routers or credentials at all). A run whose only router is the per-dispatch override would fail with `ROUTER_NOT_CONFIGURED` inside such a branch even though its credentials were resolved. Not reachable today: Caal's graph has no fork or fan-out node.
+- **Session-overflow summarization** (`/internal/llm/summarize`) receives the graph `defaultRouter` and the session's own tenant, so it can neither route nor resolve credentials for a platform agent. Not reachable today: Caal's context schema evicts rather than summarizes.
 
 ## Routing Strategies
 
