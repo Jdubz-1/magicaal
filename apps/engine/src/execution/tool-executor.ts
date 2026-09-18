@@ -42,6 +42,57 @@ interface McpClientConfig {
   outputKey?: string;
 }
 
+// ── Provider-facing tool names ────────────────────────────────────────────────
+
+/**
+ * Tool names travel to the provider, and providers constrain them: Anthropic
+ * requires `^[a-zA-Z0-9_-]{1,128}$` (OpenAI is the same set at 64). MagiCaal's
+ * own ids are dotted (`caal.graph.read`), and sending one rejected the whole
+ * request with a bare 400 — so names are sanitized at this boundary rather
+ * than renamed at the source, where graph toolEdges, compiled agents and stored
+ * graphs all reference them.
+ */
+export function toApiToolName(name: string): string {
+  const cleaned = name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, MAX_API_TOOL_NAME);
+  return cleaned.length > 0 ? cleaned : 'tool';
+}
+
+const MAX_API_TOOL_NAME = 128;
+
+/**
+ * Provider-facing name → tool. Sanitizing can collide (`a.b` and `a_b` both
+ * become `a_b`), so later entries take a numeric suffix; the map is also what
+ * dispatch matches a returned tool call against.
+ */
+export function mapToolsByApiName(tools: AssembledTool[]): Map<string, AssembledTool> {
+  const byApiName = new Map<string, AssembledTool>();
+
+  for (const tool of tools) {
+    const base = toApiToolName(tool.name);
+    let apiName = base;
+    for (let n = 2; byApiName.has(apiName); n++) {
+      const suffix = `_${n}`;
+      apiName = base.slice(0, MAX_API_TOOL_NAME - suffix.length) + suffix;
+      logger.warn({ tool: tool.name, apiName }, 'Tool name collides after sanitizing — suffixed');
+    }
+    byApiName.set(apiName, tool);
+  }
+
+  return byApiName;
+}
+
+/**
+ * A provider rejects a tool whose schema declares no type — an empty `{}` is
+ * what a node that takes no arguments naturally writes. Normalize here so one
+ * malformed node cannot 400 an entire run.
+ */
+function normalizeInputSchema(schema: unknown): object {
+  if (typeof schema === 'object' && schema !== null && 'type' in schema) {
+    return schema as object;
+  }
+  return { type: 'object', properties: {} };
+}
+
 // ── assembleTools ─────────────────────────────────────────────────────────────
 
 export async function assembleTools(
@@ -136,10 +187,11 @@ export async function runAgentLoop(
   const outputKey = config.outputKey ?? 'output';
 
   const tools = await assembleTools(nodeDef.id, graph, ctx);
-  const canonicalTools: CanonicalTool[] = tools.map((t) => ({
-    name: t.name,
+  const toolsByApiName = mapToolsByApiName(tools);
+  const canonicalTools: CanonicalTool[] = [...toolsByApiName].map(([apiName, t]) => ({
+    name: apiName,
     description: t.description,
-    inputSchema: t.inputSchema,
+    inputSchema: normalizeInputSchema(t.inputSchema),
   }));
 
   const initialInput = ctx.get(inputKey);
@@ -192,12 +244,12 @@ export async function runAgentLoop(
     let toolResults: Array<{ toolCall: CanonicalToolCall; content: string }>;
     if (mode === 'tool-call') {
       toolResults = await Promise.all(
-        response.toolCalls.map((tc) => invokeToolCall(tc, tools, graph, ctx)),
+        response.toolCalls.map((tc) => invokeToolCall(tc, toolsByApiName, graph, ctx)),
       );
     } else {
       toolResults = [];
       for (const tc of response.toolCalls) {
-        toolResults.push(await invokeToolCall(tc, tools, graph, ctx));
+        toolResults.push(await invokeToolCall(tc, toolsByApiName, graph, ctx));
       }
     }
 
@@ -248,11 +300,13 @@ export async function runAgentLoop(
 
 async function invokeToolCall(
   toolCall: CanonicalToolCall,
-  tools: AssembledTool[],
+  // Keyed by the sanitized name the provider was given, which is what it
+  // returns in a tool call — the source id may contain characters it rejects.
+  toolsByApiName: Map<string, AssembledTool>,
   graph: AgentGraphDefinition,
   ctx: ExecutionContextImpl,
 ): Promise<{ toolCall: CanonicalToolCall; content: string }> {
-  const tool = tools.find((t) => t.name === toolCall.name);
+  const tool = toolsByApiName.get(toolCall.name);
   if (!tool) {
     logger.warn({ toolName: toolCall.name }, 'Unknown tool called by LLM');
     return { toolCall, content: JSON.stringify({ error: `Unknown tool: ${toolCall.name}` }) };

@@ -102,6 +102,8 @@ describe('runAgentLoop', () => {
 
 describe('native tools (tool edges whose source is a registered node type, not a graph node)', () => {
   const NATIVE_TOOL_TYPE = 'test.native.stage-patch';
+  /** What the provider actually receives, and therefore returns. */
+  const NATIVE_TOOL_API_NAME = 'test_native_stage-patch';
   let executeSpy: jest.Mock;
 
   beforeEach(() => {
@@ -161,7 +163,10 @@ describe('native tools (tool edges whose source is a registered node type, not a
         content: 'Staging a patch',
         stopReason: 'tool_use',
         usage: { promptTokens: 1, completionTokens: 1, estimatedCostUsd: 0 },
-        toolCalls: [{ id: 'call-1', name: NATIVE_TOOL_TYPE, input: { note: 'first' } }],
+        // The provider can only return the name it was given, and dotted ids
+        // are sanitized before they are sent (providers require
+        // ^[a-zA-Z0-9_-]{1,128}$).
+        toolCalls: [{ id: 'call-1', name: NATIVE_TOOL_API_NAME, input: { note: 'first' } }],
         routingMeta: { targetUsed: mockTarget, attemptCount: 1, triggerHistory: [] },
       })
       .mockResolvedValueOnce({
@@ -174,6 +179,9 @@ describe('native tools (tool edges whose source is a registered node type, not a
     const result = await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
 
     expect(result.status).toBe('complete');
+    // The tool definition went out under the sanitized name…
+    expect(llmCallSpy.mock.calls[0][0].tools?.[0].name).toBe(NATIVE_TOOL_API_NAME);
+    // …and the call that came back under it resolved to the right module.
     expect(executeSpy).toHaveBeenCalledTimes(1);
     // The execute call received the very same ctx passed into runAgentLoop —
     // not a forked copy — so its mutation of ctx.data is visible here.
