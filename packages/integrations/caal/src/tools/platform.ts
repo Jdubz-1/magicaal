@@ -37,7 +37,8 @@ export const platformListNodeTypes: NodeModule = {
   type: 'caal.platform.listNodeTypes',
   meta: { name: 'List Node Types', description: 'List all available node types and their categories', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
@@ -95,7 +96,8 @@ export const platformListConnections: NodeModule = {
   type: 'caal.platform.listConnections',
   meta: { name: 'List Connections', description: 'List all active integration connections for the tenant', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
@@ -120,7 +122,8 @@ export const platformListAgents: NodeModule = {
   type: 'caal.platform.listAgents',
   meta: { name: 'List Agents', description: 'List all agents in the tenant', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
