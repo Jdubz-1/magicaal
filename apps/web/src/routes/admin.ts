@@ -2715,8 +2715,12 @@ adminRouter.get('/system/caal', async (req, res, next) => {
 
     let config: Record<string, unknown> = {};
     try {
-      const { data } = await api.get<Record<string, unknown>>('/v1/caal/config');
-      config = data;
+      const { data } = await api.get<Record<string, unknown> | null>('/v1/caal/config');
+      // A tenant with no saved settings used to get a 200 carrying null, which
+      // sailed past this catch and replaced the {} default — every config[...]
+      // read below then threw. The API now sends defaults; the guard keeps an
+      // older API from breaking the page.
+      config = data ?? {};
     } catch { /* no config yet */ }
 
     // routerPolicyId has been wired into invocation (2026-07-27) but this

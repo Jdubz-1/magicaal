@@ -186,12 +186,21 @@ export class CaalAssistantAgent extends AgentGraph {
     // real, already-flat key holding prior turns.
     this.node('session-write', 'core:session-write', {
       writes: {
-        messages: '$append($.sessionMessages ?? [], [{"role": "user", "content": $.message}, {"role": "assistant", "content": $.content}])',
+        // Only this turn's messages: the session layer's `append` schema type
+        // concatenates the items. Re-appending $.sessionMessages here made the
+        // node and the session layer both accumulate, storing a list of
+        // turn-arrays that core:llm-call fed back as malformed messages.
+        //
+        // Written as $append([], …) rather than a bare [...] literal because
+        // core:session-write only evaluates a value when the string starts with
+        // '$' — a bare array literal is stored as its own template text.
+        messages: '$append([], [{"role": "user", "content": $.message}, {"role": "assistant", "content": $.content}])',
         lastProposal: '$._caal_proposal',
         // References the raw _caal_proposal key directly rather than
         // $.proposal/$.caalResult.proposal, so this doesn't depend on
         // response-assembler's output shape at all.
-        proposalHistory: '$._caal_proposal ? $append($.proposalHistory ?? [], [$._caal_proposal]) : $.proposalHistory',
+        // Same single-accumulation rule as messages above; [] appends nothing.
+        proposalHistory: '$._caal_proposal ? $append([], [$._caal_proposal]) : []',
       },
     });
 

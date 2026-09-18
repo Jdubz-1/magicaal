@@ -16,6 +16,23 @@ Each adapter may declare a `descriptor` (`ProviderDescriptor`: display name, aut
 
 No migration is involved: a connection is treated as a model provider when its `service` matches a registered adapter. The generic "+ Add Connection" form still works for manual setup.
 
+## Credential Collection
+
+`resolveRouterConfig` may take a router from four levels — a locked tenant policy, the per-dispatch override (`RunParams.runRouterOverride`), the node's inline `router`, the graph's `defaultRouter` — so `resolver/credential-resolver.ts` collects connection ids from **all four** before execution. Credentials are resolved once, ahead of the graph run; a target whose connection was never collected is skipped at call time with `No credentials for target, skipping`, and a router whose targets are all skipped fails the run with `All router targets exhausted`.
+
+Dispatch-level fields must survive every re-enqueue. A suspended run parks them in its checkpoint (`lifecycle.markRunSuspended` writes `_dispatch_router_override` / `_dispatch_credential_tenant`, which `execution/resume.ts` strips back out into the job), and the retry and cron paths spread the original job data rather than rebuilding it field by field — rebuilding is how these were dropped in the first place.
+
+The credential-tenant substitution is all-or-nothing: once a run carries `credentialTenantId`, **every** connection it resolves — graph-level targets included — is looked up under that tenant, not just the one the override names. Sub-runs inherit both the credential tenant and the router override together (`ExecutionContextImpl.dispatchSubRun`), since either alone leaves the child unable to route or unable to authenticate.
+
+A fork branch's own writes carry back to the parent (its branch context tracks them separately from the parent snapshot it was seeded with), so a `core:session-write` inside a branch persists under the `merge`/`last-wins` join strategies. Under `collect` the branch data is stored wholesale under the join's `collectKey` and never merged into the parent, so such a write does not persist — unchanged by this work.
+
+Only what a run writes is saved back to its session. The scheduler resets the context's write tracking once the stored session is loaded, so the load is a baseline: an `append` key the run never rewrote is not re-sent and cannot be concatenated onto itself when a run fails or suspends before its `core:session-write` node.
+
+Two known gaps remain, each needing its own change:
+
+- **Fork and fan-out branches** (`execution/worker.ts`) build a branch `ExecutionContextImpl` that copies `graphDefaultRouter` and `tenantRouterPolicy` but not `runRouterOverride` or `credentialTenantId` (the fork branch copies no routers or credentials at all). A run whose only router is the per-dispatch override would fail with `ROUTER_NOT_CONFIGURED` inside such a branch even though its credentials were resolved. Not reachable today: Caal's graph has no fork or fan-out node.
+- **Session-overflow summarization** (`/internal/llm/summarize`) receives the graph `defaultRouter` and the session's own tenant, so it can neither route nor resolve credentials for a platform agent. Not reachable today: Caal's context schema evicts rather than summarizes.
+
 ## Routing Strategies
 
 A `ModelRouterConfig`'s `strategy` (from `@magicaal/core`'s `ModelRouterStrategy`) is one of:

@@ -39,7 +39,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch('/api/v1/prompts');
+      const res = await fetch('/api/prompts');
       if (!res.ok) throw new Error(`${res.status}`);
       const activeVersions = await res.json() as PromptVersionRow[];
       prompts = activeVersions.map((v) => ({
@@ -55,7 +55,7 @@
   }
 
   async function loadVersions(name: string) {
-    const res = await fetch(`/api/v1/prompts/${encodeURIComponent(name)}/versions`);
+    const res = await fetch(`/api/prompts/${encodeURIComponent(name)}/versions`);
     if (!res.ok) throw new Error(`${res.status}`);
     const versions = await res.json() as PromptVersion[];
     prompts = prompts.map((p) => (p.name === name ? { ...p, versions } : p));
@@ -63,7 +63,7 @@
 
   async function promoteVersion(name: string, versionId: string) {
     try {
-      const res = await fetch(`/api/v1/prompts/${encodeURIComponent(name)}/versions/${versionId}/promote`, {
+      const res = await fetch(`/api/prompts/${encodeURIComponent(name)}/versions/${versionId}/promote`, {
         method: 'POST',
       });
       if (!res.ok) throw new Error(`${res.status}`);
@@ -77,7 +77,7 @@
   async function createVersion() {
     if (!newVersionName || !newVersionContent) return;
     try {
-      const res = await fetch('/api/v1/prompts', {
+      const res = await fetch('/api/prompts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newVersionName, content: newVersionContent }),

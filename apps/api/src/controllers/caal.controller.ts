@@ -10,6 +10,14 @@ import { config } from '../config';
 const CAAL_AGENT_HANDLE = 'caal-assistant';
 
 /**
+ * Intents the Caal graph's intent-router branches on (agents/caal.agent.ts).
+ * The value steers routing, so anything else falls back to the graph's own
+ * default branch rather than travelling into the run as-is.
+ */
+const CAAL_INTENTS = ['explain', 'question', 'suggest', 'modify'] as const;
+const DEFAULT_CAAL_INTENT = 'question';
+
+/**
  * Resolves the calling tenant's caal_configuration row into the pieces
  * invokeCaal needs: whether Caal is enabled, a routerOverride (only
  * buildable from routerPolicyId today — modelOverride is a bare model-name
@@ -44,12 +52,13 @@ async function resolveCaalConfig(
 export const invokeCaal: RequestHandler = async (req, res, next) => {
   try {
     const { userId, tenantId } = req.user!;
-    const { message, graphState, selectedNodeIds, lastRunResult, agentId, sessionId: clientSessionId } = req.body as {
+    const { message, graphState, selectedNodeIds, lastRunResult, agentId, intent, sessionId: clientSessionId } = req.body as {
       message: string;
       graphState?: unknown;
       selectedNodeIds?: string[];
       lastRunResult?: unknown;
       agentId?: string;
+      intent?: string;
       sessionId?: string;
     };
 
@@ -84,8 +93,18 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
       caller: { kind: 'platform', strategy: 'caal' },
       sessionId,
       ...(caalConfig.routerOverride && { routerOverride: caalConfig.routerOverride }),
+      // The run executes as _platform, but the router policy that chose its
+      // model is this tenant's and points at this tenant's connection — so
+      // credentials resolve against the invoker, not the platform tenant.
+      credentialTenantId: tenantId,
       input: {
         message,
+        // The graph routes on $.intent; without this every message fell through
+        // the intent-router's cases to its default explain branch, so Studio's
+        // quick actions and the code-defined modify guard never took effect.
+        intent: CAAL_INTENTS.includes(intent as (typeof CAAL_INTENTS)[number])
+          ? intent
+          : DEFAULT_CAAL_INTENT,
         graphState: graphState ?? null,
         selectedNodeIds: selectedNodeIds ?? [],
         lastRunResult: lastRunResult ?? null,

@@ -41,13 +41,15 @@ interface RunJobData {
   enqueuedAt?: number;
   /** Per-dispatch router override — e.g. Caal's caal_configuration.routerPolicyId. */
   routerOverride?: ModelRouterConfig | null;
+  /** Tenant owning the connections this run's credentials resolve against. */
+  credentialTenantId?: string | null;
 }
 
 export function startScheduler(): void {
   const worker = new Worker<RunJobData>(
     'runs.trigger',
     async (job) => {
-      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId, nodeAttempts = {}, routerOverride } = job.data;
+      const { runId, agentId, tenantId, triggerType, input, resumeFromNodeId, sessionId, nodeAttempts = {}, routerOverride, credentialTenantId } = job.data;
 
       // Cancelled while still queued — the cancel endpoint already marked the
       // run; consume the flag and never start executing.
@@ -58,7 +60,27 @@ export function startScheduler(): void {
         return;
       }
 
-      let graph = await graphLoader.load(agentId, tenantId);
+      let graph: Awaited<ReturnType<typeof graphLoader.load>>;
+      try {
+        graph = await graphLoader.load(agentId, tenantId);
+      } catch (err) {
+        // Graph load sits ahead of the main try/catch, so without this a run
+        // whose agent is missing, inactive, or unloadable stays `pending`
+        // forever — callers (the Caal endpoint, the SDK) poll until their own
+        // timeout instead of seeing the real error.
+        await lifecycle.markRunFailed(
+          runId,
+          {
+            code: (err as { code?: string }).code ?? 'GRAPH_LOAD_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+            retryable: false,
+          },
+          new ExecutionContextImpl({ runId, agentId, tenantId, triggerType, input }),
+        );
+        if (sessionId) await releaseSessionLock(sessionId, runId).catch(() => {});
+        drainRunTally(runId);
+        throw err;
+      }
 
       const graphDefaultRouter =
         graph.config?.defaultRouter && typeof graph.config.defaultRouter === 'object'
@@ -74,6 +96,7 @@ export function startScheduler(): void {
         graphDefaultRouter,
         runRouterOverride: routerOverride ?? null,
         sessionId,
+        credentialTenantId: credentialTenantId ?? null,
       });
 
       // Concurrency admission (ALIGN-003): per-tenant cap — the tenant's own
@@ -146,6 +169,9 @@ export function startScheduler(): void {
             for (const [key, value] of loaded.contextEntries) {
               ctx.set(key, value);
             }
+            // Loaded values are the baseline, not this run's writes — saving
+            // them back would append every list onto itself.
+            ctx.resetWriteTracking();
             const isChildRun = triggerType === 'sub-graph' || triggerType === 'handoff';
             await sessionManager.recordRunLink(sessionId, runId, isChildRun);
           } catch (err) {
@@ -166,7 +192,7 @@ export function startScheduler(): void {
 
         // Save session context after graph execution
         if (sessionId && sessionConfig?.enabled) {
-          await sessionManager.saveSession(sessionId, runId, ctx.data, sessionConfig, graphDefaultRouter);
+          await sessionManager.saveSession(sessionId, runId, ctx.sessionWrites(), sessionConfig, graphDefaultRouter);
         }
 
         if (ctx.isSuspended) {
@@ -238,7 +264,7 @@ export function startScheduler(): void {
         // Still attempt session save on non-session errors so partial progress is preserved
         if (sessionId && graph.config?.session && code !== 'SESSION_EXPIRED' && code !== 'SESSION_LOAD_ERROR') {
           await sessionManager
-            .saveSession(sessionId, runId, ctx.data, graph.config.session as SessionConfig, graphDefaultRouter)
+            .saveSession(sessionId, runId, ctx.sessionWrites(), graph.config.session as SessionConfig, graphDefaultRouter)
             .catch(() => {});
         }
 
@@ -290,14 +316,17 @@ export function startScheduler(): void {
   const scheduledWorker = new Worker<RunJobData>(
     'runs.scheduled',
     async (job) => {
-      // Re-enqueue to the trigger queue so the same processor handles execution
-      const { agentId, tenantId, input } = job.data;
+      // Re-enqueue to the trigger queue so the same processor handles
+      // execution. Spread rather than rebuilt: listing fields by hand is how
+      // routerOverride and credentialTenantId got dropped on this path.
       await runTriggerQueue.add('run', {
+        ...job.data,
         runId: `run_${crypto.randomUUID()}`,
-        agentId,
-        tenantId,
         triggerType: 'cron',
-        input: input ?? {},
+        input: job.data.input ?? {},
+        // A cron tick starts a fresh run, never a resumption
+        resumeFromNodeId: undefined,
+        nodeAttempts: undefined,
       });
     },
     { connection: redis, concurrency: 5 },

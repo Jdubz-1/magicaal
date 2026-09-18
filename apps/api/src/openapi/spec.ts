@@ -587,7 +587,14 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       },
     },
     '/v1/caal/config': {
-      get: { tags: ['Caal'], summary: 'Get tenant Caal configuration', responses: { '200': ok } },
+      get: {
+        tags: ['Caal'],
+        summary: 'Get tenant Caal configuration',
+        description:
+          'The row is created on first PATCH; until then this returns the defaults the ' +
+          'tenant behaves under, with id, createdAt and updatedAt null.',
+        responses: { '200': ok },
+      },
       patch: {
         tags: ['Caal'],
         summary: 'Update tenant Caal configuration (tenant_admin+)',

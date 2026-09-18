@@ -20,6 +20,25 @@
     createdAt: string;
   }
 
+  /** A row exactly as `GET /v1/agents/:id/test-cases` stores and returns it. */
+  interface TestCaseRow {
+    id: string;
+    name: string;
+    inputJson: string;
+    assertionsJson: string;
+    lastResult: string | null;
+    createdAt: string;
+  }
+
+  function parseJson<T>(raw: string | null | undefined): T | null {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
   interface TestCaseResult {
     passed: boolean;
     assertions: { type: string; key: string; passed: boolean; reason?: string }[];
@@ -36,6 +55,8 @@
 
   let expanded = false;
   let loading = false;
+  /** Agent whose cases have been fetched — guards the reactive load below. */
+  let loadedForAgent: string | null = null;
   let running = false;
   let testCases: TestCase[] = [];
   let suiteResult: SuiteResult | null = null;
@@ -56,13 +77,25 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases`);
+      const res = await fetch(`/api/agents/${agentId}/test-cases`);
       if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json() as { testCases: TestCase[] };
-      testCases = data.testCases ?? [];
+      // listTestCases returns the rows as stored: a bare array, with
+      // assertions and the last result held as JSON strings.
+      const rows = await res.json() as TestCaseRow[];
+      testCases = rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        inputJson: row.inputJson,
+        assertions: parseJson<Assertion[]>(row.assertionsJson) ?? [],
+        lastResult: parseJson<TestCaseResult>(row.lastResult),
+        createdAt: row.createdAt,
+      }));
     } catch (err) {
       error = (err as Error).message;
     } finally {
+      // Marked on failure too — a failed load must not re-trigger the
+      // reactive statement below in a loop.
+      loadedForAgent = agentId;
       loading = false;
     }
   }
@@ -72,7 +105,7 @@
     suiteResult = null;
     error = null;
     try {
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases/run`, { method: 'POST' });
+      const res = await fetch(`/api/agents/${agentId}/test-cases/run`, { method: 'POST' });
       if (!res.ok) throw new Error(`${res.status}`);
       suiteResult = await res.json() as SuiteResult;
       await loadTestCases();
@@ -92,7 +125,7 @@
         assertion.threshold = newCase.assertionThreshold;
       }
 
-      const res = await fetch(`/api/v1/agents/${agentId}/test-cases`, {
+      const res = await fetch(`/api/agents/${agentId}/test-cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -112,12 +145,15 @@
 
   async function deleteTestCase(id: string) {
     try {
-      await fetch(`/api/v1/agents/${agentId}/test-cases/${id}`, { method: 'DELETE' });
+      await fetch(`/api/agents/${agentId}/test-cases/${id}`, { method: 'DELETE' });
       await loadTestCases();
     } catch { /* non-fatal */ }
   }
 
-  $: if (expanded && testCases.length === 0 && !loading) void loadTestCases();
+  // Keyed on the agent, not on testCases.length: an agent with no cases left
+  // the length at 0, so the old condition re-arms the moment `loading` returns
+  // to false and hammers the endpoint. Changing agent re-arms it naturally.
+  $: if (expanded && loadedForAgent !== agentId && !loading) void loadTestCases();
 
   function passRate(result: SuiteResult): string {
     return `${result.passed}/${result.total}`;

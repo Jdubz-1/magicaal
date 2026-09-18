@@ -69,12 +69,28 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     expect(ra.config.expression).toContain('proposal');
   });
 
-  it('session-write reads $.sessionMessages and the raw $._caal_proposal, not the never-populated $.history/$.proposal', () => {
+  it('session-write writes only the new turn, reading the raw $._caal_proposal and never the unpopulated $.history/$.proposal', () => {
     const sw = node('session-write');
     const writes = sw.config.writes as Record<string, string>;
-    expect(writes.messages).toContain('$.sessionMessages');
+
+    // Every write must be an expression: core:session-write only evaluates a
+    // string that starts with '$', so a bare [...] literal is stored as its own
+    // template text and the session fills with copies of that string.
+    for (const [key, expr] of Object.entries(writes)) {
+      expect(`${key}=${expr.trim()[0]}`).toBe(`${key}=$`);
+    }
+
+    // The turn's own two messages, and nothing else: the session layer's
+    // `append` concatenates them. Re-appending the stored key here accumulated
+    // twice and stored a list of turn-arrays, which core:llm-call then fed
+    // back to the provider adapter as entries with no role/content.
+    expect(writes.messages).toContain('$.message');
+    expect(writes.messages).toContain('$.content');
+    expect(writes.messages).not.toContain('$.sessionMessages');
     expect(writes.messages).not.toContain('$.history');
+
     expect(writes.proposalHistory).toContain('$._caal_proposal');
+    expect(writes.proposalHistory).not.toContain('$.proposalHistory');
     expect(writes.proposalHistory).not.toContain('$.proposal ');
   });
 

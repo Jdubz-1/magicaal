@@ -103,7 +103,16 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
 
     // Prepend stored session history as prior conversation turns
     if (config.injectSessionHistory) {
-      const history = ctx.get<CanonicalMessage[]>(config.injectSessionHistory) ?? [];
+      // Tolerant read: sessions written before `append` concatenated array
+      // values hold a list of turn-arrays, and spreading those into the request
+      // hands the provider adapter entries with no `role`/`content` — a hard
+      // crash inside the adapter rather than a degraded answer. Flatten one
+      // level and keep only real messages.
+      const stored = ctx.get<unknown>(config.injectSessionHistory);
+      const history = (Array.isArray(stored) ? stored.flat() : []).filter(
+        (m): m is CanonicalMessage =>
+          typeof m === 'object' && m !== null && 'role' in m && 'content' in m,
+      );
       if (history.length > 0) {
         messages = [...history, ...messages];
       }

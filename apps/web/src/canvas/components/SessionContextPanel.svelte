@@ -21,7 +21,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch(`/api/v1/agents/${agentId}/sessions/${encodeURIComponent(sessionId)}`);
+      const res = await fetch(`/api/agents/${agentId}/sessions/${encodeURIComponent(sessionId)}`);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json() as {
         contextEntries: Record<string, { value: unknown; accumulationType: string }>;
