@@ -106,6 +106,38 @@ describe('model provider catalog + credential validation', () => {
       expect(JSON.stringify(res.body)).not.toContain(KEY);
     });
 
+    it('reports invalid_key for a 400 that names the key (Gemini)', async () => {
+      // Gemini answers a bad key with 400 INVALID_ARGUMENT / API_KEY_INVALID and
+      // uses 403 for a valid key lacking permission — treating that as "unknown"
+      // surfaced a typo as "provider unreachable, save anyway".
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', message: 'API_KEY_INVALID' } }), { status: 400 }),
+      );
+
+      const res = await validate('google');
+
+      expect(res.body).toMatchObject({ ok: false, reason: 'invalid_key' });
+      expect(JSON.stringify(res.body)).not.toContain(KEY);
+    });
+
+    it('leaves an unrelated 400 as unknown', async () => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'malformed request' }), { status: 400 }));
+
+      const res = await validate('anthropic');
+
+      expect(res.body).toMatchObject({ ok: false, reason: 'unknown' });
+    });
+
+    it('takes the required credential fields from the descriptor', async () => {
+      // A third-party adapter may declare `{ key: 'token' }`; hardcoding
+      // api_key 400'd it after the API-side check had already passed.
+      const res = await validate('anthropic', { token: 'not-the-declared-field' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('api_key');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('reports unreachable when the provider cannot be reached', async () => {
       fetchMock.mockRejectedValue(new TypeError('fetch failed'));
 

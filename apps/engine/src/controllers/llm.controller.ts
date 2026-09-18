@@ -36,19 +36,36 @@ export const validateProviderCredentials: RequestHandler = async (req, res, next
     }
 
     const { credentials } = req.body as { credentials?: Record<string, unknown> };
-    const apiKey = credentials?.api_key;
-    if (typeof apiKey !== 'string' || apiKey.length === 0) {
-      throw Object.assign(new Error('credentials.api_key is required'), { status: 400 });
+    const adapter = providerAdapterRegistry.get(provider);
+
+    // Required fields come from the descriptor, not a hardcoded api_key: an
+    // adapter declaring `{ key: 'token' }` passed the API-side check and then
+    // hit a 400 here, for a field name it is entitled to choose.
+    const required = (adapter.descriptor?.authFields ?? [{ key: 'api_key', required: true }])
+      .filter((f) => f.required !== false)
+      .map((f) => f.key);
+    const missing = required.filter(
+      (key) => typeof credentials?.[key] !== 'string' || (credentials[key] as string).length === 0,
+    );
+    if (missing.length > 0) {
+      throw Object.assign(
+        new Error(`credentials.${missing.join(', credentials.')} required`),
+        { status: 400 },
+      );
     }
 
-    const adapter = providerAdapterRegistry.get(provider);
     if (!adapter.validateCredentials) {
       res.json({ ok: true });
       return;
     }
 
-    // Same shape credential-resolver.ts builds for api_key connections
-    const result = await adapter.validateCredentials({ type: 'apikey', apiKey, extra: credentials });
+    // Same shape credential-resolver.ts builds for api_key connections; an
+    // adapter using another field name reads it from `extra`.
+    const result = await adapter.validateCredentials({
+      type: 'apikey',
+      apiKey: typeof credentials?.api_key === 'string' ? credentials.api_key : undefined,
+      extra: credentials,
+    });
     res.json(result);
   } catch (err) {
     next(err);
