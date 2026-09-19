@@ -25,6 +25,51 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Make Caal's platform tools actually reach the API
+
+**Type:** Bugfix
+
+**Description:**
+With the provider finally accepting Caal's tool definitions, *Suggest
+improvements* began failing intermittently with
+`MAX_ITERATIONS_REACHED: Agent node "suggester" exceeded maxIterations (3)`.
+Every `caal.platform.*` call was failing, the model was handed `{"error":""}`,
+and it retried until the loop ran out — intermittent only because the model
+reaches for those tools on some questions and not others. Three defects, none
+of which had ever worked.
+
+**Changes:**
+- `packages/integrations/caal/src/tools/platform.ts` — the tools called the
+  tenant-facing `/v1` routes with `X-Internal-Auth`, which only guards
+  `/internal/*`, so every call 401'd once reachable at all (and `/v1/nodes/:type`
+  never existed). They now call internal equivalents. Their `httpGet` also
+  ignored the HTTP status, so an error page resolved as data and the model was
+  handed an error object as if it were a result; non-2xx now rejects, and a
+  failed connect names its `code` instead of surfacing an empty
+  `AggregateError` message
+- `apps/api/src/controllers/caal-internal.controller.ts` (new) — read-only
+  `/internal/caal/{nodes,nodes/:type,connections,agents}` behind
+  `requireInternalAuth`, scoped by the `X-Tenant-Id` the engine sends. Node
+  reads reuse the entitlement filter from `system.controller`; connections are
+  returned without credentials
+- `apps/engine/src/execution/scheduler.ts` — seeds `_caal_api_base` from the
+  engine's own config and `_caal_tenant_id` from the run's credential tenant. A
+  Caal run executes as `_platform`, so the run's own tenant is not the one whose
+  graph it is reasoning about, and the tools had no way to learn either
+- `apps/engine/src/execution/tool-executor.ts` — `describeToolError` reports an
+  `AggregateError`'s nested codes; a refused local connect previously logged
+  `err: ""`
+- `docker-compose.yml` — sets `API_BASE_URL` (and `PACKAGES_DIR`) for the engine
+  as `deploy/docker-compose.yml` always has; without it engine→API calls went to
+  `localhost` inside the engine container
+
+**Impact:**
+Caal can read node types, schemas, connections and agents, so suggest and modify
+stop exhausting their iteration budget. Anyone running the quickstart compose
+was unaffected; running from source was not.
+
+---
+
 ### 2026-09-18 - Fix Caal's tool-calling nodes being rejected by the provider
 
 **Type:** Bugfix
