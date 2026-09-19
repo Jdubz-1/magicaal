@@ -16,6 +16,7 @@ import { mcpRegistry } from '../mcp/mcp-registry';
 import { registry } from '../registry/node-registry';
 import { logger } from '../lib/logger';
 import { describeError } from '../lib/describe-error';
+import { readSessionHistory } from '@magicaal/nodes';
 import { checkAbort, abortError } from './run-control';
 
 // ── Config shapes ─────────────────────────────────────────────────────────────
@@ -26,6 +27,15 @@ interface ToolCallConfig {
   systemPrompt?: string;
   maxIterations?: number;
   router?: ModelRouterConfig;
+  /**
+   * Context key holding prior turns. core:tool-call and core:react have always
+   * advertised this in their schemas, but only core:llm-call implemented it —
+   * the engine executes these two, and it never read the field, so an agentic
+   * node had no memory of the conversation it was part of. Caal's modifier
+   * answered "I don't have a record of improvements I just suggested" with the
+   * suggestion sitting in its own context.
+   */
+  injectSessionHistory?: string;
 }
 
 interface ToolNodeConfig {
@@ -176,6 +186,15 @@ export async function assembleTools(
 
 // ── runAgentLoop ──────────────────────────────────────────────────────────────
 
+/**
+ * How much stored conversation an agentic node carries. A session holds up to
+ * 50 turns; resending all of them on each of up to 8 iterations multiplies a
+ * cost the node's own task never asked for, on top of whatever its input
+ * already carries (Caal's is the entire graph, ~24k tokens).
+ */
+const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_CHARS = 24_000;
+
 export async function runAgentLoop(
   nodeDef: NodeDefinition,
   graph: AgentGraphDefinition,
@@ -196,7 +215,16 @@ export async function runAgentLoop(
   }));
 
   const initialInput = ctx.get(inputKey);
+  // Unlike a single llm-call, this loop resends the whole conversation on every
+  // iteration, so stored history is capped before it is carried 8 times over.
+  const history = config.injectSessionHistory
+    ? readSessionHistory(ctx.get<unknown>(config.injectSessionHistory), {
+        maxMessages: MAX_HISTORY_MESSAGES,
+        maxChars: MAX_HISTORY_CHARS,
+      })
+    : [];
   const conversation: CanonicalMessage[] = [
+    ...history,
     { role: 'user', content: typeof initialInput === 'string' ? initialInput : JSON.stringify(initialInput) },
   ];
 
