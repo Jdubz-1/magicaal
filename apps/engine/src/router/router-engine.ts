@@ -14,6 +14,7 @@ import { healthTracker } from './health-tracker';
 import { circuitBreaker } from './circuit-breaker';
 import { logger } from '../lib/logger';
 import { describeError } from '../lib/describe-error';
+import { checkAbort, abortError } from '../execution/run-control';
 
 // In-memory round-robin counters keyed by sorted target-id hash
 const rrCounters = new Map<string, number>();
@@ -26,17 +27,58 @@ function rrKey(targets: ModelRouterTarget[]): string {
 }
 
 /**
- * A failure that never reached the provider: no HTTP status, so nothing was
- * answered and nothing was billed. `fetch` surfaces these as the bare string
- * "fetch failed" (DNS, a refused or reset socket, an unreachable address
- * family), and with a single-target policy and no reactive trigger one blip
- * used to fail the whole run — a Caal turn died in under two seconds with zero
- * tokens and a 500 in Studio.
+ * Codes Node and undici use for a connection that never carried a request.
+ */
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'ENOTFOUND',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'EPIPE',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+]);
+
+const MAX_CAUSE_DEPTH = 4;
+
+function hasNetworkCode(err: unknown, depth = 0): boolean {
+  if (depth > MAX_CAUSE_DEPTH || typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: unknown; errors?: unknown[]; cause?: unknown };
+  if (typeof e.code === 'string' && NETWORK_ERROR_CODES.has(e.code)) return true;
+  if (Array.isArray(e.errors) && e.errors.some((nested) => hasNetworkCode(nested, depth + 1))) {
+    return true;
+  }
+  return hasNetworkCode(e.cause, depth + 1);
+}
+
+/**
+ * A failure that never carried the request to the provider, so nothing was
+ * answered and nothing was billed. `fetch` surfaces these as the bare message
+ * "fetch failed" with the real reason in `err.cause` — DNS, a refused or reset
+ * socket, an unreachable address family.
+ *
+ * Deliberately a positive test. "No HTTP status" is not the same thing: an
+ * adapter throws MISSING_CREDENTIALS before it ever calls out, and a malformed
+ * body after a 200 throws while parsing — that response was billed, and
+ * retrying it would bill it again for a failure that cannot come good.
  */
 function isTransportError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
-  const e = err as { status?: number; _providerError?: boolean };
-  return e._providerError !== true && e.status === undefined;
+
+  // The provider answered, whatever went wrong afterwards.
+  const e = err as { status?: number; _providerError?: boolean; message?: unknown };
+  if (e._providerError === true || e.status !== undefined) return false;
+
+  // Every resolved address failed to connect.
+  if (err instanceof AggregateError) return true;
+  if (e.message === 'fetch failed') return true;
+
+  return hasNetworkCode(err);
 }
 
 const TRANSPORT_RETRIES = 2;
@@ -46,18 +88,30 @@ const TRANSPORT_RETRY_DELAY_MS = 300;
  * Retry a target in place when the request never reached it. Failover across
  * targets stays trigger-driven as before; this only covers the case where
  * there is nothing to fail over to and nothing was actually attempted.
+ *
+ * `onAttemptStart` lets the caller time each attempt separately — folding the
+ * backoff and the discarded attempts into one duration would feed the health
+ * tracker and the `timeout` trigger a latency the provider never showed.
  */
 async function callWithTransportRetry(
   adapter: ProviderAdapter,
   request: CanonicalLLMRequest,
   target: ModelRouterTarget,
   credentials: ResolvedCredentials,
+  ctx: ExecutionContextImpl,
+  onAttemptStart: () => void,
 ): Promise<CanonicalLLMResponse> {
   for (let attempt = 0; ; attempt++) {
+    onAttemptStart();
     try {
       return await adapter.call(request, target, credentials);
     } catch (err) {
       if (attempt >= TRANSPORT_RETRIES || !isTransportError(err)) throw err;
+
+      // A cancelled or timed-out run must not keep retrying in the background.
+      const abort = await checkAbort(ctx.runId);
+      if (abort) throw abortError(abort);
+
       logger.warn(
         { targetId: target.id, attempt: attempt + 1, error: describeError(err) },
         'LLM call failed before reaching the provider — retrying',
@@ -211,11 +265,22 @@ export async function routedLLMCall(
     }
 
     const adapter = providerAdapterRegistry.get(target.provider);
-    const start = Date.now();
+    // Reassigned per attempt by callWithTransportRetry, so health and trigger
+    // timings describe one call rather than a call plus its retries.
+    let start = Date.now();
     attemptCount++;
 
     try {
-      const response = await callWithTransportRetry(adapter, request, target, credentials);
+      const response = await callWithTransportRetry(
+        adapter,
+        request,
+        target,
+        credentials,
+        ctx,
+        () => {
+          start = Date.now();
+        },
+      );
       const durationMs = Date.now() - start;
 
       healthTracker.record(target.id, durationMs, false);

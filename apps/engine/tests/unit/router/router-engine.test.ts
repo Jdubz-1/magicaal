@@ -1,4 +1,12 @@
+// The retry path checks whether the run was cancelled before sleeping, which
+// would otherwise reach Redis from a unit test.
+jest.mock('../../../src/execution/run-control', () => ({
+  checkAbort: jest.fn().mockResolvedValue(null),
+  abortError: jest.fn((reason: string) => Object.assign(new Error(reason), { code: 'RUN_CANCELLED' })),
+}));
+
 import { routedLLMCall, initPricingCache, resolveRouterConfig } from '../../../src/router/router-engine';
+import { checkAbort } from '../../../src/execution/run-control';
 import { providerAdapterRegistry } from '../../../src/router/provider-adapter-registry';
 import type { ProviderAdapter } from '@magicaal/sdk-node';
 import type { ResolvedCredentials } from '@magicaal/sdk-node';
@@ -167,6 +175,88 @@ describe('routedLLMCall', () => {
         routedLLMCall(baseRequest, config, makeCtx({ 'conn-a': MOCK_CREDENTIALS })),
       ).rejects.toThrow('fetch failed');
       expect(adapter.call).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops retrying when the run has been cancelled', async () => {
+      const adapter = mockAdapter();
+      (adapter.call as jest.Mock).mockRejectedValue(transportError());
+      (adapter.translateError as jest.Mock).mockReturnValue(null);
+      (checkAbort as jest.Mock).mockResolvedValueOnce('cancelled');
+
+      const config: ModelRouterConfig = {
+        strategy: 'priority',
+        targets: [MOCK_TARGET_A],
+        triggers: [],
+      };
+
+      await expect(
+        routedLLMCall(baseRequest, config, makeCtx({ 'conn-a': MOCK_CREDENTIALS })),
+      ).rejects.toThrow();
+      expect(adapter.call).toHaveBeenCalledTimes(1);
+      (checkAbort as jest.Mock).mockResolvedValue(null);
+    });
+
+    /**
+     * "No HTTP status" is not the same as "never reached the provider": an
+     * adapter throws MISSING_CREDENTIALS before calling out at all, and a
+     * malformed body after a 200 throws while parsing — that response was
+     * billed, so a retry bills it again for a failure that cannot come good.
+     */
+    it('does not retry a failure that never left the adapter', async () => {
+      const adapter = mockAdapter();
+      (adapter.call as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Anthropic adapter: no API key in credentials'), {
+          code: 'MISSING_CREDENTIALS',
+        }),
+      );
+      (adapter.translateError as jest.Mock).mockReturnValue(null);
+
+      const config: ModelRouterConfig = {
+        strategy: 'priority',
+        targets: [MOCK_TARGET_A],
+        triggers: [],
+      };
+
+      await expect(
+        routedLLMCall(baseRequest, config, makeCtx({ 'conn-a': MOCK_CREDENTIALS })),
+      ).rejects.toThrow('no API key');
+      expect(adapter.call).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a body that failed to parse after the provider answered', async () => {
+      const adapter = mockAdapter();
+      (adapter.call as jest.Mock).mockRejectedValue(
+        new SyntaxError('Unexpected end of JSON input'),
+      );
+      (adapter.translateError as jest.Mock).mockReturnValue(null);
+
+      const config: ModelRouterConfig = {
+        strategy: 'priority',
+        targets: [MOCK_TARGET_A],
+        triggers: [],
+      };
+
+      await expect(
+        routedLLMCall(baseRequest, config, makeCtx({ 'conn-a': MOCK_CREDENTIALS })),
+      ).rejects.toThrow('Unexpected end of JSON input');
+      expect(adapter.call).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a socket error that carries only a code', async () => {
+      const adapter = mockAdapter();
+      (adapter.call as jest.Mock)
+        .mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }))
+        .mockResolvedValueOnce(makeResponse(MOCK_TARGET_A));
+      (adapter.translateError as jest.Mock).mockReturnValue(null);
+
+      const config: ModelRouterConfig = {
+        strategy: 'priority',
+        targets: [MOCK_TARGET_A],
+        triggers: [],
+      };
+
+      await routedLLMCall(baseRequest, config, makeCtx({ 'conn-a': MOCK_CREDENTIALS }));
+      expect(adapter.call).toHaveBeenCalledTimes(2);
     });
 
     it('does not retry an error the provider actually answered', async () => {
