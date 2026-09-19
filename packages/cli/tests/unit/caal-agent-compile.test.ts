@@ -132,6 +132,19 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     expect(to).toEqual(['response-assembler']);
   });
 
+  /**
+   * The card's question comes from suggest-options, so mandating a tool call to
+   * ask it spent a whole extra provider round trip — roughly doubling a suggest
+   * turn's prompt tokens (47k to 95k measured) and pushing it past the proxy's
+   * budget.
+   */
+  it('does not mandate an extra round trip to ask a question the graph already asks', () => {
+    const prompt = node('suggester').config.systemPrompt as string;
+
+    expect(prompt).not.toMatch(/Finish by calling caal\.ui\.askOptions/i);
+    expect(prompt).toContain('do not');
+  });
+
   it('leaves suggester room for its inspection calls plus the closing question', () => {
     // core:tool-call only completes on an iteration that makes no tool calls,
     // so a mandatory trailing askOptions call needs headroom or the whole

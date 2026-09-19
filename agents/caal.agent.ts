@@ -123,27 +123,25 @@ export class CaalAssistantAgent extends AgentGraph {
         'then explain concretely what you would change and why. ' +
         'You have no tools for staging graph changes on this path, so never claim ' +
         'to have made one and never try to create a proposal. ' +
-        'Finish by calling caal.ui.askOptions to ask whether the developer wants ' +
-        'these suggestions turned into an applyable proposal, offering an answer ' +
-        'whose followUpIntent is "modify" and one that simply declines.',
+        'Studio already offers to turn your advice into a proposal, so do not ' +
+        'call caal.ui.askOptions to ask that — use it only when you need to put a ' +
+        'genuinely different question to the developer.',
       inputKey: 'suggestMessage',
       outputKey: 'content',
       injectSessionHistory: 'sessionMessages',
-      // Inspect the graph, answer, then ask the follow-up question with
-      // caal.ui.askOptions. The loop only returns `complete` on an iteration
-      // that makes no tool calls, so a successful turn needs the inspection
-      // calls plus askOptions plus a final text-only pass — three left no room
-      // at all, and a tight budget throws away the advice already generated.
+      // Inspection calls plus a final text-only pass: the loop only returns
+      // `complete` on an iteration that makes no tool calls, and running out
+      // throws away the advice already generated. Three left no room at all.
       maxIterations: 8,
       // See explainer's comment above — no inline `router`.
     });
 
     // Studio renders an inline options card from _caal_options (see
-    // CaalOptionsCard.svelte). suggester is told to set it via
-    // caal.ui.askOptions, but a tool-call loop can always stop early, so this
-    // node supplies the default when it didn't — the suggest path is advisory
-    // only, and without the follow-up question there would be no way at all to
-    // turn advice into an applyable change. An existing value is preserved.
+    // CaalOptionsCard.svelte). This node supplies the standing question, so
+    // the suggest path — which is advisory and stages nothing — always offers
+    // a way to turn advice into an applyable change without spending a whole
+    // extra provider round trip on caal.ui.askOptions to ask it. A value the
+    // model did set, for some other question, is preserved.
     this.node('suggest-options', 'core:transform', {
       outputKey: '_caal_options',
       expression: `$._caal_options ? $._caal_options : (

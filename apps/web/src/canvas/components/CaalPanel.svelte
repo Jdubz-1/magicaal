@@ -144,6 +144,17 @@
         return;
       }
 
+      // The web proxy gave up before the run finished. Same situation as
+      // CAAL_STILL_RUNNING above, reported from one layer out.
+      if (res.status === 504) {
+        messages = [...messages, {
+          role: 'assistant',
+          content: "Caal is taking longer than usual — your message may still be processed. Check History shortly.",
+          timestamp: Date.now(),
+        }];
+        return;
+      }
+
       if (!res.ok) throw new Error(`Caal invoke failed: ${res.status}`);
 
       const out = data.output ?? {};

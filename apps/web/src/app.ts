@@ -7,7 +7,7 @@ import { loadSession, requireSession } from './middleware/session';
 import { authRouter } from './routes/auth';
 import { studioRouter } from './routes/studio';
 import { adminRouter } from './routes/admin';
-import { createApiClient } from './lib/api-client';
+import { createApiClient, proxyTimeoutFor } from './lib/api-client';
 
 export function createApp(): Application {
   const app = express();
@@ -54,7 +54,7 @@ export function createApp(): Application {
   // API proxy — forwards /api/* to the backend API with auth token
   app.use('/api', requireSession, async (req, res) => {
     try {
-      const api = createApiClient(req.accessToken);
+      const api = createApiClient(req.accessToken, proxyTimeoutFor(req.path));
       const apiPath = `/v1${req.path}`;
       const response = await api.request({
         method: req.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -64,9 +64,16 @@ export function createApp(): Application {
       });
       res.status(response.status).json(response.data);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status: number; data: unknown } };
+      const axiosErr = err as { code?: string; response?: { status: number; data: unknown } };
       if (axiosErr.response) {
         res.status(axiosErr.response.status).json(axiosErr.response.data);
+      } else if (axiosErr.code === 'ECONNABORTED' || axiosErr.code === 'ETIMEDOUT') {
+        // The request was still being served when the proxy gave up — saying
+        // the API is unreachable sent people looking for an outage that wasn't
+        // there, and a long-running agent turn usually completes regardless.
+        res
+          .status(504)
+          .json({ error: 'The API did not respond in time; the request may still be running.' });
       } else {
         res.status(502).json({ error: 'API unreachable' });
       }
