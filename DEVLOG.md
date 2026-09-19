@@ -25,6 +25,66 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Caal's suggest path is advisory, and proposals apply what they claim
+
+**Type:** Bugfix
+
+**Description:**
+Accepting a Caal proposal in Studio changed nothing — it only lit the "Undo
+Caal change" button. Every proposal reaching the UI carried zero patches:
+`caal.proposal.create` builds a proposal from `_caal_patches`, which only the
+`caal.graph.*` write tools stage, and those are wired to `modifier` alone.
+`suggester` had the read-only tools plus `proposal.create`, so everything it
+produced was structurally empty. Four layers then read empty as success — the
+tool never checked `patches.length`, the panel announced success before
+anything ran, `App.svelte` armed Undo unconditionally, and the inline patch
+loop ignored any op it could not match.
+
+`suggest` is now advisory: it offers to hand off to the `modify` path through
+a new options card rather than emitting a proposal it has no tools to fill.
+
+**Changes:**
+- `packages/integrations/caal/src/tools/ui.ts` — new `caal.ui.askOptions` tool:
+  asks the developer a question with up to four selectable answers, normalizing
+  the model-written payload and writing `_caal_options`
+- `packages/integrations/caal/src/tools/proposal.ts` — fails with
+  `NO_PATCHES_STAGED` when nothing is staged, leaving staging intact for a retry
+- `agents/caal.agent.ts` — `suggester` drops `caal.proposal.create`, gains
+  `caal.ui.askOptions` and a rewritten advisory prompt; new `suggest-options`
+  transform supplies the default yes/no question (and no modify follow-up for a
+  code-defined agent); `response-assembler` surfaces `options`; iteration budget
+  3 → 5
+- `packages/core/src/caal.ts` — `CaalOptionsPrompt` / `CaalOption` / `CaalIntent`
+- `apps/web/src/canvas/lib/proposalPatches.ts` — the patch loop lifted out of
+  `App.svelte`, counting applications, returning each no-op with a reason, and
+  normalizing staged patches into the graph's own `NodeDef`/`EdgeDef`/
+  `ToolEdgeDef` shapes (minted edge ids, a `type` derived from the condition,
+  `{ tool, agent }` → `{ from, to }`, a free position per new node)
+- `apps/web/src/canvas/lib/caalOptions.ts` — client-side re-validation that also
+  drops `modify` answers for a code-defined agent
+- `apps/web/src/canvas/components/CaalOptionsCard.svelte` — the inline card
+- `apps/web/src/canvas/App.svelte` — records an undo entry only when something
+  applied; dispatches `caal:proposal-applied`
+- `apps/web/src/canvas/components/CaalPanel.svelte` — reports the real applied
+  count, shows a review card only for a proposal with patches, renders the card
+  and sends a chosen answer's follow-up as a new turn (displaying the answer's
+  label rather than the instruction), and sends the agent's real
+  `authoringMode`, which had always been read off the graph JSON that never
+  carries it
+- `apps/web/src/canvas/components/ProposalReviewUI.svelte` — Apply disabled with
+  nothing selected
+- Tests: `caal-proposal-tool`, `caal-ui-options-tool` (engine),
+  `caal-agent-compile` (cli), `proposalPatches`, `caalOptions`,
+  `apply-proposal-wiring` (web)
+
+**Impact:**
+An empty proposal can no longer be produced, displayed, or reported as applied.
+"Suggest improvements" now ends in a question the developer answers with one
+click, and answering yes routes to the only path that can stage real changes —
+so accepting a proposal changes the graph, and Undo is offered only when it did.
+
+---
+
 ### 2026-09-19 - Make Caal's platform tools actually reach the API
 
 **Type:** Bugfix
