@@ -60,6 +60,38 @@ function uniqueId(prefix: string, taken: Set<string>): string {
   return id;
 }
 
+function edgeKey(from: string, to: string): string {
+  return `${from}->${to}`;
+}
+
+/** Node fields that live at the top level; everything else is config. */
+const ROOT_NODE_FIELDS = new Set(['label', 'position', 'type']);
+
+/**
+ * caal.graph.updateNode stages its argument as "partial config to merge onto
+ * the node", so the model's natural staging is `{ systemPrompt: "…" }`.
+ * Spreading that at the node root wrote `node.systemPrompt`, which nothing in
+ * the canvas, compiler or engine reads — the change counted as applied and
+ * did nothing. Known root fields stay at the root; the rest is config.
+ */
+function mergeNodeChanges(existing: NodeDef, changes: Record<string, unknown>): NodeDef {
+  const node = { ...existing } as NodeDef & Record<string, unknown>;
+  const config = { ...(existing.config ?? {}) };
+
+  for (const [key, value] of Object.entries(changes)) {
+    if (key === 'config' && typeof value === 'object' && value !== null) {
+      Object.assign(config, value as Record<string, unknown>);
+    } else if (ROOT_NODE_FIELDS.has(key)) {
+      node[key] = value;
+    } else {
+      config[key] = value;
+    }
+  }
+
+  node.config = config;
+  return node;
+}
+
 export function applyProposalPatches(
   graph: PatchableGraph,
   patches: ProposalPatch[] | undefined,
@@ -72,6 +104,8 @@ export function applyProposalPatches(
   const edgeIds = new Set(updated.edges.map((e) => e.id).filter(Boolean));
   const toolEdgeIds = new Set(updated.toolEdges.map((e) => e.id).filter(Boolean));
 
+  // Edges removed as a side effect of deleting their node.
+  const cascaded = new Set<string>();
   const skipped: SkippedPatch[] = [];
   let applied = 0;
 
@@ -122,7 +156,11 @@ export function applyProposalPatches(
         // every edge pointing at it.
         const changes = { ...patch.data };
         delete changes.id;
-        updated.nodes[patch.target] = { ...existing, ...changes, id: patch.target };
+        if (Object.keys(changes).length === 0) {
+          skip('update_node carried no changes');
+          break;
+        }
+        updated.nodes[patch.target] = { ...mergeNodeChanges(existing, changes), id: patch.target };
         applied++;
         break;
       }
@@ -135,7 +173,16 @@ export function applyProposalPatches(
           skip(`node "${patch.target}" is not in the graph`);
           break;
         }
-        delete updated.nodes[patch.target];
+        const gone = patch.target;
+        delete updated.nodes[gone];
+        // Studio's own delete cascades (NodeConfigPanel's removeNode); leaving
+        // the edges behind renders a line to a node that isn't there and stops
+        // the graph compiling. Tool edges go too, for the same reason.
+        for (const edge of updated.edges) {
+          if (edge.from === gone || edge.to === gone) cascaded.add(edgeKey(edge.from, edge.to));
+        }
+        updated.edges = updated.edges.filter((e) => e.from !== gone && e.to !== gone);
+        updated.toolEdges = updated.toolEdges.filter((e) => e.from !== gone && e.to !== gone);
         applied++;
         break;
       }
@@ -174,6 +221,12 @@ export function applyProposalPatches(
         }
         const remaining = updated.edges.filter((e) => !(e.from === from && e.to === to));
         if (remaining.length === updated.edges.length) {
+          // Deleting a node takes its edges with it, so a proposal that stages
+          // both has already achieved what this patch asks for.
+          if (cascaded.has(edgeKey(from, to))) {
+            applied++;
+            break;
+          }
           skip(`no edge from "${from}" to "${to}"`);
           break;
         }

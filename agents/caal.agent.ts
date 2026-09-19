@@ -155,7 +155,7 @@ export class CaalAssistantAgent extends AgentGraph {
               "label": "Yes, draft a proposal",
               "value": "create_proposal",
               "description": "Caal stages each change so you can review and apply them.",
-              "followUpMessage": "Create a proposal implementing the improvements you just suggested. Stage every change with the graph tools before calling caal.proposal.create.",
+              "followUpMessage": "Turn the improvements you just suggested into a proposal I can review and apply.",
               "followUpIntent": "modify"
             },
             { "label": "No thanks", "value": "dismiss" }

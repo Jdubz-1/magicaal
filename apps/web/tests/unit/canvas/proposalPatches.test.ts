@@ -94,6 +94,48 @@ describe('applyProposalPatches', () => {
     expect(a).not.toEqual(b);
   });
 
+  /**
+   * caal.graph.updateNode stages its argument as "partial config to merge onto
+   * the node", so the model sends config fields. Spreading them at the node
+   * root wrote keys nothing reads, while still counting as applied.
+   */
+  it('merges staged updates into the node config, not onto its root', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'update_node', target: 'llm', data: { systemPrompt: 'Be brief.', temperature: 0.2 } },
+    ]);
+
+    expect(result.applied).toBe(1);
+    expect(result.graph.nodes.llm.config).toEqual({ systemPrompt: 'Be brief.', temperature: 0.2 });
+    expect((result.graph.nodes.llm as unknown as Record<string, unknown>).systemPrompt).toBeUndefined();
+  });
+
+  it('keeps genuine root fields at the root and merges an explicit config', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      {
+        op: 'update_node',
+        target: 'llm',
+        data: { label: 'Answer', position: { x: 10, y: 20 }, config: { model: 'haiku' } },
+      },
+    ]);
+
+    expect(result.graph.nodes.llm.label).toBe('Answer');
+    expect(result.graph.nodes.llm.position).toEqual({ x: 10, y: 20 });
+    expect(result.graph.nodes.llm.config).toEqual({ model: 'haiku' });
+  });
+
+  it('skips an update that carries no changes', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'update_node', target: 'llm', data: {} },
+      { op: 'update_node', target: 'llm', data: { id: 'renamed' } },
+    ]);
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped.map((s) => s.reason)).toEqual([
+      'update_node carried no changes',
+      'update_node carried no changes',
+    ]);
+  });
+
   it('refuses to repoint an existing node id through update_node', () => {
     const result = applyProposalPatches(baseGraph(), [
       { op: 'update_node', target: 'llm', data: { id: 'renamed', label: 'x' } },
@@ -121,11 +163,28 @@ describe('applyProposalPatches', () => {
     expect(result.skipped[0].reason).toContain('ghost');
   });
 
-  it('deletes a node by target', () => {
-    const result = applyProposalPatches(baseGraph(), [{ op: 'delete_node', target: 'llm' }]);
+  it('deletes a node by target, taking its edges with it', () => {
+    const graph = baseGraph();
+    graph.toolEdges = [{ id: 'te1', from: 'caal.graph.read', to: 'llm' }];
+
+    const result = applyProposalPatches(graph, [{ op: 'delete_node', target: 'llm' }]);
 
     expect(result.applied).toBe(1);
     expect(result.graph.nodes.llm).toBeUndefined();
+    // Studio's own delete cascades; leaving these behind draws a line to a node
+    // that isn't there and stops the graph compiling.
+    expect(result.graph.edges).toEqual([]);
+    expect(result.graph.toolEdges).toEqual([]);
+  });
+
+  it('does not report a cascaded edge as a failed delete_edge', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'delete_node', target: 'llm' },
+      { op: 'delete_edge', data: { from: 'start', to: 'llm' } },
+    ]);
+
+    expect(result.applied).toBe(2);
+    expect(result.skipped).toEqual([]);
   });
 
   it('skips a patch that cannot apply, with a reason', () => {

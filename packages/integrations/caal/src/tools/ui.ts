@@ -105,7 +105,8 @@ export const uiAskOptions: NodeModule = {
               description: { type: 'string', description: 'Optional one-line explanation shown under the label' },
               followUpMessage: {
                 type: 'string',
-                description: 'Message Studio sends back to Caal when this answer is chosen. Omit for an answer that just dismisses the question.',
+                description:
+                  "Message Studio sends back to Caal when this answer is chosen. It is shown, and stored, as the developer's own turn — write it as something they would say, not as instructions naming tools. Omit for an answer that just dismisses the question.",
               },
               followUpIntent: {
                 type: 'string',

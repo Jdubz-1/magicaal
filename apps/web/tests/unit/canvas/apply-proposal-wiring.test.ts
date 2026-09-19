@@ -37,6 +37,16 @@ describe('proposal apply wiring', () => {
   });
 
   /**
+   * The session stores the message that was sent, so showing something else in
+   * the live transcript made History replay a different turn than the one the
+   * developer saw.
+   */
+  it('shows the follow-up it actually sends, so History replays the same turn', () => {
+    expect(panel).not.toContain('displayText');
+    expect(panel).toContain('sendMessage(option.followUpMessage, option.followUpIntent)');
+  });
+
+  /**
    * authoringMode lives on the agent record, never in the graph JSON, so
    * reading it off $graph always sent 'studio' — the Caal graph's own
    * isCodeDefined branches could never fire for a code-defined agent.

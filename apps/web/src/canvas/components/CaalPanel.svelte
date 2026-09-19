@@ -62,16 +62,10 @@
   // the one quick action that implies it rather than let it silently fail.
   $: QUICK_ACTIONS = readonly ? ALL_QUICK_ACTIONS.filter((a) => a.intent !== 'modify') : ALL_QUICK_ACTIONS;
 
-  async function sendMessage(text: string, intent?: string, displayText?: string) {
+  async function sendMessage(text: string, intent?: string) {
     if (!text.trim() || isThinking) return;
 
-    // An option's follow-up message is instruction for Caal, not something the
-    // developer said — the transcript shows what they actually clicked.
-    const userMsg: CaalMessage = {
-      role: 'user',
-      content: displayText ?? text,
-      timestamp: Date.now(),
-    };
+    const userMsg: CaalMessage = { role: 'user', content: text, timestamp: Date.now() };
     messages = [...messages, userMsg];
     // The card belongs to the turn that raised it.
     pendingOptions = null;
@@ -289,8 +283,12 @@
     // An option with a follow-up runs as a fresh Caal turn — that's how the
     // advisory suggest path hands off to `modify`, the only path with the
     // graph tools needed to stage a real, applyable proposal.
+    // Sent as the developer's own turn, and shown as one. The session stores
+    // exactly this, so the live transcript and History agree — which is why a
+    // follow-up has to read like something a person would say rather than
+    // instructions naming tools.
     if (option.followUpMessage && option.followUpIntent) {
-      void sendMessage(option.followUpMessage, option.followUpIntent, option.label);
+      void sendMessage(option.followUpMessage, option.followUpIntent);
       return;
     }
 

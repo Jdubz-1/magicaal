@@ -1,7 +1,7 @@
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-secret';
 
 import { proxyTimeoutFor } from '../../src/lib/api-client';
-import { config } from '../../src/config';
+import { config, positiveIntEnv } from '../../src/config';
 
 /**
  * A Caal invoke holds the request open for the whole agent run — commonly
@@ -26,5 +26,22 @@ describe('proxyTimeoutFor', () => {
     // apps/api CAAL_INVOKE_TIMEOUT_MS defaults to 120000; the API answers
     // CAAL_STILL_RUNNING at that point, which the Studio panel handles.
     expect(config.caalTimeoutMs).toBeGreaterThan(120000);
+  });
+});
+
+/**
+ * `parseInt` only falls back when a variable is absent, and axios reads a
+ * falsy timeout as *no* timeout — an empty API_TIMEOUT_MS would have hung the
+ * proxy forever, which is the failure these budgets exist to prevent.
+ */
+describe('positiveIntEnv', () => {
+  it('falls back for anything that is not a positive integer', () => {
+    for (const value of [undefined, '', '   ', 'abc', '125s', '0', '-1', 'NaN']) {
+      expect(positiveIntEnv(value, 15000)).toBe(15000);
+    }
+  });
+
+  it('takes a valid value', () => {
+    expect(positiveIntEnv('30000', 15000)).toBe(30000);
   });
 });
