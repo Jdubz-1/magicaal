@@ -25,6 +25,51 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Keep the answer a tool-calling agent node actually produced
+
+**Type:** Bugfix
+
+**Description:**
+"Suggest improvements" showed its follow-up options card but no suggestions.
+The run had completed and billed 1202 completion tokens; the model had written
+five concrete improvements — its own options payload enumerated them — and
+`content` reached Studio as an empty string.
+
+`runAgentLoop` wrote only the final iteration's text to its `outputKey`, and
+the loop returns on the first iteration that makes no tool calls. Prose the
+model produced *alongside* a tool call went into the conversation and nowhere
+else. That was survivable while a tool-call node's last act was usually a plain
+answer; it stopped being survivable once suggester could close by asking the
+developer a question, because having asked, the model had nothing left to say
+and the returning iteration was empty. Telemetry across the same node: 1563 and
+1686 characters of advice on runs with no closing tool call, 0 and 274 on runs
+with one.
+
+**Changes:**
+- `apps/engine/src/execution/tool-executor.ts` — the loop collects each
+  iteration's text and returns them joined, skipping a summary the model
+  repeats verbatim; a single-reply turn is unchanged. An iteration that
+  produced no text no longer sends an empty text block back to the provider
+  alongside its `tool_use` blocks, which providers reject
+- `agents/caal.agent.ts` — `caal.ui.askOptions` is no longer wired to
+  `suggester`: `suggest-options` asks that question deterministically and for
+  free, so the tool edge only invited the model to spend a round trip asking it
+  again. The prompt no longer names a tool the node doesn't have, and the tool
+  stays registered for a node that needs to ask something else
+- `agents/caal.agent.ts` — `session-write`'s assistant entry is conditional on
+  there being an answer, so an empty turn can never feed `core:llm-call` a
+  content-less message on the next invocation
+- Tests: narration accumulation, verbatim-repeat de-duplication, single-reply
+  passthrough and the empty-text-block guard (engine); tool wiring, prompt and
+  session-write assertions (cli); registry coverage for a tool no node wires
+
+**Impact:**
+A tool-calling agent node returns everything it said, not just whatever came
+after its last tool call — so Caal's suggestions appear with the card that
+refers to them, and `modifier`'s explanation survives its proposal call too.
+
+---
+
 ### 2026-09-19 - Stop losing Caal turns to a proxy timeout and a transport blip
 
 **Type:** Bugfix
