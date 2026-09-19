@@ -130,8 +130,11 @@ export class CaalAssistantAgent extends AgentGraph {
       outputKey: 'content',
       injectSessionHistory: 'sessionMessages',
       // Inspect the graph, answer, then ask the follow-up question with
-      // caal.ui.askOptions — three iterations left no room for that last call.
-      maxIterations: 5,
+      // caal.ui.askOptions. The loop only returns `complete` on an iteration
+      // that makes no tool calls, so a successful turn needs the inspection
+      // calls plus askOptions plus a final text-only pass — three left no room
+      // at all, and a tight budget throws away the advice already generated.
+      maxIterations: 8,
       // See explainer's comment above — no inline `router`.
     });
 

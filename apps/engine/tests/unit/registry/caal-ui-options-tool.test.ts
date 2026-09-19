@@ -90,6 +90,15 @@ describe('normalizeUiOptions', () => {
     expect(option.followUpMessage).toBeUndefined();
   });
 
+  it('drops a duplicate value — Studio keys its buttons by it', () => {
+    expect(
+      normalizeUiOptions([
+        { label: 'No thanks', value: 'dismiss' },
+        { label: 'Not now', value: 'dismiss' },
+      ]),
+    ).toEqual([{ label: 'No thanks', value: 'dismiss' }]);
+  });
+
   it('ignores entries that are not option objects', () => {
     expect(normalizeUiOptions([null, 'nope', 7, { label: 'Keep', value: 'keep' }])).toEqual([
       { label: 'Keep', value: 'keep' },

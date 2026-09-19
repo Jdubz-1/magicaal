@@ -46,13 +46,17 @@ export function normalizeUiOptions(raw: unknown): CaalUiOption[] {
   if (!Array.isArray(raw)) return [];
 
   const normalized: CaalUiOption[] = [];
+  // Studio keys the rendered buttons by value; two answers sharing one would
+  // break the card outright.
+  const seen = new Set<string>();
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) continue;
     const opt = entry as RawOption;
 
     const label = clamp(opt.label, MAX_LABEL);
     const value = clamp(opt.value, MAX_LABEL);
-    if (!label || !value) continue;
+    if (!label || !value || seen.has(value)) continue;
+    seen.add(value);
 
     const followUpMessage = clamp(opt.followUpMessage, MAX_FOLLOW_UP);
     const intent = typeof opt.followUpIntent === 'string' ? opt.followUpIntent : undefined;

@@ -35,4 +35,14 @@ describe('proposal apply wiring', () => {
   it('CaalPanel only offers a review card for a proposal with patches', () => {
     expect(panel).toContain('out.proposal?.patches?.length');
   });
+
+  /**
+   * authoringMode lives on the agent record, never in the graph JSON, so
+   * reading it off $graph always sent 'studio' — the Caal graph's own
+   * isCodeDefined branches could never fire for a code-defined agent.
+   */
+  it('CaalPanel sends the real authoring mode, not one read off the graph JSON', () => {
+    expect(panel).toContain("authoringMode: readonly ? 'code-defined' : 'studio'");
+    expect(panel).not.toContain("['authoringMode']");
+  });
 });

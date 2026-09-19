@@ -62,10 +62,16 @@
   // the one quick action that implies it rather than let it silently fail.
   $: QUICK_ACTIONS = readonly ? ALL_QUICK_ACTIONS.filter((a) => a.intent !== 'modify') : ALL_QUICK_ACTIONS;
 
-  async function sendMessage(text: string, intent?: string) {
+  async function sendMessage(text: string, intent?: string, displayText?: string) {
     if (!text.trim() || isThinking) return;
 
-    const userMsg: CaalMessage = { role: 'user', content: text, timestamp: Date.now() };
+    // An option's follow-up message is instruction for Caal, not something the
+    // developer said — the transcript shows what they actually clicked.
+    const userMsg: CaalMessage = {
+      role: 'user',
+      content: displayText ?? text,
+      timestamp: Date.now(),
+    };
     messages = [...messages, userMsg];
     // The card belongs to the turn that raised it.
     pendingOptions = null;
@@ -76,7 +82,11 @@
     try {
       const graphSnapshot = {
         ...$graph,
-        authoringMode: ($graph as Record<string, unknown>)['authoringMode'] ?? 'studio',
+        // authoringMode lives on the agent record (App.svelte reads it into
+        // `readonly`), never in the graph JSON — reading it off $graph always
+        // produced 'studio', so the graph's own isCodeDefined checks could
+        // never fire for a code-defined agent.
+        authoringMode: readonly ? 'code-defined' : 'studio',
       };
 
       const body = {
@@ -269,13 +279,15 @@
     // advisory suggest path hands off to `modify`, the only path with the
     // graph tools needed to stage a real, applyable proposal.
     if (option.followUpMessage && option.followUpIntent) {
-      void sendMessage(option.followUpMessage, option.followUpIntent);
+      void sendMessage(option.followUpMessage, option.followUpIntent, option.label);
       return;
     }
 
+    // Deliberately neutral: this also acknowledges the code-defined card, which
+    // has just said a proposal isn't possible at all.
     messages = [...messages, {
       role: 'assistant',
-      content: 'Okay — nothing changed. Ask any time if you want a proposal.',
+      content: 'Okay — nothing changed.',
       timestamp: Date.now(),
     }];
     scrollToBottom();

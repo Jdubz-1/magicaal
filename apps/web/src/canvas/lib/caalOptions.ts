@@ -48,13 +48,16 @@ export function normalizeCaalOptions(
   if (!question || !Array.isArray(prompt.options)) return null;
 
   const options: CaalOption[] = [];
+  // CaalOptionsCard keys its buttons by value — a duplicate would throw.
+  const seen = new Set<string>();
   for (const entry of prompt.options) {
     if (typeof entry !== 'object' || entry === null) continue;
     const opt = entry as Record<string, unknown>;
 
     const label = clamp(opt.label, MAX_LABEL);
     const value = clamp(opt.value, MAX_LABEL);
-    if (!label || !value) continue;
+    if (!label || !value || seen.has(value)) continue;
+    seen.add(value);
 
     const followUpMessage = clamp(opt.followUpMessage, MAX_FOLLOW_UP);
     const intent = typeof opt.followUpIntent === 'string' ? opt.followUpIntent : undefined;

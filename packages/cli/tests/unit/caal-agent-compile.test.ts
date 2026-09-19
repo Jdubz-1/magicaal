@@ -132,6 +132,13 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     expect(to).toEqual(['response-assembler']);
   });
 
+  it('leaves suggester room for its inspection calls plus the closing question', () => {
+    // core:tool-call only completes on an iteration that makes no tool calls,
+    // so a mandatory trailing askOptions call needs headroom or the whole
+    // answer is lost to MAX_ITERATIONS_REACHED.
+    expect(node('suggester').config.maxIterations as number).toBeGreaterThanOrEqual(8);
+  });
+
   it('response-assembler surfaces the options prompt to Studio', () => {
     expect(node('response-assembler').config.expression).toContain('_caal_options');
   });

@@ -9,10 +9,13 @@ import type { PatchableGraph } from '../../../src/canvas/lib/proposalPatches';
  */
 function baseGraph(): PatchableGraph {
   return {
-    nodes: { llm: { id: 'llm', type: 'core:llm-call' } },
-    edges: [{ from: 'start', to: 'llm' }],
+    nodes: {
+      start: { id: 'start', type: 'core:start', config: {}, position: { x: 0, y: 0 } },
+      llm: { id: 'llm', type: 'core:llm-call', config: {}, position: { x: 300, y: 0 } },
+    },
+    edges: [{ id: 'e1', from: 'start', to: 'llm', type: 'unconditional' }],
     toolEdges: [],
-  };
+  } as PatchableGraph;
 }
 
 describe('applyProposalPatches', () => {
@@ -40,15 +43,82 @@ describe('applyProposalPatches', () => {
       { op: 'update_node', target: 'llm', data: { label: 'Answer' } },
       { op: 'add_edge', data: { from: 'llm', to: 'guard' } },
       { op: 'delete_edge', data: { from: 'start', to: 'llm' } },
-      { op: 'add_tool_edge', data: { from: 'caal.graph.read', to: 'llm' } },
+      { op: 'add_tool_edge', data: { tool: 'caal.graph.read', agent: 'llm' } },
     ]);
 
     expect(result.applied).toBe(5);
     expect(result.skipped).toEqual([]);
-    expect(result.graph.nodes.guard).toEqual({ id: 'guard', type: 'core:guardrail' });
-    expect(result.graph.nodes.llm).toEqual({ id: 'llm', type: 'core:llm-call', label: 'Answer' });
-    expect(result.graph.edges).toEqual([{ from: 'llm', to: 'guard' }]);
-    expect(result.graph.toolEdges).toHaveLength(1);
+    expect(result.graph.nodes.guard).toMatchObject({ id: 'guard', type: 'core:guardrail', config: {} });
+    expect(result.graph.nodes.llm).toMatchObject({ id: 'llm', type: 'core:llm-call', label: 'Answer' });
+    expect(result.graph.edges).toEqual([
+      { id: 'e_caal_1', from: 'llm', to: 'guard', type: 'unconditional' },
+    ]);
+    expect(result.graph.toolEdges).toEqual([
+      { id: 'te_caal_1', from: 'caal.graph.read', to: 'llm' },
+    ]);
+  });
+
+  /**
+   * The caal.graph.* tools stage the model's own arguments, not the graph's
+   * shapes: an edge with no id or type, a tool edge as { tool, agent }, a node
+   * with no position. Stored verbatim those counted as applied while doing
+   * nothing the engine or canvas could read.
+   */
+  it('gives a staged edge an id and a type derived from its condition', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'add_edge', data: { from: 'start', to: 'llm', condition: '$.ok = true' } },
+      { op: 'add_edge', data: { from: 'llm', to: 'start' } },
+    ]);
+
+    expect(result.graph.edges[1]).toEqual({
+      id: 'e_caal_1',
+      from: 'start',
+      to: 'llm',
+      type: 'conditional',
+      condition: '$.ok = true',
+    });
+    expect(result.graph.edges[2].type).toBe('unconditional');
+    expect(result.graph.edges[2].id).toBe('e_caal_2');
+  });
+
+  it('gives an applied node a free position instead of the canvas fallback', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'add_node', data: { id: 'a', type: 'core:transform' } },
+      { op: 'add_node', data: { id: 'b', type: 'core:transform' } },
+    ]);
+
+    const a = result.graph.nodes.a.position;
+    const b = result.graph.nodes.b.position;
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    expect(a).not.toEqual(b);
+  });
+
+  it('refuses to repoint an existing node id through update_node', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'update_node', target: 'llm', data: { id: 'renamed', label: 'x' } },
+    ]);
+
+    expect(result.graph.nodes.llm.id).toBe('llm');
+    expect(result.graph.nodes.renamed).toBeUndefined();
+  });
+
+  it('skips an edge whose endpoints are not in the graph', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'add_edge', data: { from: 'llm', to: 'ghost' } },
+    ]);
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped[0].reason).toContain('ghost');
+  });
+
+  it('skips a tool edge whose agent node is not in the graph', () => {
+    const result = applyProposalPatches(baseGraph(), [
+      { op: 'add_tool_edge', data: { tool: 'caal.graph.read', agent: 'ghost' } },
+    ]);
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped[0].reason).toContain('ghost');
   });
 
   it('deletes a node by target', () => {
@@ -90,11 +160,15 @@ describe('applyProposalPatches', () => {
   });
 
   it('tolerates a graph with no edges or toolEdges yet', () => {
-    const sparse = { nodes: {} } as unknown as PatchableGraph;
+    const sparse = {
+      nodes: { a: { id: 'a', type: 'core:start', config: {} }, b: { id: 'b', type: 'core:end', config: {} } },
+    } as unknown as PatchableGraph;
     const result = applyProposalPatches(sparse, [{ op: 'add_edge', data: { from: 'a', to: 'b' } }]);
 
     expect(result.applied).toBe(1);
-    expect(result.graph.edges).toEqual([{ from: 'a', to: 'b' }]);
+    expect(result.graph.edges).toEqual([
+      { id: 'e_caal_1', from: 'a', to: 'b', type: 'unconditional' },
+    ]);
   });
 });
 

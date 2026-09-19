@@ -73,6 +73,21 @@ describe('normalizeCaalOptions', () => {
     expect(result?.options[0].description).toHaveLength(160);
   });
 
+  it('drops a duplicate value, which would break the keyed option list', () => {
+    const result = normalizeCaalOptions(
+      {
+        question: 'Proceed?',
+        options: [
+          { label: 'No thanks', value: 'dismiss' },
+          { label: 'Not now', value: 'dismiss' },
+        ],
+      },
+      studio,
+    );
+
+    expect(result?.options).toEqual([{ label: 'No thanks', value: 'dismiss' }]);
+  });
+
   it('ignores a follow-up whose intent is not one the Caal graph routes on', () => {
     const result = normalizeCaalOptions(
       {
