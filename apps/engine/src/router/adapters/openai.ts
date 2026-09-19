@@ -9,6 +9,7 @@ import type {
   RouterTriggerCondition,
 } from '@magicaal/core';
 import { probeProviderKey } from './validate';
+import { providerError } from './provider-error';
 
 const BASE_URL = 'https://api.openai.com/v1';
 
@@ -163,11 +164,7 @@ export const openAIAdapter: ProviderAdapter = {
     });
 
     if (!response.ok) {
-      const err = Object.assign(new Error(`OpenAI error ${response.status}`), {
-        status: response.status,
-        _providerError: true,
-      });
-      throw err;
+      throw await providerError('OpenAI', response);
     }
 
     const data = (await response.json()) as OpenAIResponse;

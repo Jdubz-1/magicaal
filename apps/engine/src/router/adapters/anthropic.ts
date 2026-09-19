@@ -9,6 +9,7 @@ import type {
   RouterTriggerCondition,
 } from '@magicaal/core';
 import { probeProviderKey } from './validate';
+import { providerError } from './provider-error';
 
 const BASE_URL = 'https://api.anthropic.com/v1';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -176,11 +177,7 @@ export const anthropicAdapter: ProviderAdapter = {
     });
 
     if (!response.ok) {
-      const err = Object.assign(new Error(`Anthropic error ${response.status}`), {
-        status: response.status,
-        _providerError: true,
-      });
-      throw err;
+      throw await providerError('Anthropic', response);
     }
 
     const data = (await response.json()) as AnthropicResponse;

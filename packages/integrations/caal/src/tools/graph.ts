@@ -4,7 +4,8 @@ export const graphRead: NodeModule = {
   type: 'caal.graph.read',
   meta: { name: 'Read Graph', description: 'Read the full agent graph definition', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
@@ -50,7 +51,8 @@ export const graphGetSelectedNodes: NodeModule = {
   type: 'caal.graph.getSelectedNodes',
   meta: { name: 'Get Selected Nodes', description: 'Get details of the currently selected nodes', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
@@ -71,7 +73,8 @@ export const graphSummarize: NodeModule = {
   type: 'caal.graph.summarize',
   meta: { name: 'Summarize Graph', description: 'Get a high-level summary of the agent graph', category: 'integration', version: '0.1.0' },
   schema: {
-    config: {},
+    // Takes no arguments — providers reject a schema with no declared type.
+    config: { type: 'object', properties: {} },
     input: {},
     output: {
       type: 'object',
