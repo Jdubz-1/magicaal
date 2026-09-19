@@ -25,6 +25,48 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Agentic nodes finally get the conversation they were configured for
+
+**Type:** Bugfix
+
+**Description:**
+Clicking "Yes, draft a proposal" on Caal's options card produced *"I don't have
+a record of improvements I just suggested to you"* — while the previous turn's
+3137-character suggestion sat in the same run's context, read out of the session
+two nodes earlier.
+
+`core:tool-call` and `core:react` have advertised `injectSessionHistory` in
+their schemas since they shipped ("prepended to the conversation history before
+this node runs"), but only `core:llm-call` ever implemented it. The engine
+executes those two, and `runAgentLoop` built its conversation from the input key
+alone — the field was not even declared on the engine's own `ToolCallConfig`, so
+TypeScript never flagged the omission. `suggester` and `modifier` have therefore
+never had conversation memory; `explainer`, a `core:llm-call`, always did, which
+is exactly the asymmetry that showed in Studio.
+
+**Changes:**
+- `packages/nodes/src/utils/session-history.ts` — `readSessionHistory`, one
+  reader shared by the node and the engine: flattens the turn-arrays older
+  sessions stored, keeps only real messages, drops a turn whose content is
+  empty, and optionally caps by count or characters
+- `packages/nodes/src/nodes/core-llm-call.ts` — uses the shared reader, so it
+  also stops injecting empty turns, which providers reject
+- `apps/engine/src/execution/tool-executor.ts` — `ToolCallConfig` declares
+  `injectSessionHistory`, and `runAgentLoop` prepends the stored turns, capped
+  at 20 messages / 24k characters because the loop resends the conversation on
+  every iteration and Caal's input is already the whole graph
+- Live session data: rewrote the stored `messages` for the Caal session to drop
+  two empty assistant turns left by runs from before the `session-write` guard
+  (42 → 40 entries)
+
+**Impact:**
+An agentic node can hold a conversation. Caal's suggest → "yes, draft a
+proposal" hand-off works on the model's actual advice rather than asking the
+developer to restate it, and no invocation can be poisoned by an empty turn
+stored earlier.
+
+---
+
 ### 2026-09-19 - Keep the answer a tool-calling agent node actually produced
 
 **Type:** Bugfix
