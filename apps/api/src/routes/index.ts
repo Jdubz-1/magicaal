@@ -27,6 +27,12 @@ import {
 } from '../controllers/integrations.controller';
 import { requireInternalAuth, authenticateRunCaller } from '../middleware/auth';
 import { internalRecordUsage } from '../controllers/marketplace-usage.controller';
+import {
+  internalCaalListNodes,
+  internalCaalGetNode,
+  internalCaalListConnections,
+  internalCaalListAgents,
+} from '../controllers/caal-internal.controller';
 
 export const router: RouterType = Router();
 
@@ -76,6 +82,12 @@ router.post(
 );
 // Internal engine→API per-package usage flush (ALIGN-019)
 router.post('/internal/marketplace/usage', requireInternalAuth, internalRecordUsage);
+// Reads for Caal's platform tools, which run in the engine with no user
+// session — scoped by the X-Tenant-Id the engine sends
+router.get('/internal/caal/nodes', requireInternalAuth, internalCaalListNodes);
+router.get('/internal/caal/nodes/:type', requireInternalAuth, internalCaalGetNode);
+router.get('/internal/caal/connections', requireInternalAuth, internalCaalListConnections);
+router.get('/internal/caal/agents', requireInternalAuth, internalCaalListAgents);
 // Public integration trigger receiver — no auth middleware; authenticity is
 // established by the service's webhook signature, verified in the engine
 router.post('/v1/triggers/integrations/:service/:tenantSlug', receiveIntegrationEvent);
