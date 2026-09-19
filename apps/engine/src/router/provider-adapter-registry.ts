@@ -1,4 +1,4 @@
-import type { ProviderAdapter } from '@magicaal/sdk-node';
+import type { ProviderAdapter, ProviderDescriptor } from '@magicaal/sdk-node';
 import { logger } from '../lib/logger';
 
 class ProviderAdapterRegistry {
@@ -26,6 +26,11 @@ class ProviderAdapterRegistry {
 
   list(): string[] {
     return [...this.adapters.keys()];
+  }
+
+  /** Catalog entries for adapters that declare a descriptor. */
+  listDescriptors(): ProviderDescriptor[] {
+    return [...this.adapters.values()].flatMap((a) => (a.descriptor ? [a.descriptor] : []));
   }
 }
 

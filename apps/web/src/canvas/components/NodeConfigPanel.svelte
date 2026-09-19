@@ -3,6 +3,7 @@
   import { nodeTypes } from '../stores/nodeTypes';
   import ExpressionEditor from './ExpressionEditor.svelte';
   import ConnectionSelect from './ConnectionSelect.svelte';
+  import ModelRouterSelect from './ModelRouterSelect.svelte';
 
   export let node: NodeDef;
   export let readonly = false;
@@ -109,6 +110,14 @@
           onChange={(id) => updateConfig(key, id)}
           disabled={readonly}
         />
+      {:else if prop.format === 'model-router'}
+        {#key node.id}
+          <ModelRouterSelect
+            value={configValue(key)}
+            onChange={(router) => updateConfig(key, router)}
+            disabled={readonly}
+          />
+        {/key}
       {:else if prop.type === 'object'}
         <textarea rows="4"
           value={JSON.stringify(configValue(key) ?? {}, null, 2)}

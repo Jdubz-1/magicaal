@@ -857,6 +857,34 @@ export function buildOpenApiSpec(): Record<string, unknown> {
         responses: { '204': noContent, '404': notFound },
       },
     },
+    '/v1/llm/providers': {
+      get: {
+        tags: ['Platform'],
+        summary: 'List the model provider catalog (auth fields and suggested models per provider)',
+        responses: { '200': ok },
+      },
+    },
+    '/v1/llm/providers/{provider}/connections': {
+      post: {
+        tags: ['Platform'],
+        summary: 'Connect a model provider from its catalog preset',
+        description:
+          'Validates the credentials with the provider (unless skipValidation), stores them as an ' +
+          'Integration Connection, and optionally creates a single-target router policy using it.',
+        parameters: [pathParam('provider')],
+        requestBody: jsonBody(
+          { displayName: str, credentials: obj, skipValidation: { type: 'boolean' }, routerPolicy: obj },
+          ['credentials'],
+        ),
+        responses: {
+          '201': created,
+          '400': badRequest,
+          '404': notFound,
+          '422': { description: 'The provider rejected the credentials (PROVIDER_KEY_INVALID)' },
+          '424': { description: 'The provider could not be reached to validate (PROVIDER_UNREACHABLE)' },
+        },
+      },
+    },
     '/v1/integrations/oauth/initiate': {
       post: {
         tags: ['Integrations'],

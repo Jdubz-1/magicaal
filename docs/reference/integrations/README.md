@@ -35,4 +35,6 @@ Write new integrations against these rather than reimplementing retry/pagination
 | `twilio` | Twilio integration |
 | `zendesk` | Zendesk integration |
 
+Model providers (Anthropic, OpenAI, Google) are not integration packages — their keys are also stored as Integration Connections, but they are connected from presets in Admin → Integrations → Model Providers. See [Model Router — Connecting model providers](../../developer-guide/architecture/model-router.md#connecting-model-providers).
+
 Connections to any of these are managed via `apps/api`'s `/v1/integrations/connections` endpoints (credentials encrypted at rest with `MAGICAAL_MASTER_KEY`); trigger registrations via `/v1/integrations/triggers`. New integration packages that conform to this existing format don't require an RFC — see [CONTRIBUTING.md — What Requires an RFC](../../../CONTRIBUTING.md#what-requires-an-rfc).

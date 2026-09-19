@@ -9,7 +9,10 @@ export interface NodeSchema {
         type: string;
         items?: { type: string };
         description?: string;
-        /** 'connection' renders an Integration Connection dropdown. */
+        /**
+         * 'connection' renders an Integration Connection dropdown;
+         * 'model-router' renders the provider connection + model picker.
+         */
         format?: string;
         /** Integration service the connection dropdown filters to (e.g. 'slack'). */
         service?: string;

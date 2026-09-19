@@ -6,6 +6,71 @@ import { resolveCredentials } from '../resolver/credential-resolver';
 import { ExecutionContextImpl } from '../execution/context';
 import { healthTracker } from '../router/health-tracker';
 import { circuitBreaker } from '../router/circuit-breaker';
+import { providerAdapterRegistry } from '../router/provider-adapter-registry';
+
+/**
+ * GET /internal/llm/providers. The model provider catalog — one descriptor
+ * per registered adapter — used for Admin presets and the Studio model picker.
+ */
+export const listProviders: RequestHandler = (_req, res, next) => {
+  try {
+    res.json(providerAdapterRegistry.listDescriptors());
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /internal/llm/providers/:provider/validate. Checks credentials against
+ * the provider before the API stores them. Credentials are never logged or
+ * echoed back.
+ */
+export const validateProviderCredentials: RequestHandler = async (req, res, next) => {
+  try {
+    const { provider } = req.params;
+    if (!providerAdapterRegistry.has(provider)) {
+      throw Object.assign(new Error(`Unknown model provider "${provider}"`), {
+        status: 404,
+        code: 'PROVIDER_NOT_FOUND',
+      });
+    }
+
+    const { credentials } = req.body as { credentials?: Record<string, unknown> };
+    const adapter = providerAdapterRegistry.get(provider);
+
+    // Required fields come from the descriptor, not a hardcoded api_key: an
+    // adapter declaring `{ key: 'token' }` passed the API-side check and then
+    // hit a 400 here, for a field name it is entitled to choose.
+    const required = (adapter.descriptor?.authFields ?? [{ key: 'api_key', required: true }])
+      .filter((f) => f.required !== false)
+      .map((f) => f.key);
+    const missing = required.filter(
+      (key) => typeof credentials?.[key] !== 'string' || (credentials[key] as string).length === 0,
+    );
+    if (missing.length > 0) {
+      throw Object.assign(
+        new Error(`credentials.${missing.join(', credentials.')} required`),
+        { status: 400 },
+      );
+    }
+
+    if (!adapter.validateCredentials) {
+      res.json({ ok: true });
+      return;
+    }
+
+    // Same shape credential-resolver.ts builds for api_key connections; an
+    // adapter using another field name reads it from `extra`.
+    const result = await adapter.validateCredentials({
+      type: 'apikey',
+      apiKey: typeof credentials?.api_key === 'string' ? credentials.api_key : undefined,
+      extra: credentials,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
 
 /**
  * GET /internal/llm/provider-health (ALIGN-024). Per-target router health:
