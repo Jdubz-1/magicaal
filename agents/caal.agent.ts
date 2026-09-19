@@ -118,14 +118,49 @@ export class CaalAssistantAgent extends AgentGraph {
 
     this.node('suggester', 'core:tool-call', {
       systemPrompt:
-        'You are Caal. Suggest improvements to the agent graph. ' +
+        'You are Caal. Suggest improvements to the agent graph — advice only. ' +
         'Use the available tools to inspect the graph and platform capabilities, ' +
-        'then create a proposal with caal.proposal.create.',
+        'then explain concretely what you would change and why. ' +
+        'You have no tools for staging graph changes on this path, so never claim ' +
+        'to have made one and never try to create a proposal. ' +
+        'Finish by calling caal.ui.askOptions to ask whether the developer wants ' +
+        'these suggestions turned into an applyable proposal, offering an answer ' +
+        'whose followUpIntent is "modify" and one that simply declines.',
       inputKey: 'suggestMessage',
       outputKey: 'content',
       injectSessionHistory: 'sessionMessages',
-      maxIterations: 3,
+      // Inspect the graph, answer, then ask the follow-up question with
+      // caal.ui.askOptions — three iterations left no room for that last call.
+      maxIterations: 5,
       // See explainer's comment above — no inline `router`.
+    });
+
+    // Studio renders an inline options card from _caal_options (see
+    // CaalOptionsCard.svelte). suggester is told to set it via
+    // caal.ui.askOptions, but a tool-call loop can always stop early, so this
+    // node supplies the default when it didn't — the suggest path is advisory
+    // only, and without the follow-up question there would be no way at all to
+    // turn advice into an applyable change. An existing value is preserved.
+    this.node('suggest-options', 'core:transform', {
+      outputKey: '_caal_options',
+      expression: `$._caal_options ? $._caal_options : (
+        $.systemContext.isCodeDefined = true ? {
+          "question": "Caal can't modify code-defined agents yet — edit the source *.agent.ts file to apply any of this.",
+          "options": [ { "label": "Got it", "value": "dismiss" } ]
+        } : {
+          "question": "Want me to turn this into a proposal you can apply?",
+          "options": [
+            {
+              "label": "Yes, draft a proposal",
+              "value": "create_proposal",
+              "description": "Caal stages each change so you can review and apply them.",
+              "followUpMessage": "Create a proposal implementing the improvements you just suggested. Stage every change with the graph tools before calling caal.proposal.create.",
+              "followUpIntent": "modify"
+            },
+            { "label": "No thanks", "value": "dismiss" }
+          ]
+        }
+      )`,
     });
 
     // ── Modify path ───────────────────────────────────────────────────────────
@@ -175,6 +210,7 @@ export class CaalAssistantAgent extends AgentGraph {
       expression: `{
         "nodeReferences": $.content ? $map($match($.content, /\\[\\[([^\\]]+)\\]\\]/), function($m) { $m.groups[0] }) : [],
         "proposal": $._caal_proposal,
+        "options": $._caal_options,
         "canvasHighlight": $._caal_canvas_highlight,
         "canvasFocus": $._caal_canvas_focus
       }`,
@@ -223,7 +259,8 @@ export class CaalAssistantAgent extends AgentGraph {
     this.connect('build-modify-message', 'modifier');
 
     this.connect('explainer', 'response-assembler');
-    this.connect('suggester', 'response-assembler');
+    this.connect('suggester', 'suggest-options');
+    this.connect('suggest-options', 'response-assembler');
     this.connect('modifier', 'response-assembler');
     this.connect('code-defined-modify-blocked', 'response-assembler');
 
@@ -238,7 +275,11 @@ export class CaalAssistantAgent extends AgentGraph {
     this.tool('caal.platform.listAgents', 'suggester');
     this.tool('caal.graph.read', 'suggester');
     this.tool('caal.graph.summarize', 'suggester');
-    this.tool('caal.proposal.create', 'suggester');
+    // Deliberately NOT caal.proposal.create: suggester has no staging tools, so
+    // every proposal it ever produced was empty — Studio showed a review card,
+    // said it had been applied and armed Undo for nothing. The suggest path is
+    // advisory and offers the modify path through caal.ui.askOptions instead.
+    this.tool('caal.ui.askOptions', 'suggester');
 
     this.tool('caal.platform.listNodeTypes', 'modifier');
     this.tool('caal.platform.getNodeSchema', 'modifier');

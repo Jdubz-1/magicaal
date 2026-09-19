@@ -24,6 +24,7 @@ describe('Caal tool schemas', () => {
       'caal.graph.summarize',
       'caal.platform.listNodeTypes',
       'caal.proposal.create',
+      'caal.ui.askOptions',
     ]) {
       expect(types).toContain(wired);
     }

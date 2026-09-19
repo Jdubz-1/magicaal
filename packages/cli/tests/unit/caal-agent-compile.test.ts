@@ -94,6 +94,48 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     expect(writes.proposalHistory).not.toContain('$.proposal ');
   });
 
+  /**
+   * The suggest path is advisory: it has no tools for staging graph changes,
+   * so every proposal it produced carried zero patches — Studio offered a
+   * review card, reported it applied and armed Undo for nothing. It offers
+   * the modify path through an options card instead.
+   */
+  it('suggester cannot create proposals and asks with options instead', () => {
+    const suggesterTools = graph.toolEdges.filter((te) => te.to === 'suggester').map((te) => te.from);
+
+    expect(suggesterTools).not.toContain('caal.proposal.create');
+    expect(suggesterTools).toContain('caal.ui.askOptions');
+    // None of the staging tools were ever wired here either.
+    expect(suggesterTools.filter((t) => /^caal\.graph\.(add|update|delete)/.test(t))).toEqual([]);
+
+    // The modify path still owns staging and proposals.
+    const modifierTools = graph.toolEdges.filter((te) => te.to === 'modifier').map((te) => te.from);
+    expect(modifierTools).toContain('caal.proposal.create');
+    expect(modifierTools).toContain('caal.graph.addNode');
+  });
+
+  it('suggest-options fills in the follow-up question when the model skipped the tool', () => {
+    const n = node('suggest-options');
+    expect(n.type).toBe('core:transform');
+    expect(n.config.outputKey).toBe('_caal_options');
+
+    const expression = n.config.expression as string;
+    // Preserves a model-supplied value rather than overwriting it.
+    expect(expression).toContain('$._caal_options ?');
+    expect(expression).toContain('"followUpIntent": "modify"');
+    // A code-defined agent can't be modified, so it gets no modify follow-up.
+    expect(expression).toContain('isCodeDefined');
+
+    const from = graph.edges.filter((e) => e.from === 'suggester').map((e) => e.to);
+    expect(from).toEqual(['suggest-options']);
+    const to = graph.edges.filter((e) => e.from === 'suggest-options').map((e) => e.to);
+    expect(to).toEqual(['response-assembler']);
+  });
+
+  it('response-assembler surfaces the options prompt to Studio', () => {
+    expect(node('response-assembler').config.expression).toContain('_caal_options');
+  });
+
   it('the modify path routes around code-defined agents into a guard node, not the tool-call loop (ISS-070)', () => {
     const modifyEdges = graph.edges.filter((e) => e.from === 'intent-router');
     const targets = modifyEdges.map((e) => e.to);

@@ -19,9 +19,34 @@ export interface RunSummary {
 export interface CaalResponse {
   message: string;
   proposal?: CaalProposal;
+  options?: CaalOptionsPrompt;
   nodeReferences: NodeReference[];
   tsChanges?: TypeScriptSuggestion;
 }
+
+/**
+ * A question Caal puts to the developer with selectable answers, rendered as an
+ * inline card in Studio. Written by the caal.ui.askOptions tool; the suggest
+ * path uses it to offer turning advice into a proposal, since that path is
+ * advisory and stages no graph changes itself.
+ */
+export interface CaalOptionsPrompt {
+  question: string;
+  options: CaalOption[];
+}
+
+export interface CaalOption {
+  /** Button text. */
+  label: string;
+  /** Machine-readable answer id, e.g. 'create_proposal'. */
+  value: string;
+  description?: string;
+  /** Sent back to Caal as a new turn when this answer is chosen. */
+  followUpMessage?: string;
+  followUpIntent?: CaalIntent;
+}
+
+export type CaalIntent = 'explain' | 'question' | 'suggest' | 'modify';
 
 export interface NodeReference {
   nodeId: string;
