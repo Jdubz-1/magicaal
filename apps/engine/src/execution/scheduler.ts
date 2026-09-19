@@ -92,7 +92,16 @@ export function startScheduler(): void {
         agentId,
         tenantId,
         triggerType,
-        input,
+        input: {
+          ...input,
+          // Caal's platform tools run in this process with no user session and
+          // call the API over HTTP. They had no way to learn where the API is
+          // (falling back to localhost, which is this container) or which
+          // tenant to read for (a Caal run's own tenant is _platform). Both are
+          // seeded here; `_`-prefixed keys are stripped from run output.
+          _caal_api_base: config.apiBaseUrl,
+          _caal_tenant_id: credentialTenantId ?? tenantId,
+        },
         graphDefaultRouter,
         runRouterOverride: routerOverride ?? null,
         sessionId,

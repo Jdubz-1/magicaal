@@ -298,6 +298,28 @@ export async function runAgentLoop(
 
 // ── Tool invocation helpers ───────────────────────────────────────────────────
 
+/**
+ * A tool failure as a sentence worth logging and worth handing back to the
+ * model. `err.message` alone is empty for an AggregateError — which is exactly
+ * what a refused local connection produces (both ::1 and 127.0.0.1 failing) —
+ * so a whole class of failures logged as `err: ""` and told the model nothing.
+ */
+export function describeToolError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+
+  const code = (err as NodeJS.ErrnoException).code;
+  const nested = (err as { errors?: unknown[] }).errors;
+  const fromNested = Array.isArray(nested)
+    ? nested
+        .map((e) => (e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.message) : String(e)))
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
+  const parts = [err.message || err.name, code, fromNested].filter(Boolean);
+  return [...new Set(parts)].join(': ');
+}
+
 async function invokeToolCall(
   toolCall: CanonicalToolCall,
   // Keyed by the sanitized name the provider was given, which is what it
@@ -323,7 +345,7 @@ async function invokeToolCall(
     }
     return { toolCall, content };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = describeToolError(err);
     logger.warn({ toolName: toolCall.name, err: msg }, 'Tool invocation failed');
     return { toolCall, content: JSON.stringify({ error: msg }) };
   }
