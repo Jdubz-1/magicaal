@@ -25,6 +25,61 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Stop losing Caal turns to a proxy timeout and a transport blip
+
+**Type:** Bugfix
+
+**Description:**
+Every Caal prompt in Studio started returning 502 or 500. Two unrelated
+causes, one of them a regression from the advisory-suggest change.
+
+The 502s: the web proxy's axios client is capped at 15s
+(`apps/web/src/lib/api-client.ts`), while the API waits up to
+`CAAL_INVOKE_TIMEOUT_MS` (120s) for a run and answers `CAAL_STILL_RUNNING`.
+The API logged both slow invokes as `request aborted` at 13.2s and 13.6s, and
+telemetry shows both runs completing server-side moments later — the answer was
+generated, paid for and thrown away, and any non-response error surfaced as
+502 "API unreachable". Making `caal.ui.askOptions` a mandatory closing call had
+pushed a suggest turn's prompt tokens from ~47k to ~95k (a tool loop resends
+the whole conversation each iteration) and its wall time across that ceiling.
+
+The 500s: the provider call failed at transport level — both runs died in under
+2.6s with zero tokens — and the router logged only `err.message`, so all that
+reached the logs was the bare string `fetch failed`; `fetch` puts the DNS or
+socket detail in `err.cause`. Nothing retried it either: the tenant policy has
+one target and no reactive trigger, so a single blip failed the whole turn.
+
+**Changes:**
+- `apps/web/src/lib/api-client.ts` — `proxyTimeoutFor()` gives `/caal/*` its own
+  budget (`CAAL_TIMEOUT_MS`, default 125s, above the API's own wait) and
+  `createApiClient` takes a per-request timeout
+- `apps/web/src/app.ts` — proxy uses the per-path budget; a client-side timeout
+  now answers 504 with an accurate message instead of 502 "API unreachable"
+- `apps/web/src/canvas/components/CaalPanel.svelte` — treats 504 like
+  `CAAL_STILL_RUNNING` rather than an error
+- `apps/web/src/config.ts`, `apps/web/.env.example` — `API_TIMEOUT_MS` /
+  `CAAL_TIMEOUT_MS`
+- `agents/caal.agent.ts` — suggester is no longer told to close with
+  `caal.ui.askOptions`; `suggest-options` already supplies that question, and
+  the tool stays wired for genuinely different questions
+- `apps/engine/src/lib/describe-error.ts` — one describer for the whole engine,
+  walking `err.cause` and an AggregateError's codes; `describeToolError`
+  delegates to it
+- `apps/engine/src/router/router-engine.ts` — logs the described cause, and
+  retries a target in place (2 retries, backoff) when the request never reached
+  the provider; an answered error still fails immediately
+- Tests: `describe-error` (engine), transport-retry cases in
+  `router-engine.test.ts`, `proxy-timeout.test.ts` (web), prompt assertion in
+  `caal-agent-compile.test.ts`
+
+**Impact:**
+A Caal turn that takes longer than 15s now completes and displays instead of
+reporting an outage that isn't happening, and a suggest turn costs roughly half
+what it did. A transport blip retries instead of failing the run, and when one
+does get through it names itself in the logs.
+
+---
+
 ### 2026-09-19 - Caal's suggest path is advisory, and proposals apply what they claim
 
 **Type:** Bugfix
