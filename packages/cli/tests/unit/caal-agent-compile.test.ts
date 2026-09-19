@@ -100,11 +100,15 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
    * review card, reported it applied and armed Undo for nothing. It offers
    * the modify path through an options card instead.
    */
-  it('suggester cannot create proposals and asks with options instead', () => {
+  it('suggester has no tool that ends a turn', () => {
     const suggesterTools = graph.toolEdges.filter((te) => te.to === 'suggester').map((te) => te.from);
 
     expect(suggesterTools).not.toContain('caal.proposal.create');
-    expect(suggesterTools).toContain('caal.ui.askOptions');
+    // suggest-options asks the follow-up question for free. Wiring the tool
+    // here invited the model to spend a round trip asking it again, and a tool
+    // call as its closing act left it with nothing to say on the iteration
+    // that actually returns — which is how a whole answer went missing.
+    expect(suggesterTools).not.toContain('caal.ui.askOptions');
     // None of the staging tools were ever wired here either.
     expect(suggesterTools.filter((t) => /^caal\.graph\.(add|update|delete)/.test(t))).toEqual([]);
 
@@ -138,11 +142,20 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
    * turn's prompt tokens (47k to 95k measured) and pushing it past the proxy's
    * budget.
    */
-  it('does not mandate an extra round trip to ask a question the graph already asks', () => {
+  it('does not point suggester at a tool it no longer has', () => {
     const prompt = node('suggester').config.systemPrompt as string;
 
-    expect(prompt).not.toMatch(/Finish by calling caal\.ui\.askOptions/i);
-    expect(prompt).toContain('do not');
+    expect(prompt).not.toMatch(/askOptions/i);
+    expect(prompt).not.toMatch(/proposal\.create/i);
+  });
+
+  it('never writes an empty assistant turn into the session', () => {
+    // An answer stored as an empty turn feeds core:llm-call a content-less
+    // message on the next invocation.
+    const writes = node('session-write').config.writes as Record<string, string>;
+
+    expect(writes.messages).toContain('$.content ?');
+    expect(writes.messages).toContain('"role": "user"');
   });
 
   it('leaves suggester room for its inspection calls plus the closing question', () => {
