@@ -1,4 +1,7 @@
 import type { NodeModule } from '@magicaal/sdk-node';
+
+export { readSessionHistory } from './utils/session-history';
+export type { SessionHistoryLimits } from './utils/session-history';
 import { coreStart } from './nodes/core-start';
 import { coreEnd } from './nodes/core-end';
 import { coreStop } from './nodes/core-stop';

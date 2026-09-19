@@ -1,6 +1,7 @@
 import type { NodeModule } from '@magicaal/sdk-node';
 import type { ExecutionContext } from '@magicaal/sdk-node';
 import type { CanonicalMessage, ModelRouterConfig } from '@magicaal/core';
+import { readSessionHistory } from '../utils/session-history';
 
 interface LLMCallConfig {
   // Prompt
@@ -102,18 +103,12 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
       messages = [{ role: 'user', content: text }];
     }
 
-    // Prepend stored session history as prior conversation turns
+    // Prepend stored session history as prior conversation turns. The reader
+    // is shared with the engine's agentic loop — see utils/session-history.ts
+    // for what a stored turn can look like and why it is not simply spread in.
+    // No cap here: one call sends the conversation once.
     if (config.injectSessionHistory) {
-      // Tolerant read: sessions written before `append` concatenated array
-      // values hold a list of turn-arrays, and spreading those into the request
-      // hands the provider adapter entries with no `role`/`content` — a hard
-      // crash inside the adapter rather than a degraded answer. Flatten one
-      // level and keep only real messages.
-      const stored = ctx.get<unknown>(config.injectSessionHistory);
-      const history = (Array.isArray(stored) ? stored.flat() : []).filter(
-        (m): m is CanonicalMessage =>
-          typeof m === 'object' && m !== null && 'role' in m && 'content' in m,
-      );
+      const history = readSessionHistory(ctx.get<unknown>(config.injectSessionHistory));
       if (history.length > 0) {
         messages = [...history, ...messages];
       }

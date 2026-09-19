@@ -28,4 +28,11 @@ describe('Caal tool schemas', () => {
       expect(types).toContain(wired);
     }
   });
+
+  it('keeps caal.ui.askOptions available even though no node wires it today', () => {
+    // The suggest path asks its follow-up question from a transform node
+    // instead; the tool remains registered for one that needs to ask something
+    // else.
+    expect(ALL_CAAL_TOOLS.map((t) => t.type)).toContain('caal.ui.askOptions');
+  });
 });

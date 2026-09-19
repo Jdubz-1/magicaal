@@ -94,6 +94,81 @@ describe('CaalAssistantAgent compiles with config shapes each node type actually
     expect(writes.proposalHistory).not.toContain('$.proposal ');
   });
 
+  /**
+   * The suggest path is advisory: it has no tools for staging graph changes,
+   * so every proposal it produced carried zero patches — Studio offered a
+   * review card, reported it applied and armed Undo for nothing. It offers
+   * the modify path through an options card instead.
+   */
+  it('suggester has no tool that ends a turn', () => {
+    const suggesterTools = graph.toolEdges.filter((te) => te.to === 'suggester').map((te) => te.from);
+
+    expect(suggesterTools).not.toContain('caal.proposal.create');
+    // suggest-options asks the follow-up question for free. Wiring the tool
+    // here invited the model to spend a round trip asking it again, and a tool
+    // call as its closing act left it with nothing to say on the iteration
+    // that actually returns — which is how a whole answer went missing.
+    expect(suggesterTools).not.toContain('caal.ui.askOptions');
+    // None of the staging tools were ever wired here either.
+    expect(suggesterTools.filter((t) => /^caal\.graph\.(add|update|delete)/.test(t))).toEqual([]);
+
+    // The modify path still owns staging and proposals.
+    const modifierTools = graph.toolEdges.filter((te) => te.to === 'modifier').map((te) => te.from);
+    expect(modifierTools).toContain('caal.proposal.create');
+    expect(modifierTools).toContain('caal.graph.addNode');
+  });
+
+  it('suggest-options fills in the follow-up question when the model skipped the tool', () => {
+    const n = node('suggest-options');
+    expect(n.type).toBe('core:transform');
+    expect(n.config.outputKey).toBe('_caal_options');
+
+    const expression = n.config.expression as string;
+    // Preserves a model-supplied value rather than overwriting it.
+    expect(expression).toContain('$._caal_options ?');
+    expect(expression).toContain('"followUpIntent": "modify"');
+    // A code-defined agent can't be modified, so it gets no modify follow-up.
+    expect(expression).toContain('isCodeDefined');
+
+    const from = graph.edges.filter((e) => e.from === 'suggester').map((e) => e.to);
+    expect(from).toEqual(['suggest-options']);
+    const to = graph.edges.filter((e) => e.from === 'suggest-options').map((e) => e.to);
+    expect(to).toEqual(['response-assembler']);
+  });
+
+  /**
+   * The card's question comes from suggest-options, so mandating a tool call to
+   * ask it spent a whole extra provider round trip — roughly doubling a suggest
+   * turn's prompt tokens (47k to 95k measured) and pushing it past the proxy's
+   * budget.
+   */
+  it('does not point suggester at a tool it no longer has', () => {
+    const prompt = node('suggester').config.systemPrompt as string;
+
+    expect(prompt).not.toMatch(/askOptions/i);
+    expect(prompt).not.toMatch(/proposal\.create/i);
+  });
+
+  it('never writes an empty assistant turn into the session', () => {
+    // An answer stored as an empty turn feeds core:llm-call a content-less
+    // message on the next invocation.
+    const writes = node('session-write').config.writes as Record<string, string>;
+
+    expect(writes.messages).toContain('$.content ?');
+    expect(writes.messages).toContain('"role": "user"');
+  });
+
+  it('leaves suggester room for its inspection calls plus the closing question', () => {
+    // core:tool-call only completes on an iteration that makes no tool calls,
+    // so a mandatory trailing askOptions call needs headroom or the whole
+    // answer is lost to MAX_ITERATIONS_REACHED.
+    expect(node('suggester').config.maxIterations as number).toBeGreaterThanOrEqual(8);
+  });
+
+  it('response-assembler surfaces the options prompt to Studio', () => {
+    expect(node('response-assembler').config.expression).toContain('_caal_options');
+  });
+
   it('the modify path routes around code-defined agents into a guard node, not the tool-call loop (ISS-070)', () => {
     const modifyEdges = graph.edges.filter((e) => e.from === 'intent-router');
     const targets = modifyEdges.map((e) => e.to);

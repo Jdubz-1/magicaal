@@ -25,6 +25,224 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-19 - Agentic nodes finally get the conversation they were configured for
+
+**Type:** Bugfix
+
+**Description:**
+Clicking "Yes, draft a proposal" on Caal's options card produced *"I don't have
+a record of improvements I just suggested to you"* — while the previous turn's
+3137-character suggestion sat in the same run's context, read out of the session
+two nodes earlier.
+
+`core:tool-call` and `core:react` have advertised `injectSessionHistory` in
+their schemas since they shipped ("prepended to the conversation history before
+this node runs"), but only `core:llm-call` ever implemented it. The engine
+executes those two, and `runAgentLoop` built its conversation from the input key
+alone — the field was not even declared on the engine's own `ToolCallConfig`, so
+TypeScript never flagged the omission. `suggester` and `modifier` have therefore
+never had conversation memory; `explainer`, a `core:llm-call`, always did, which
+is exactly the asymmetry that showed in Studio.
+
+**Changes:**
+- `packages/nodes/src/utils/session-history.ts` — `readSessionHistory`, one
+  reader shared by the node and the engine: flattens the turn-arrays older
+  sessions stored, keeps only real messages, drops a turn whose content is
+  empty, and optionally caps by count or characters
+- `packages/nodes/src/nodes/core-llm-call.ts` — uses the shared reader, so it
+  also stops injecting empty turns, which providers reject
+- `apps/engine/src/execution/tool-executor.ts` — `ToolCallConfig` declares
+  `injectSessionHistory`, and `runAgentLoop` prepends the stored turns, capped
+  at 20 messages / 24k characters because the loop resends the conversation on
+  every iteration and Caal's input is already the whole graph
+- Live session data: rewrote the stored `messages` for the Caal session to drop
+  two empty assistant turns left by runs from before the `session-write` guard
+  (42 → 40 entries)
+
+**Impact:**
+An agentic node can hold a conversation. Caal's suggest → "yes, draft a
+proposal" hand-off works on the model's actual advice rather than asking the
+developer to restate it, and no invocation can be poisoned by an empty turn
+stored earlier.
+
+---
+
+### 2026-09-19 - Keep the answer a tool-calling agent node actually produced
+
+**Type:** Bugfix
+
+**Description:**
+"Suggest improvements" showed its follow-up options card but no suggestions.
+The run had completed and billed 1202 completion tokens; the model had written
+five concrete improvements — its own options payload enumerated them — and
+`content` reached Studio as an empty string.
+
+`runAgentLoop` wrote only the final iteration's text to its `outputKey`, and
+the loop returns on the first iteration that makes no tool calls. Prose the
+model produced *alongside* a tool call went into the conversation and nowhere
+else. That was survivable while a tool-call node's last act was usually a plain
+answer; it stopped being survivable once suggester could close by asking the
+developer a question, because having asked, the model had nothing left to say
+and the returning iteration was empty. Telemetry across the same node: 1563 and
+1686 characters of advice on runs with no closing tool call, 0 and 274 on runs
+with one.
+
+**Changes:**
+- `apps/engine/src/execution/tool-executor.ts` — the loop collects each
+  iteration's text and returns them joined, skipping a summary the model
+  repeats verbatim; a single-reply turn is unchanged. An iteration that
+  produced no text no longer sends an empty text block back to the provider
+  alongside its `tool_use` blocks, which providers reject
+- `agents/caal.agent.ts` — `caal.ui.askOptions` is no longer wired to
+  `suggester`: `suggest-options` asks that question deterministically and for
+  free, so the tool edge only invited the model to spend a round trip asking it
+  again. The prompt no longer names a tool the node doesn't have, and the tool
+  stays registered for a node that needs to ask something else
+- `agents/caal.agent.ts` — `session-write`'s assistant entry is conditional on
+  there being an answer, so an empty turn can never feed `core:llm-call` a
+  content-less message on the next invocation
+- Tests: narration accumulation, verbatim-repeat de-duplication, single-reply
+  passthrough and the empty-text-block guard (engine); tool wiring, prompt and
+  session-write assertions (cli); registry coverage for a tool no node wires
+
+**Impact:**
+A tool-calling agent node returns everything it said, not just whatever came
+after its last tool call — so Caal's suggestions appear with the card that
+refers to them, and `modifier`'s explanation survives its proposal call too.
+
+---
+
+### 2026-09-19 - Stop losing Caal turns to a proxy timeout and a transport blip
+
+**Type:** Bugfix
+
+**Description:**
+Every Caal prompt in Studio started returning 502 or 500. Two unrelated
+causes, one of them a regression from the advisory-suggest change.
+
+The 502s: the web proxy's axios client is capped at 15s
+(`apps/web/src/lib/api-client.ts`), while the API waits up to
+`CAAL_INVOKE_TIMEOUT_MS` (120s) for a run and answers `CAAL_STILL_RUNNING`.
+The API logged both slow invokes as `request aborted` at 13.2s and 13.6s, and
+telemetry shows both runs completing server-side moments later — the answer was
+generated, paid for and thrown away, and any non-response error surfaced as
+502 "API unreachable". Making `caal.ui.askOptions` a mandatory closing call had
+pushed a suggest turn's prompt tokens from ~47k to ~95k (a tool loop resends
+the whole conversation each iteration) and its wall time across that ceiling.
+
+The 500s: the provider call failed at transport level — both runs died in under
+2.6s with zero tokens — and the router logged only `err.message`, so all that
+reached the logs was the bare string `fetch failed`; `fetch` puts the DNS or
+socket detail in `err.cause`. Nothing retried it either: the tenant policy has
+one target and no reactive trigger, so a single blip failed the whole turn.
+
+**Changes:**
+- `apps/web/src/lib/api-client.ts` — `proxyTimeoutFor()` gives `/caal/*` its own
+  budget (`CAAL_TIMEOUT_MS`, default 125s, above the API's own wait) and
+  `createApiClient` takes a per-request timeout
+- `apps/web/src/app.ts` — proxy uses the per-path budget; a client-side timeout
+  now answers 504 with an accurate message instead of 502 "API unreachable"
+- `apps/web/src/canvas/components/CaalPanel.svelte` — treats 504 like
+  `CAAL_STILL_RUNNING` rather than an error
+- `apps/web/src/config.ts`, `apps/web/.env.example` — `API_TIMEOUT_MS` /
+  `CAAL_TIMEOUT_MS`
+- `agents/caal.agent.ts` — suggester is no longer told to close with
+  `caal.ui.askOptions`; `suggest-options` already supplies that question, and
+  the tool stays wired for genuinely different questions
+- `apps/engine/src/lib/describe-error.ts` — one describer for the whole engine,
+  walking `err.cause` and an AggregateError's codes; `describeToolError`
+  delegates to it
+- `apps/engine/src/router/router-engine.ts` — logs the described cause, and
+  retries a target in place (2 retries, backoff) when the request never reached
+  the provider; an answered error still fails immediately
+- Tests: `describe-error` (engine), transport-retry cases in
+  `router-engine.test.ts`, `proxy-timeout.test.ts` (web), prompt assertion in
+  `caal-agent-compile.test.ts`
+
+**Impact:**
+A Caal turn that takes longer than 15s now completes and displays instead of
+reporting an outage that isn't happening, and a suggest turn costs roughly half
+what it did. A transport blip retries instead of failing the run, and when one
+does get through it names itself in the logs.
+
+**Notes:**
+Review of these fixes tightened three of them. The retry predicate was a
+negative test ("no HTTP status"), which also caught MISSING_CREDENTIALS thrown
+before any call and a body that failed to parse after a 200 — the latter was
+billed, and retrying billed it twice more; it now asks positively for an
+AggregateError, undici's "fetch failed", or a network code in the cause chain,
+times each attempt separately, and stops if the run was cancelled.
+`positiveIntEnv` rejects an empty or non-numeric budget rather than producing
+NaN, which axios reads as no timeout at all. And an option's follow-up is shown
+exactly as it is sent, so History replays the turn the developer saw.
+
+Two older gaps in `applyProposalPatches` closed at the same time: `delete_node`
+now cascades its edges and tool edges the way Studio's own delete does, and
+`update_node` merges staged fields into the node's `config` rather than onto the
+node root, where nothing read them.
+
+---
+
+### 2026-09-19 - Caal's suggest path is advisory, and proposals apply what they claim
+
+**Type:** Bugfix
+
+**Description:**
+Accepting a Caal proposal in Studio changed nothing — it only lit the "Undo
+Caal change" button. Every proposal reaching the UI carried zero patches:
+`caal.proposal.create` builds a proposal from `_caal_patches`, which only the
+`caal.graph.*` write tools stage, and those are wired to `modifier` alone.
+`suggester` had the read-only tools plus `proposal.create`, so everything it
+produced was structurally empty. Four layers then read empty as success — the
+tool never checked `patches.length`, the panel announced success before
+anything ran, `App.svelte` armed Undo unconditionally, and the inline patch
+loop ignored any op it could not match.
+
+`suggest` is now advisory: it offers to hand off to the `modify` path through
+a new options card rather than emitting a proposal it has no tools to fill.
+
+**Changes:**
+- `packages/integrations/caal/src/tools/ui.ts` — new `caal.ui.askOptions` tool:
+  asks the developer a question with up to four selectable answers, normalizing
+  the model-written payload and writing `_caal_options`
+- `packages/integrations/caal/src/tools/proposal.ts` — fails with
+  `NO_PATCHES_STAGED` when nothing is staged, leaving staging intact for a retry
+- `agents/caal.agent.ts` — `suggester` drops `caal.proposal.create`, gains
+  `caal.ui.askOptions` and a rewritten advisory prompt; new `suggest-options`
+  transform supplies the default yes/no question (and no modify follow-up for a
+  code-defined agent); `response-assembler` surfaces `options`; iteration budget
+  3 → 5
+- `packages/core/src/caal.ts` — `CaalOptionsPrompt` / `CaalOption` / `CaalIntent`
+- `apps/web/src/canvas/lib/proposalPatches.ts` — the patch loop lifted out of
+  `App.svelte`, counting applications, returning each no-op with a reason, and
+  normalizing staged patches into the graph's own `NodeDef`/`EdgeDef`/
+  `ToolEdgeDef` shapes (minted edge ids, a `type` derived from the condition,
+  `{ tool, agent }` → `{ from, to }`, a free position per new node)
+- `apps/web/src/canvas/lib/caalOptions.ts` — client-side re-validation that also
+  drops `modify` answers for a code-defined agent
+- `apps/web/src/canvas/components/CaalOptionsCard.svelte` — the inline card
+- `apps/web/src/canvas/App.svelte` — records an undo entry only when something
+  applied; dispatches `caal:proposal-applied`
+- `apps/web/src/canvas/components/CaalPanel.svelte` — reports the real applied
+  count, shows a review card only for a proposal with patches, renders the card
+  and sends a chosen answer's follow-up as a new turn (displaying the answer's
+  label rather than the instruction), and sends the agent's real
+  `authoringMode`, which had always been read off the graph JSON that never
+  carries it
+- `apps/web/src/canvas/components/ProposalReviewUI.svelte` — Apply disabled with
+  nothing selected
+- Tests: `caal-proposal-tool`, `caal-ui-options-tool` (engine),
+  `caal-agent-compile` (cli), `proposalPatches`, `caalOptions`,
+  `apply-proposal-wiring` (web)
+
+**Impact:**
+An empty proposal can no longer be produced, displayed, or reported as applied.
+"Suggest improvements" now ends in a question the developer answers with one
+click, and answering yes routes to the only path that can stage real changes —
+so accepting a proposal changes the graph, and Undo is offered only when it did.
+
+---
+
 ### 2026-09-19 - Make Caal's platform tools actually reach the API
 
 **Type:** Bugfix

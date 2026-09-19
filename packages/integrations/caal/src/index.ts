@@ -19,11 +19,13 @@ import {
   platformListAgents,
 } from './tools/platform';
 import { canvasHighlight, canvasFocus } from './tools/canvas';
+import { uiAskOptions } from './tools/ui';
 
 export * from './tools/graph';
 export * from './tools/proposal';
 export * from './tools/platform';
 export * from './tools/canvas';
+export * from './tools/ui';
 
 /**
  * Every Caal tool as a flat NodeModule list, mirroring @magicaal/nodes'
@@ -50,4 +52,5 @@ export const ALL_CAAL_TOOLS: NodeModule[] = [
   platformListAgents,
   canvasHighlight,
   canvasFocus,
+  uiAskOptions,
 ];

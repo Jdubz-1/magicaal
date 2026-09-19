@@ -35,6 +35,25 @@ export const proposalCreate: NodeModule = {
     const cfg = config as { description: string; rationale?: string };
     const patches = ctx.get<unknown[]>('_caal_patches') ?? [];
 
+    // A proposal is only ever built from patches staged by the caal.graph.*
+    // write tools. Returning an empty one "succeeded" all the way to Studio,
+    // which offered a review card, reported it applied and armed Undo for a
+    // change that never happened — the suggest path had no staging tools at
+    // all, so it could only ever produce this. Staging is left intact so the
+    // model can add patches and call again.
+    if (patches.length === 0) {
+      return {
+        status: 'failed',
+        outputs: {},
+        error: {
+          code: 'NO_PATCHES_STAGED',
+          message:
+            'No graph changes are staged. Stage each change with caal.graph.addNode / updateNode / deleteNode / addEdge / deleteEdge / addToolEdge first, then call caal.proposal.create.',
+          retryable: true,
+        },
+      };
+    }
+
     const complexity = classifyComplexity(patches.length, patches);
 
     const proposal = {

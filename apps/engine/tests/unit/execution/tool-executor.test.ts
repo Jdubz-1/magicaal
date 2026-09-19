@@ -83,6 +83,206 @@ describe('runAgentLoop', () => {
     expect(request.system).toBe('Base prompt.\n\nTenant-configured addendum.');
   });
 
+  /**
+   * core:tool-call and core:react have always advertised injectSessionHistory
+   * in their schemas, but only core:llm-call implemented it — the engine
+   * executes these two and never read the field. Caal's modifier answered
+   * "I don't have a record of improvements I just suggested" with the
+   * suggestion sitting in its own context.
+   */
+  describe('session history', () => {
+    const reply = (content: string) => ({
+      content,
+      stopReason: 'end_turn' as const,
+      usage: { promptTokens: 1, completionTokens: 1, estimatedCostUsd: 0 },
+      routingMeta: { targetUsed: mockTarget, attemptCount: 1, triggerHistory: [] },
+    });
+
+    function historyGraph() {
+      const graph = makeGraph();
+      graph.nodes.agent.config = {
+        ...graph.nodes.agent.config,
+        injectSessionHistory: 'sessionMessages',
+      };
+      return graph;
+    }
+
+    it('prepends stored turns before the current message', async () => {
+      const ctx = makeCtx({
+        task: 'Turn those suggestions into a proposal',
+        sessionMessages: [
+          { role: 'user', content: 'Suggest improvements' },
+          { role: 'assistant', content: 'Parallelise the integrations, add error handling…' },
+        ],
+      });
+      const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('On it.'));
+
+      const graph = historyGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(llmCallSpy.mock.calls[0][0].messages).toEqual([
+        { role: 'user', content: 'Suggest improvements' },
+        { role: 'assistant', content: 'Parallelise the integrations, add error handling…' },
+        { role: 'user', content: 'Turn those suggestions into a proposal' },
+      ]);
+    });
+
+    it('sends no history when the node does not ask for it', async () => {
+      const ctx = makeCtx({
+        task: 'Do the thing',
+        sessionMessages: [{ role: 'user', content: 'earlier' }],
+      });
+      const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('Done.'));
+
+      const graph = makeGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(llmCallSpy.mock.calls[0][0].messages).toEqual([
+        { role: 'user', content: 'Do the thing' },
+      ]);
+    });
+
+    it('drops an empty stored turn rather than sending one a provider rejects', async () => {
+      const ctx = makeCtx({
+        task: 'Continue',
+        sessionMessages: [
+          { role: 'user', content: 'Suggest improvements' },
+          { role: 'assistant', content: '' },
+        ],
+      });
+      const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('Sure.'));
+
+      const graph = historyGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(llmCallSpy.mock.calls[0][0].messages).toEqual([
+        { role: 'user', content: 'Suggest improvements' },
+        { role: 'user', content: 'Continue' },
+      ]);
+    });
+
+    it('caps what it carries, since the loop resends it every iteration', async () => {
+      const ctx = makeCtx({
+        task: 'Continue',
+        sessionMessages: Array.from({ length: 40 }, (_, i) => ({
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+        })),
+      });
+      const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('Sure.'));
+
+      const graph = historyGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      const sent = llmCallSpy.mock.calls[0][0].messages;
+      expect(sent).toHaveLength(21); // 20 carried turns plus the current message
+      expect(sent[0].content).toBe('turn 20');
+      expect(sent[sent.length - 1].content).toBe('Continue');
+    });
+
+    it('carries history into react mode too', async () => {
+      const ctx = makeCtx({
+        task: 'Continue',
+        sessionMessages: [{ role: 'user', content: 'earlier' }],
+      });
+      const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('Done.'));
+
+      const graph = historyGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'react');
+
+      expect(llmCallSpy.mock.calls[0][0].messages[0]).toEqual({ role: 'user', content: 'earlier' });
+    });
+  });
+
+  /**
+   * The loop only returns on an iteration that makes no tool calls, and after a
+   * tool call — especially one that asks the developer a question — the model
+   * routinely has nothing left to say. Keeping only that last message threw
+   * the whole answer away: a Caal suggest turn billed 1.2k completion tokens
+   * and reached Studio with an empty content.
+   */
+  describe('the answer the loop returns', () => {
+    const reply = (content: string, toolCalls?: { id: string; name: string; input: Record<string, unknown> }[]) => ({
+      content,
+      toolCalls,
+      stopReason: 'end_turn' as const,
+      usage: { promptTokens: 1, completionTokens: 1, estimatedCostUsd: 0 },
+      routingMeta: { targetUsed: mockTarget, attemptCount: 1, triggerHistory: [] },
+    });
+
+    it('keeps prose the model wrote alongside a tool call', async () => {
+      const ctx = makeCtx({ task: 'Suggest improvements' });
+      jest
+        .spyOn(ctx, 'llmCall')
+        .mockResolvedValueOnce(
+          reply('Here are three improvements: …', [{ id: 't1', name: 'unknown_tool', input: {} }]),
+        )
+        .mockResolvedValueOnce(reply(''));
+
+      const graph = makeGraph();
+      const result = await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(result.status).toBe('complete');
+      expect(result.outputs.answer).toBe('Here are three improvements: …');
+      expect(ctx.get('answer')).toBe('Here are three improvements: …');
+    });
+
+    it('joins what the model said across iterations', async () => {
+      const ctx = makeCtx({ task: 'Suggest improvements' });
+      jest
+        .spyOn(ctx, 'llmCall')
+        .mockResolvedValueOnce(reply('Looking at the graph…', [{ id: 't1', name: 'unknown_tool', input: {} }]))
+        .mockResolvedValueOnce(reply('One more thing.', [{ id: 't2', name: 'unknown_tool', input: {} }]))
+        .mockResolvedValueOnce(reply('That is everything.'));
+
+      const graph = makeGraph();
+      const result = await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(result.outputs.answer).toBe('Looking at the graph…\n\nOne more thing.\n\nThat is everything.');
+    });
+
+    it('does not quote a repeated summary twice', async () => {
+      const ctx = makeCtx({ task: 'Suggest improvements' });
+      jest
+        .spyOn(ctx, 'llmCall')
+        .mockResolvedValueOnce(reply('The same summary.', [{ id: 't1', name: 'unknown_tool', input: {} }]))
+        .mockResolvedValueOnce(reply('The same summary.'));
+
+      const graph = makeGraph();
+      const result = await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(result.outputs.answer).toBe('The same summary.');
+    });
+
+    it('returns the single reply unchanged when no tool was called', async () => {
+      const ctx = makeCtx({ task: 'Explain' });
+      jest.spyOn(ctx, 'llmCall').mockResolvedValue(reply('  Leading and trailing space kept.  '));
+
+      const graph = makeGraph();
+      const result = await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      expect(result.outputs.answer).toBe('  Leading and trailing space kept.  ');
+    });
+
+    it('sends no empty text block back with a tool-only turn', async () => {
+      const ctx = makeCtx({ task: 'Suggest improvements' });
+      const llmCallSpy = jest
+        .spyOn(ctx, 'llmCall')
+        .mockResolvedValueOnce(reply('', [{ id: 't1', name: 'unknown_tool', input: {} }]))
+        .mockResolvedValueOnce(reply('Done.'));
+
+      const graph = makeGraph();
+      await runAgentLoop(graph.nodes.agent, graph, ctx, 'tool-call');
+
+      // Providers reject an empty text block.
+      const secondRequest = llmCallSpy.mock.calls[1][0];
+      const assistant = secondRequest.messages.find((m) => m.role === 'assistant');
+      const blocks = assistant?.content as Array<{ type: string; text?: string }>;
+      expect(blocks.some((b) => b.type === 'text')).toBe(false);
+      expect(blocks.some((b) => b.type === 'tool_use')).toBe(true);
+    });
+  });
+
   it('uses the bare systemPromptSuffix as the system prompt when the node has none configured', async () => {
     const ctx = makeCtx({ task: 'Do the thing', systemPromptSuffix: 'Only the addendum.' });
     const llmCallSpy = jest.spyOn(ctx, 'llmCall').mockResolvedValue({

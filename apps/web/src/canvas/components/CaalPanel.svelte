@@ -4,6 +4,9 @@
   import { runState } from '../stores/run';
   import { canUndoCaalChange, undoCaalChange } from '../stores/caalUndo';
   import ProposalReviewUI from './ProposalReviewUI.svelte';
+  import CaalOptionsCard from './CaalOptionsCard.svelte';
+  import { normalizeCaalOptions, type CaalOption, type CaalOptionsPrompt } from '../lib/caalOptions';
+  import { describeSkipped, type SkippedPatch } from '../lib/proposalPatches';
 
   export let agentId: string;
   export let readonly = false;
@@ -37,12 +40,15 @@
   let inputText = '';
   let isThinking = false;
   let pendingProposal: CaalProposal | null = null;
+  let pendingOptions: CaalOptionsPrompt | null = null;
   let sessionId: string | null = null;
   let expanded = true;
   let showHistory = false;
   let historyMessages: CaalMessage[] = [];
 
   let messagesEl: HTMLElement;
+  // Held between dispatching an apply and the result event coming back.
+  let appliedDescription = '';
 
   const ALL_QUICK_ACTIONS = [
     { label: 'Explain graph', intent: 'explain', prompt: 'Explain what this agent does and how the nodes connect.' },
@@ -61,6 +67,8 @@
 
     const userMsg: CaalMessage = { role: 'user', content: text, timestamp: Date.now() };
     messages = [...messages, userMsg];
+    // The card belongs to the turn that raised it.
+    pendingOptions = null;
     inputText = '';
     isThinking = true;
     scrollToBottom();
@@ -68,7 +76,11 @@
     try {
       const graphSnapshot = {
         ...$graph,
-        authoringMode: ($graph as Record<string, unknown>)['authoringMode'] ?? 'studio',
+        // authoringMode lives on the agent record (App.svelte reads it into
+        // `readonly`), never in the graph JSON — reading it off $graph always
+        // produced 'studio', so the graph's own isCodeDefined checks could
+        // never fire for a code-defined agent.
+        authoringMode: readonly ? 'code-defined' : 'studio',
       };
 
       const body = {
@@ -106,6 +118,7 @@
           content?: string;
           nodeReferences?: string[];
           proposal?: CaalProposal;
+          options?: unknown;
           canvasHighlight?: { nodeIds: string[]; color: string; durationMs: number };
           canvasFocus?: { nodeId: string; zoom: number };
         };
@@ -117,6 +130,17 @@
       if (data.code === 'CAAL_STILL_RUNNING') {
         // Distinct from a real failure (ISS-068): the run may still complete
         // server-side even though this request gave up waiting for it.
+        messages = [...messages, {
+          role: 'assistant',
+          content: "Caal is taking longer than usual — your message may still be processed. Check History shortly.",
+          timestamp: Date.now(),
+        }];
+        return;
+      }
+
+      // The web proxy gave up before the run finished. Same situation as
+      // CAAL_STILL_RUNNING above, reported from one layer out.
+      if (res.status === 504) {
         messages = [...messages, {
           role: 'assistant',
           content: "Caal is taking longer than usual — your message may still be processed. Check History shortly.",
@@ -139,7 +163,11 @@
       };
       messages = [...messages, assistantMsg];
 
-      if (out.proposal) pendingProposal = out.proposal;
+      // A proposal with no patches can't change anything — caal.proposal.create
+      // now refuses to build one, and this is the belt-and-braces guard that
+      // stops a review card offering to apply nothing.
+      if (out.proposal?.patches?.length) pendingProposal = out.proposal;
+      pendingOptions = normalizeCaalOptions(out.options, { readonly });
       if (out.canvasHighlight) dispatchCanvasHighlight(out.canvasHighlight);
       if (out.canvasFocus) dispatchCanvasFocus(out.canvasFocus);
     } catch (err) {
@@ -224,15 +252,63 @@
     const proposal = event.detail;
     // Dispatch patches to the graph store and history — App.svelte's handler
     // snapshots the graph first (via caalUndo's recordCaalChange) so this can
-    // be undone as a single labelled entry (ISS-071).
+    // be undone as a single labelled entry (ISS-071). What actually landed
+    // comes back on caal:proposal-applied: this used to announce success
+    // unconditionally, which is how an empty proposal read as applied.
+    appliedDescription = proposal.description;
     window.dispatchEvent(new CustomEvent('caal:apply-proposal', { detail: proposal }));
     pendingProposal = null;
+  }
+
+  function onProposalApplied(e: Event) {
+    const { applied, skipped } = (e as CustomEvent<{ applied: number; skipped: SkippedPatch[] }>).detail;
+    const description = appliedDescription;
+    appliedDescription = '';
+
+    const content =
+      applied > 0
+        ? `Applied ${applied} change${applied === 1 ? '' : 's'} from "${description}".` +
+          (skipped.length ? ` Skipped ${skipped.length}: ${describeSkipped(skipped)}.` : '')
+        : `Nothing to apply from "${description}".` +
+          (skipped.length ? ` Skipped ${skipped.length}: ${describeSkipped(skipped)}.` : '');
+
+    messages = [...messages, { role: 'assistant', content, timestamp: Date.now() }];
+    scrollToBottom();
+  }
+
+  function onOptionChoose(event: CustomEvent<CaalOption>) {
+    const option = event.detail;
+    pendingOptions = null;
+
+    // An option with a follow-up runs as a fresh Caal turn — that's how the
+    // advisory suggest path hands off to `modify`, the only path with the
+    // graph tools needed to stage a real, applyable proposal.
+    // Sent as the developer's own turn, and shown as one. The session stores
+    // exactly this, so the live transcript and History agree — which is why a
+    // follow-up has to read like something a person would say rather than
+    // instructions naming tools.
+    if (option.followUpMessage && option.followUpIntent) {
+      void sendMessage(option.followUpMessage, option.followUpIntent);
+      return;
+    }
+
+    // Deliberately neutral: this also acknowledges the code-defined card, which
+    // has just said a proposal isn't possible at all.
     messages = [...messages, {
       role: 'assistant',
-      content: `Proposal "${proposal.description}" accepted and applied to graph.`,
+      content: 'Okay — nothing changed.',
       timestamp: Date.now(),
     }];
+    scrollToBottom();
   }
+
+  onMount(() => {
+    window.addEventListener('caal:proposal-applied', onProposalApplied);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('caal:proposal-applied', onProposalApplied);
+  });
 
   function onUndoLastChange() {
     const label = undoCaalChange();
@@ -337,6 +413,11 @@
           on:apply={onProposalApply}
           on:reject={onProposalReject}
         />
+      {/if}
+
+      <!-- Pending question from Caal -->
+      {#if pendingOptions}
+        <CaalOptionsCard prompt={pendingOptions} disabled={isThinking} on:choose={onOptionChoose} />
       {/if}
 
       <!-- Quick actions -->

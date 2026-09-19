@@ -15,6 +15,8 @@ import { resolveEdges } from './graph-utils';
 import { mcpRegistry } from '../mcp/mcp-registry';
 import { registry } from '../registry/node-registry';
 import { logger } from '../lib/logger';
+import { describeError } from '../lib/describe-error';
+import { readSessionHistory } from '@magicaal/nodes';
 import { checkAbort, abortError } from './run-control';
 
 // ── Config shapes ─────────────────────────────────────────────────────────────
@@ -25,6 +27,15 @@ interface ToolCallConfig {
   systemPrompt?: string;
   maxIterations?: number;
   router?: ModelRouterConfig;
+  /**
+   * Context key holding prior turns. core:tool-call and core:react have always
+   * advertised this in their schemas, but only core:llm-call implemented it —
+   * the engine executes these two, and it never read the field, so an agentic
+   * node had no memory of the conversation it was part of. Caal's modifier
+   * answered "I don't have a record of improvements I just suggested" with the
+   * suggestion sitting in its own context.
+   */
+  injectSessionHistory?: string;
 }
 
 interface ToolNodeConfig {
@@ -175,6 +186,15 @@ export async function assembleTools(
 
 // ── runAgentLoop ──────────────────────────────────────────────────────────────
 
+/**
+ * How much stored conversation an agentic node carries. A session holds up to
+ * 50 turns; resending all of them on each of up to 8 iterations multiplies a
+ * cost the node's own task never asked for, on top of whatever its input
+ * already carries (Caal's is the entire graph, ~24k tokens).
+ */
+const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_CHARS = 24_000;
+
 export async function runAgentLoop(
   nodeDef: NodeDefinition,
   graph: AgentGraphDefinition,
@@ -195,7 +215,16 @@ export async function runAgentLoop(
   }));
 
   const initialInput = ctx.get(inputKey);
+  // Unlike a single llm-call, this loop resends the whole conversation on every
+  // iteration, so stored history is capped before it is carried 8 times over.
+  const history = config.injectSessionHistory
+    ? readSessionHistory(ctx.get<unknown>(config.injectSessionHistory), {
+        maxMessages: MAX_HISTORY_MESSAGES,
+        maxChars: MAX_HISTORY_CHARS,
+      })
+    : [];
   const conversation: CanonicalMessage[] = [
+    ...history,
     { role: 'user', content: typeof initialInput === 'string' ? initialInput : JSON.stringify(initialInput) },
   ];
 
@@ -206,6 +235,23 @@ export async function runAgentLoop(
   const system = [config.systemPrompt, promptSuffix].filter(Boolean).join('\n\n') || undefined;
 
   let lastRoutingMeta: NodeOutput['routingMeta'];
+
+  /**
+   * Text the model produced along the way. The loop only returns on an
+   * iteration that makes no tool calls, and after a tool call — especially one
+   * that asks the developer a question — the model routinely has nothing left
+   * to say. Keeping only that last message threw the whole answer away: a
+   * Caal suggest turn billed 1.2k completion tokens and reached Studio with an
+   * empty `content`.
+   */
+  const narration: string[] = [];
+
+  function collectNarration(text: string | undefined): void {
+    if (!text || text.trim() === '') return;
+    // A model that repeats its summary verbatim shouldn't be quoted twice.
+    if (narration[narration.length - 1]?.trim() === text.trim()) return;
+    narration.push(text);
+  }
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     // Cooperative abort — long agentic loops honour cancellation/timeout
@@ -232,13 +278,17 @@ export async function runAgentLoop(
     }
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
-      ctx.set(outputKey, response.content);
+      collectNarration(response.content);
+      const answer = narration.join('\n\n');
+      ctx.set(outputKey, answer);
       return {
         status: 'complete',
-        outputs: { [outputKey]: response.content },
+        outputs: { [outputKey]: answer },
         routingMeta: lastRoutingMeta,
       };
     }
+
+    collectNarration(response.content);
 
     // Invoke tools — parallel for tool-call, serial for react
     let toolResults: Array<{ toolCall: CanonicalToolCall; content: string }>;
@@ -266,7 +316,10 @@ export async function runAgentLoop(
 
     // Build tool_result messages
     const assistantContent: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = [
-      { type: 'text', text: response.content },
+      // Providers reject an empty text block; a tool-only turn simply has none.
+      ...(response.content && response.content.trim() !== ''
+        ? [{ type: 'text' as const, text: response.content }]
+        : []),
       ...response.toolCalls.map((tc) => ({
         type: 'tool_use' as const,
         id: tc.id,
@@ -300,24 +353,11 @@ export async function runAgentLoop(
 
 /**
  * A tool failure as a sentence worth logging and worth handing back to the
- * model. `err.message` alone is empty for an AggregateError — which is exactly
- * what a refused local connection produces (both ::1 and 127.0.0.1 failing) —
- * so a whole class of failures logged as `err: ""` and told the model nothing.
+ * model. Shares one implementation with the rest of the engine — see
+ * lib/describe-error.ts for why `err.message` alone isn't enough.
  */
 export function describeToolError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-
-  const code = (err as NodeJS.ErrnoException).code;
-  const nested = (err as { errors?: unknown[] }).errors;
-  const fromNested = Array.isArray(nested)
-    ? nested
-        .map((e) => (e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.message) : String(e)))
-        .filter(Boolean)
-        .join(', ')
-    : '';
-
-  const parts = [err.message || err.name, code, fromNested].filter(Boolean);
-  return [...new Set(parts)].join(': ');
+  return describeError(err);
 }
 
 async function invokeToolCall(

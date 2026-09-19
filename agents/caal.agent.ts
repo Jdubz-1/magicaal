@@ -118,14 +118,49 @@ export class CaalAssistantAgent extends AgentGraph {
 
     this.node('suggester', 'core:tool-call', {
       systemPrompt:
-        'You are Caal. Suggest improvements to the agent graph. ' +
+        'You are Caal. Suggest improvements to the agent graph — advice only. ' +
         'Use the available tools to inspect the graph and platform capabilities, ' +
-        'then create a proposal with caal.proposal.create.',
+        'then explain concretely what you would change and why. ' +
+        'You have no tools for staging graph changes on this path, so never claim ' +
+        'to have made one and never try to create a proposal. ' +
+        'Studio itself offers to turn your advice into a proposal, so end with ' +
+        'the advice — you do not need to ask.',
       inputKey: 'suggestMessage',
       outputKey: 'content',
       injectSessionHistory: 'sessionMessages',
-      maxIterations: 3,
+      // Inspection calls plus a final text-only pass: the loop only returns
+      // `complete` on an iteration that makes no tool calls, and running out
+      // throws away the advice already generated. Three left no room at all.
+      maxIterations: 8,
       // See explainer's comment above — no inline `router`.
+    });
+
+    // Studio renders an inline options card from _caal_options (see
+    // CaalOptionsCard.svelte). This node supplies the standing question, so
+    // the suggest path — which is advisory and stages nothing — always offers
+    // a way to turn advice into an applyable change without spending a whole
+    // extra provider round trip on caal.ui.askOptions to ask it. A value the
+    // model did set, for some other question, is preserved.
+    this.node('suggest-options', 'core:transform', {
+      outputKey: '_caal_options',
+      expression: `$._caal_options ? $._caal_options : (
+        $.systemContext.isCodeDefined = true ? {
+          "question": "Caal can't modify code-defined agents yet — edit the source *.agent.ts file to apply any of this.",
+          "options": [ { "label": "Got it", "value": "dismiss" } ]
+        } : {
+          "question": "Want me to turn this into a proposal you can apply?",
+          "options": [
+            {
+              "label": "Yes, draft a proposal",
+              "value": "create_proposal",
+              "description": "Caal stages each change so you can review and apply them.",
+              "followUpMessage": "Turn the improvements you just suggested into a proposal I can review and apply.",
+              "followUpIntent": "modify"
+            },
+            { "label": "No thanks", "value": "dismiss" }
+          ]
+        }
+      )`,
     });
 
     // ── Modify path ───────────────────────────────────────────────────────────
@@ -175,6 +210,7 @@ export class CaalAssistantAgent extends AgentGraph {
       expression: `{
         "nodeReferences": $.content ? $map($match($.content, /\\[\\[([^\\]]+)\\]\\]/), function($m) { $m.groups[0] }) : [],
         "proposal": $._caal_proposal,
+        "options": $._caal_options,
         "canvasHighlight": $._caal_canvas_highlight,
         "canvasFocus": $._caal_canvas_focus
       }`,
@@ -194,7 +230,12 @@ export class CaalAssistantAgent extends AgentGraph {
         // Written as $append([], …) rather than a bare [...] literal because
         // core:session-write only evaluates a value when the string starts with
         // '$' — a bare array literal is stored as its own template text.
-        messages: '$append([], [{"role": "user", "content": $.message}, {"role": "assistant", "content": $.content}])',
+        // The assistant entry is conditional: an empty answer stored as a turn
+        // feeds core:llm-call a content-less message on the next invocation.
+        // runAgentLoop no longer produces one, but history is the last place
+        // that should carry the consequences if it ever does again.
+        messages:
+          '$append([{"role": "user", "content": $.message}], $.content ? [{"role": "assistant", "content": $.content}] : [])',
         lastProposal: '$._caal_proposal',
         // References the raw _caal_proposal key directly rather than
         // $.proposal/$.caalResult.proposal, so this doesn't depend on
@@ -223,7 +264,8 @@ export class CaalAssistantAgent extends AgentGraph {
     this.connect('build-modify-message', 'modifier');
 
     this.connect('explainer', 'response-assembler');
-    this.connect('suggester', 'response-assembler');
+    this.connect('suggester', 'suggest-options');
+    this.connect('suggest-options', 'response-assembler');
     this.connect('modifier', 'response-assembler');
     this.connect('code-defined-modify-blocked', 'response-assembler');
 
@@ -238,7 +280,17 @@ export class CaalAssistantAgent extends AgentGraph {
     this.tool('caal.platform.listAgents', 'suggester');
     this.tool('caal.graph.read', 'suggester');
     this.tool('caal.graph.summarize', 'suggester');
-    this.tool('caal.proposal.create', 'suggester');
+    // Deliberately no caal.proposal.create: suggester has no staging tools, so
+    // every proposal it ever produced was empty — Studio showed a review card,
+    // said it had been applied and armed Undo for nothing. The suggest path is
+    // advisory; suggest-options below offers the modify path instead.
+    //
+    // And deliberately no caal.ui.askOptions: suggest-options asks that
+    // question deterministically, for free. Wiring the tool here only invited
+    // the model to spend a round trip asking it again — and a tool call as the
+    // model's closing act leaves it with nothing to say on the next iteration,
+    // which is how a whole answer went missing. The tool stays registered for
+    // a node that needs to ask something else.
 
     this.tool('caal.platform.listNodeTypes', 'modifier');
     this.tool('caal.platform.getNodeSchema', 'modifier');
