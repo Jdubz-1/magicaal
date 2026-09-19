@@ -78,6 +78,22 @@ reporting an outage that isn't happening, and a suggest turn costs roughly half
 what it did. A transport blip retries instead of failing the run, and when one
 does get through it names itself in the logs.
 
+**Notes:**
+Review of these fixes tightened three of them. The retry predicate was a
+negative test ("no HTTP status"), which also caught MISSING_CREDENTIALS thrown
+before any call and a body that failed to parse after a 200 — the latter was
+billed, and retrying billed it twice more; it now asks positively for an
+AggregateError, undici's "fetch failed", or a network code in the cause chain,
+times each attempt separately, and stops if the run was cancelled.
+`positiveIntEnv` rejects an empty or non-numeric budget rather than producing
+NaN, which axios reads as no timeout at all. And an option's follow-up is shown
+exactly as it is sent, so History replays the turn the developer saw.
+
+Two older gaps in `applyProposalPatches` closed at the same time: `delete_node`
+now cascades its edges and tool edges the way Studio's own delete does, and
+`update_node` merges staged fields into the node's `config` rather than onto the
+node root, where nothing read them.
+
 ---
 
 ### 2026-09-19 - Caal's suggest path is advisory, and proposals apply what they claim
