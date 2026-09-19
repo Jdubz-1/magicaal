@@ -47,6 +47,11 @@ services:
       - apps/engine/.env
     environment:
       REDIS_URL: redis://redis:6379
+      # Engine→API calls: refreshed OAuth tokens, and Caal's platform tools.
+      # deploy/docker-compose.yml has always set this; leaving it out here sent
+      # those calls to localhost inside the engine container.
+      API_BASE_URL: http://api:3000
+      PACKAGES_DIR: /data/packages
     volumes:
       - db_data:/data
     depends_on:
