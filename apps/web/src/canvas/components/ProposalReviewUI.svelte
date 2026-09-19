@@ -35,8 +35,13 @@
     accepted = Object.fromEntries(proposal.patches.map((_, i) => [i, false]));
   }
 
+  // Applying nothing used to be possible — it reported success and armed the
+  // Undo button for a graph that never changed.
+  $: selectedCount = proposal.patches.filter((_, i) => accepted[i]).length;
+
   function apply() {
     const filteredPatches = proposal.patches.filter((_, i) => accepted[i]);
+    if (filteredPatches.length === 0) return;
     dispatch('apply', { ...proposal, patches: filteredPatches });
   }
 
@@ -92,7 +97,9 @@
     <button class="btn-text" on:click={rejectAll}>Reject All</button>
     <span class="spacer"></span>
     <button class="btn-secondary" on:click={reject}>Dismiss</button>
-    <button class="btn-primary" on:click={apply}>Apply</button>
+    <button class="btn-primary" on:click={apply} disabled={selectedCount === 0}>
+      Apply{selectedCount > 0 ? ` ${selectedCount}` : ''}
+    </button>
   </div>
 </div>
 
@@ -199,5 +206,6 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .btn-primary:hover { background: #fbbf24; }
+  .btn-primary:hover:not(:disabled) { background: #fbbf24; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
