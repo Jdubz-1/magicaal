@@ -208,6 +208,23 @@ export async function runAgentLoop(
 
   let lastRoutingMeta: NodeOutput['routingMeta'];
 
+  /**
+   * Text the model produced along the way. The loop only returns on an
+   * iteration that makes no tool calls, and after a tool call — especially one
+   * that asks the developer a question — the model routinely has nothing left
+   * to say. Keeping only that last message threw the whole answer away: a
+   * Caal suggest turn billed 1.2k completion tokens and reached Studio with an
+   * empty `content`.
+   */
+  const narration: string[] = [];
+
+  function collectNarration(text: string | undefined): void {
+    if (!text || text.trim() === '') return;
+    // A model that repeats its summary verbatim shouldn't be quoted twice.
+    if (narration[narration.length - 1]?.trim() === text.trim()) return;
+    narration.push(text);
+  }
+
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     // Cooperative abort — long agentic loops honour cancellation/timeout
     // between LLM iterations, not just at graph-node boundaries.
@@ -233,13 +250,17 @@ export async function runAgentLoop(
     }
 
     if (!response.toolCalls || response.toolCalls.length === 0) {
-      ctx.set(outputKey, response.content);
+      collectNarration(response.content);
+      const answer = narration.join('\n\n');
+      ctx.set(outputKey, answer);
       return {
         status: 'complete',
-        outputs: { [outputKey]: response.content },
+        outputs: { [outputKey]: answer },
         routingMeta: lastRoutingMeta,
       };
     }
+
+    collectNarration(response.content);
 
     // Invoke tools — parallel for tool-call, serial for react
     let toolResults: Array<{ toolCall: CanonicalToolCall; content: string }>;
@@ -267,7 +288,10 @@ export async function runAgentLoop(
 
     // Build tool_result messages
     const assistantContent: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = [
-      { type: 'text', text: response.content },
+      // Providers reject an empty text block; a tool-only turn simply has none.
+      ...(response.content && response.content.trim() !== ''
+        ? [{ type: 'text' as const, text: response.content }]
+        : []),
       ...response.toolCalls.map((tc) => ({
         type: 'tool_use' as const,
         id: tc.id,
