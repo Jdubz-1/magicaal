@@ -15,6 +15,12 @@ export const LOG_REDACT = {
     'req.headers.cookie',
     'req.headers["x-internal-auth"]',
     'res.headers["set-cookie"]',
+    // An axios error that never reached the response interceptor is logged
+    // whole, and pino's default err serializer copies every own property —
+    // including the outbound request body, which for a provider connect
+    // carries the plaintext API key.
+    'err.config.data',
+    'err.config.headers',
   ],
   censor: '[Redacted]',
 };

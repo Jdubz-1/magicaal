@@ -58,7 +58,9 @@ export const coreLLMCall: NodeModule<LLMCallConfig> = {
         },
         router: {
           type: 'object',
-          description: 'Inline ModelRouterConfig. Overrides the graph defaultRouter.',
+          format: 'model-router',
+          // Rendered as the field's label in Studio, so it stays label-length.
+          description: 'Model',
         },
         outputKey: {
           type: 'string',

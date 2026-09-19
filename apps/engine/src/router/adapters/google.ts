@@ -8,6 +8,7 @@ import type {
   ModelRouterTarget,
   RouterTriggerCondition,
 } from '@magicaal/core';
+import { probeProviderKey } from './validate';
 import { providerError } from './provider-error';
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -102,6 +103,26 @@ function finishReasonToStopReason(reason: string): CanonicalLLMResponse['stopRea
 
 export const googleAdapter: ProviderAdapter = {
   provider: 'google',
+
+  descriptor: {
+    provider: 'google',
+    displayName: 'Google Gemini',
+    description: 'Gemini models via the Google Gemini API.',
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
+    authFields: [{ key: 'api_key', label: 'API key', type: 'secret', required: true }],
+    models: [
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', recommended: true },
+      { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (preview)' },
+      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+    ],
+  },
+
+  validateCredentials(credentials: ResolvedCredentials) {
+    // Header auth keeps the key out of URLs (and any URL-logging proxy).
+    return probeProviderKey(BASE_URL, {
+      'x-goog-api-key': credentials.apiKey ?? credentials.accessToken ?? '',
+    });
+  },
 
   async call(
     request: CanonicalLLMRequest,

@@ -8,6 +8,7 @@ import type {
   ModelRouterTarget,
   RouterTriggerCondition,
 } from '@magicaal/core';
+import { probeProviderKey } from './validate';
 import { providerError } from './provider-error';
 
 const BASE_URL = 'https://api.anthropic.com/v1';
@@ -108,6 +109,26 @@ function stopReasonFromAnthropic(
 
 export const anthropicAdapter: ProviderAdapter = {
   provider: 'anthropic',
+
+  descriptor: {
+    provider: 'anthropic',
+    displayName: 'Anthropic',
+    description: 'Claude models via the Anthropic API.',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+    authFields: [{ key: 'api_key', label: 'API key', type: 'secret', required: true }],
+    models: [
+      { id: 'claude-opus-5', label: 'Claude Opus 5' },
+      { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', recommended: true },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+    ],
+  },
+
+  validateCredentials(credentials: ResolvedCredentials) {
+    return probeProviderKey(`${BASE_URL}/models`, {
+      'x-api-key': credentials.apiKey ?? credentials.accessToken ?? '',
+      'anthropic-version': ANTHROPIC_VERSION,
+    });
+  },
 
   async call(
     request: CanonicalLLMRequest,

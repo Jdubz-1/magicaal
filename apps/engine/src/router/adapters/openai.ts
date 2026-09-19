@@ -8,6 +8,7 @@ import type {
   ModelRouterTarget,
   RouterTriggerCondition,
 } from '@magicaal/core';
+import { probeProviderKey } from './validate';
 import { providerError } from './provider-error';
 
 const BASE_URL = 'https://api.openai.com/v1';
@@ -98,6 +99,25 @@ function finishReasonToStopReason(
 
 export const openAIAdapter: ProviderAdapter = {
   provider: 'openai',
+
+  descriptor: {
+    provider: 'openai',
+    displayName: 'OpenAI',
+    description: 'GPT models via the OpenAI API.',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
+    authFields: [{ key: 'api_key', label: 'API key', type: 'secret', required: true }],
+    models: [
+      { id: 'gpt-5.5', label: 'GPT-5.5', recommended: true },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+    ],
+  },
+
+  validateCredentials(credentials: ResolvedCredentials) {
+    return probeProviderKey(`${BASE_URL}/models`, {
+      Authorization: `Bearer ${credentials.apiKey ?? credentials.accessToken ?? ''}`,
+    });
+  },
 
   async call(
     request: CanonicalLLMRequest,
