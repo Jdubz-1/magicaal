@@ -7,11 +7,13 @@ import type {
   RouterTriggerCondition,
   RouterTriggerEvent,
 } from '@magicaal/core';
+import type { ProviderAdapter, ResolvedCredentials } from '@magicaal/sdk-node';
 import type { ExecutionContextImpl } from '../execution/context';
 import { providerAdapterRegistry } from './provider-adapter-registry';
 import { healthTracker } from './health-tracker';
 import { circuitBreaker } from './circuit-breaker';
 import { logger } from '../lib/logger';
+import { describeError } from '../lib/describe-error';
 
 // In-memory round-robin counters keyed by sorted target-id hash
 const rrCounters = new Map<string, number>();
@@ -21,6 +23,48 @@ function rrKey(targets: ModelRouterTarget[]): string {
     .map((t) => t.id)
     .sort()
     .join('|');
+}
+
+/**
+ * A failure that never reached the provider: no HTTP status, so nothing was
+ * answered and nothing was billed. `fetch` surfaces these as the bare string
+ * "fetch failed" (DNS, a refused or reset socket, an unreachable address
+ * family), and with a single-target policy and no reactive trigger one blip
+ * used to fail the whole run — a Caal turn died in under two seconds with zero
+ * tokens and a 500 in Studio.
+ */
+function isTransportError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { status?: number; _providerError?: boolean };
+  return e._providerError !== true && e.status === undefined;
+}
+
+const TRANSPORT_RETRIES = 2;
+const TRANSPORT_RETRY_DELAY_MS = 300;
+
+/**
+ * Retry a target in place when the request never reached it. Failover across
+ * targets stays trigger-driven as before; this only covers the case where
+ * there is nothing to fail over to and nothing was actually attempted.
+ */
+async function callWithTransportRetry(
+  adapter: ProviderAdapter,
+  request: CanonicalLLMRequest,
+  target: ModelRouterTarget,
+  credentials: ResolvedCredentials,
+): Promise<CanonicalLLMResponse> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await adapter.call(request, target, credentials);
+    } catch (err) {
+      if (attempt >= TRANSPORT_RETRIES || !isTransportError(err)) throw err;
+      logger.warn(
+        { targetId: target.id, attempt: attempt + 1, error: describeError(err) },
+        'LLM call failed before reaching the provider — retrying',
+      );
+      await new Promise((resolve) => setTimeout(resolve, TRANSPORT_RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
 }
 
 function selectTarget(
@@ -171,7 +215,7 @@ export async function routedLLMCall(
     attemptCount++;
 
     try {
-      const response = await adapter.call(request, target, credentials);
+      const response = await callWithTransportRetry(adapter, request, target, credentials);
       const durationMs = Date.now() - start;
 
       healthTracker.record(target.id, durationMs, false);
@@ -206,7 +250,7 @@ export async function routedLLMCall(
       const triggerCondition = adapter.translateError(err) as RouterTriggerCondition | null;
 
       logger.warn(
-        { targetId: target.id, error: (err as Error).message, triggerCondition },
+        { targetId: target.id, error: describeError(err), triggerCondition },
         'LLM call failed — checking triggers',
       );
 

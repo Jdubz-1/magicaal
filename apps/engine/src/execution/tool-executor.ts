@@ -15,6 +15,7 @@ import { resolveEdges } from './graph-utils';
 import { mcpRegistry } from '../mcp/mcp-registry';
 import { registry } from '../registry/node-registry';
 import { logger } from '../lib/logger';
+import { describeError } from '../lib/describe-error';
 import { checkAbort, abortError } from './run-control';
 
 // ── Config shapes ─────────────────────────────────────────────────────────────
@@ -300,24 +301,11 @@ export async function runAgentLoop(
 
 /**
  * A tool failure as a sentence worth logging and worth handing back to the
- * model. `err.message` alone is empty for an AggregateError — which is exactly
- * what a refused local connection produces (both ::1 and 127.0.0.1 failing) —
- * so a whole class of failures logged as `err: ""` and told the model nothing.
+ * model. Shares one implementation with the rest of the engine — see
+ * lib/describe-error.ts for why `err.message` alone isn't enough.
  */
 export function describeToolError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-
-  const code = (err as NodeJS.ErrnoException).code;
-  const nested = (err as { errors?: unknown[] }).errors;
-  const fromNested = Array.isArray(nested)
-    ? nested
-        .map((e) => (e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.message) : String(e)))
-        .filter(Boolean)
-        .join(', ')
-    : '';
-
-  const parts = [err.message || err.name, code, fromNested].filter(Boolean);
-  return [...new Set(parts)].join(': ');
+  return describeError(err);
 }
 
 async function invokeToolCall(
