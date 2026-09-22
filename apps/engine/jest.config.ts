@@ -11,8 +11,15 @@ const config: Config = {
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts'],
   moduleNameMapper: {
+    // @magicaal/compiler's source uses ESM '.js' specifiers, which Jest's CJS
+    // resolver cannot follow. Same rule packages/cli's config already carries.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@magicaal/nodes$': '<rootDir>/../../packages/nodes/src/index.ts',
+    // Test-only: the Caal suite compiles agents/caal.agent.ts in-process. The
+    // package's `main` points at gitignored dist/, so resolve it from source
+    // exactly as packages/cli's jest config already does.
+    '^@magicaal/compiler$': '<rootDir>/../../packages/compiler/src/index.ts',
     '^@magicaal/core$': '<rootDir>/../../packages/core/src/index.ts',
     '^@magicaal/sdk-node$': '<rootDir>/../../packages/sdk/src/index.ts',
     '^@magicaal/integration-core$': '<rootDir>/../../packages/integrations/core/src/index.ts',
@@ -33,7 +40,10 @@ const config: Config = {
     '^@magicaal/integration-shopify$': '<rootDir>/../../packages/integrations/shopify/src/index.ts',
   },
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    // tsconfig.test.json, not tsconfig.json: compiling agents/caal.agent.ts
+    // needs experimentalDecorators for its @Agent decorator, which the runtime
+    // tsconfig has no reason to carry.
+    '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.test.json' }],
   },
   collectCoverageFrom: [
     'src/**/*.ts',
