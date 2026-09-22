@@ -4,6 +4,7 @@ import {
   compiledCaalGraph,
   applySessionWrites,
 } from './invoke';
+import { expectedRunInput } from '../../../../../tests/fixtures/caal-wire/run-job-input';
 
 /**
  * Proves the harness itself works before any corpus depends on it: the real
@@ -14,6 +15,33 @@ describe('Caal simulated-run harness', () => {
   beforeAll(async () => {
     await setupCaalHarness();
   }, 30_000);
+
+  /**
+   * The harness and apps/api's caal-invoke.test.ts consume the same fixture, so
+   * a field invokeCaal starts or stops sending changes what a simulated run
+   * starts from. This asserts the harness adds nothing of its own beyond the
+   * two keys the scheduler seeds.
+   */
+  it('starts a run from the input the API dispatches, plus the scheduler keys', async () => {
+    const run = await invokeCaalSimulated({
+      message: 'What does this do?',
+      intent: 'question',
+      script: { explainer: [{ text: 'A push notifier.' }] },
+    });
+
+    const fromController = Object.keys(
+      expectedRunInput({ tenantId: 'tenant-a', userId: 'user-1', agentId: 'agent-1' }),
+    );
+    for (const key of fromController) {
+      expect(run.ctx.data).toHaveProperty(key);
+    }
+
+    const seeded = ['_caal_api_base', '_caal_tenant_id'];
+    const started = Object.keys(run.ctx.data).filter(
+      (k) => fromController.includes(k) || seeded.includes(k),
+    );
+    expect(started.sort()).toEqual([...fromController, ...seeded].sort());
+  });
 
   it('compiles the real Caal agent, not a fixture of one', () => {
     const graph = compiledCaalGraph();

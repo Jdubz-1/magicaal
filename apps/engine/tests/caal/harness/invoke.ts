@@ -19,6 +19,11 @@ import {
   type ScriptedProvider,
 } from './scripted-provider';
 import { GRAPH_FIXTURES, type SubjectGraph } from './fixtures/graphs';
+import {
+  expectedRunInput,
+  expectedSessionId,
+  PLATFORM_TENANT_ID,
+} from '../../../../../tests/fixtures/caal-wire/run-job-input';
 
 /**
  * Runs a Caal invoke the way the stack does, with only the provider faked.
@@ -36,7 +41,7 @@ import { GRAPH_FIXTURES, type SubjectGraph } from './fixtures/graphs';
  * ctx.sessionWrites(), which is what would have been persisted.
  */
 
-export const PLATFORM_TENANT = '_platform';
+export const PLATFORM_TENANT = PLATFORM_TENANT_ID;
 
 export type CaalIntent = 'explain' | 'question' | 'suggest' | 'modify';
 
@@ -127,30 +132,34 @@ export async function invokeCaalSimulated(req: SimulatedRequest): Promise<Simula
 
   const invokerTenantId = req.invokerTenantId ?? 'tenant-a';
   const runId = `run_caal_${++runCounter}`;
-  const sessionId = `${PLATFORM_TENANT}:caal-assistant:${invokerTenantId}:user-1:${req.agentId ?? 'agent-1'}`;
+  const caller = { tenantId: invokerTenantId, userId: 'user-1', agentId: req.agentId ?? 'agent-1' };
 
   const ctx = new ExecutionContextImpl({
     runId,
     agentId: 'caal-agent',
     tenantId: PLATFORM_TENANT,
     triggerType: 'caal',
-    // Mirrors caal.controller.ts's invokeCaal input plus the two keys the
-    // scheduler seeds for Caal's platform tools.
     input: {
-      message: req.message,
-      intent: req.intent ?? 'question',
+      // The key set comes from the shared wire fixture, which apps/api's
+      // caal-invoke.test.ts asserts invokeCaal dispatches — so a field the
+      // controller starts or stops sending changes what a run starts from here
+      // too, instead of the two drifting apart.
+      ...expectedRunInput(caller, {
+        message: req.message,
+        intent: req.intent ?? 'question',
+        systemPromptSuffix: req.systemPromptSuffix ?? null,
+      }),
+      // Per-case values the fixture only carries an example of.
       graphState: resolveGraphState(req.graphState),
       selectedNodeIds: req.selectedNodeIds ?? [],
       lastRunResult: req.lastRunResult ?? null,
-      systemPromptSuffix: req.systemPromptSuffix ?? null,
-      _invokerTenantId: invokerTenantId,
-      _invokerUserId: 'user-1',
-      _agentId: req.agentId ?? 'agent-1',
+      // Seeded by the scheduler rather than the controller, for Caal's platform
+      // tools — they run in this process with no user session.
       _caal_api_base: config.apiBaseUrl,
       _caal_tenant_id: invokerTenantId,
     },
     runRouterOverride: scriptedRouter(runId),
-    sessionId,
+    sessionId: expectedSessionId(caller),
     credentialTenantId: invokerTenantId,
   });
 
