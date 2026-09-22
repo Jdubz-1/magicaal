@@ -22,6 +22,8 @@
     "lint:engine":    "pnpm --filter @magicaal/engine run lint",
     "type-check:api":    "pnpm --filter @magicaal/api run type-check",
     "type-check:engine": "pnpm --filter @magicaal/engine run type-check",
+    "test:caal":      "pnpm --filter @magicaal/integration-caal run test && pnpm --filter @magicaal/engine exec jest tests/caal && pnpm --filter @magicaal/cli exec jest 'tests/.*caal' && pnpm --filter @magicaal/api exec jest 'tests/.*caal' && pnpm --filter @magicaal/web exec jest 'tests/.*(canvas|caalOptions|guessIntent)'",
+    "caal:live":      "pnpm --filter @magicaal/caal-live run start",
     "format":         "prettier --write .",
     "build":          "pnpm --recursive run build --if-present",
     "hooks:install":  "git config core.hooksPath .githooks",

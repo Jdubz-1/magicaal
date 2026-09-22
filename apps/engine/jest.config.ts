@@ -49,17 +49,17 @@ const config: Config = {
     'src/**/*.ts',
     '!src/index.ts',
   ],
-  // A ratchet, not a target. Engine coverage measured 65.07% statements /
-  // 43.31% branches when this was added; apps/api's 80% gate would fail here
-  // outright. These thresholds sit just under the measured floor so coverage
-  // cannot regress, without demanding a test-writing push right now. Raise
-  // them as coverage improves.
+  // A ratchet, not a target. These sit just under the measured floor so
+  // coverage cannot regress, and they are raised whenever it rises. The Caal
+  // simulated-run suite took the engine from 65.07% statements / 43.31%
+  // branches to 73.70% / 53.28% by exercising the scheduler's worker, the tool
+  // executor and the router through real runs rather than stubs.
   coverageThreshold: {
     global: {
-      statements: 64,
-      lines: 65,
-      functions: 61,
-      branches: 42,
+      statements: 73,
+      lines: 75,
+      functions: 70,
+      branches: 53,
     },
   },
 };
