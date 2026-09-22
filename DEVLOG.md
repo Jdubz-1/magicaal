@@ -25,6 +25,76 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-22 - Caal regression suite
+
+**Type:** Infrastructure
+
+**Description:**
+Every Caal defect shipped in the last two months passed the full test suite on
+the way out, and five of the seven only manifested on one intent. Nothing in
+the repo took a prompt, ran the real graph, and checked what came out. This
+adds the suite that does, built around a prompt corpus rather than around
+features.
+
+The centre is a simulated API run: the request going in is the one invokeCaal
+builds, the graph is the real compiled agents/caal.agent.ts with real nodes and
+real Caal tools, the response is flattened the way the controller flattens it,
+and only the provider is faked. Faking at the ProviderAdapter rather than at
+ctx.llmCall keeps tool assembly, name sanitizing, schema normalization, target
+selection and the transport retry real — each of those has broken a Caal run at
+least once — and lets a test assert on the exact request Caal sent.
+
+**Changes:**
+- `apps/engine/tests/caal/harness/` — scripted provider, `invokeCaalSimulated`,
+  the standing assertion checklist, and the subject-graph fixtures
+- `apps/engine/tests/caal/corpus/` — the five Studio quick actions, the options
+  follow-up as a two-turn run, twelve unstructured prompts, code-defined agent
+  variants, multi-turn continuity and failure modes
+- `apps/engine/tests/caal/contracts/` — graph wiring, node-config crosswalk and
+  cross-workspace constants
+- `packages/integrations/caal/` — given a jest setup and a `test` script; the
+  package had neither, so `pnpm -r run test` skipped all eighteen of its tools
+- `tests/fixtures/caal-wire/run-job-input.ts` — one payload fixture consumed by
+  both `apps/api`'s invoke test and the engine harness
+- `apps/api/tests/integration/caal-invoke.test.ts` — dispatch payload, intent
+  coercion, session-id namespacing, caalResult flattening, router override,
+  refusals
+- `apps/web/src/canvas/lib/guessIntent.ts` — the intent classifier, moved out of
+  CaalPanel.svelte so the corpus can derive intents rather than hardcode them
+- `agents/caal.agent.ts` — nodeReferences now always an array (see Notes)
+- `tests/caal-live/` + `.github/workflows/caal-live.yml` — the same corpus
+  against a real provider, opt-in and never on a pull request
+- `package.json` — `pnpm test:caal` runs all 413 Caal tests across five
+  workspaces; `pnpm caal:live` drives the live tier
+
+**Impact:**
+413 Caal tests now run on every CI run with no API key, no network, no Redis
+and no Docker. Engine coverage rose from 65.07% statements / 43.31% branches to
+73.70% / 53.28%, and the ratchet in `apps/engine/jest.config.ts` moved with it.
+Re-introducing the original empty-proposal bug — one `this.tool(...)` line —
+fails four named tests across three suites.
+
+**Notes:**
+The suite found one real defect while being written: `response-assembler` built
+`nodeReferences` with `$map` over `$match`, and JSONata returns a bare value for
+a single match and undefined for none, so an answer citing exactly one node
+produced the string `"llm"` where every declared type says `string[]`. Studio
+renders its chips by re-parsing the message text, so nothing visible was wrong
+yet.
+
+Two behaviours are pinned as documented trade-offs rather than changed: an
+exhausted iteration budget fails the run and discards the narration it
+gathered, and a failed tool's error code is not surfaced to the model, only its
+message.
+
+Deliberately out of scope: the frontend. No component is mounted and no click
+is simulated. Three pure modules from `canvas/lib/` are exercised as libraries,
+because a proposal Studio cannot apply is a graph defect, not a UI defect.
+
+The design is `docs/developer-guide/caal-regression-suite.md`.
+
+---
+
 ### 2026-09-19 - Agentic nodes finally get the conversation they were configured for
 
 **Type:** Bugfix

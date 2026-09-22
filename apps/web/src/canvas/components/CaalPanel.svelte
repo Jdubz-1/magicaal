@@ -6,6 +6,7 @@
   import ProposalReviewUI from './ProposalReviewUI.svelte';
   import CaalOptionsCard from './CaalOptionsCard.svelte';
   import { normalizeCaalOptions, type CaalOption, type CaalOptionsPrompt } from '../lib/caalOptions';
+  import { guessIntent } from '../lib/guessIntent';
   import { describeSkipped, type SkippedPatch } from '../lib/proposalPatches';
 
   export let agentId: string;
@@ -181,13 +182,6 @@
       isThinking = false;
       scrollToBottom();
     }
-  }
-
-  function guessIntent(text: string): string {
-    const lower = text.toLowerCase();
-    if (/\b(add|create|remove|delete|update|change|modify|rename|move|connect|disconnect)\b/.test(lower)) return 'modify';
-    if (/\b(suggest|improve|optimize|better|recommend|enhance)\b/.test(lower)) return 'suggest';
-    return 'question';
   }
 
   function dispatchCanvasHighlight(hl: { nodeIds: string[]; color: string; durationMs: number }) {

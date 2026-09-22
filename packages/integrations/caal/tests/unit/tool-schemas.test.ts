@@ -1,4 +1,4 @@
-import { ALL_CAAL_TOOLS } from '@magicaal/integration-caal';
+import { ALL_CAAL_TOOLS } from '../../src/index';
 
 /**
  * Caal's tools are handed to the provider as tool definitions, and a provider

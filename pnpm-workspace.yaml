@@ -3,3 +3,5 @@ packages:
   - 'packages/*'
   - 'packages/integrations/*'
   - 'agents'
+  # Opt-in live smoke driver. No `test` script, so `pnpm -r run test` skips it.
+  - 'tests/caal-live'

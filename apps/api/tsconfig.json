@@ -10,6 +10,6 @@
   "ts-node": {
     "files": true
   },
-  "include": ["src/**/*", "tests/**/*", "jest.config.ts"],
+  "include": ["src/**/*", "tests/**/*", "jest.config.ts", "../../tests/fixtures/**/*"],
   "exclude": ["node_modules", "dist"]
 }

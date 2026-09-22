@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "//": "Named files, not globs: the corpus directory also holds .test.ts files that need jest types this workspace has no reason to carry.",
+  "include": [
+    "*.ts",
+    "../../apps/engine/tests/caal/corpus/prompts.ts",
+    "../../apps/engine/tests/caal/harness/fixtures/graphs.ts"
+  ]
+}
