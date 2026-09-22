@@ -205,10 +205,15 @@ export class CaalAssistantAgent extends AgentGraph {
     // flattened back to the top level by invokeCaal before the API responds
     // — keeping the external /v1/caal/invoke response shape (which the
     // Studio client already expects) unchanged.
+    // The [...] around $map is JSONata's array constructor, and it is load
+    // bearing: $match returns a bare value for a single match and undefined for
+    // none, so without it a one-reference answer produced the string "llm"
+    // where every declared type says string[], and an answer with no markers
+    // dropped the field entirely.
     this.node('response-assembler', 'core:transform', {
       outputKey: 'caalResult',
       expression: `{
-        "nodeReferences": $.content ? $map($match($.content, /\\[\\[([^\\]]+)\\]\\]/), function($m) { $m.groups[0] }) : [],
+        "nodeReferences": $.content ? [$map($match($.content, /\\[\\[([^\\]]+)\\]\\]/), function($m) { $m.groups[0] })] : [],
         "proposal": $._caal_proposal,
         "options": $._caal_options,
         "canvasHighlight": $._caal_canvas_highlight,
