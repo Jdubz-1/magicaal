@@ -1,4 +1,4 @@
-import { uiAskOptions, normalizeUiOptions } from '@magicaal/integration-caal';
+import { uiAskOptions, normalizeUiOptions } from '../../src/index';
 import type { ExecutionContext } from '@magicaal/sdk-node';
 
 /**

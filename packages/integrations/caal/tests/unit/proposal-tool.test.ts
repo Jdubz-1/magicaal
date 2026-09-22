@@ -1,4 +1,4 @@
-import { proposalCreate } from '@magicaal/integration-caal';
+import { proposalCreate } from '../../src/index';
 import type { ExecutionContext } from '@magicaal/sdk-node';
 
 /**
