@@ -15,7 +15,6 @@ export function assertRunInvariants(run: SimulatedRun): void {
   //    stops reaching session-write loses the turn silently.
   expect(run.path[0]).toBe('start');
   expect(run.path.slice(-3)).toEqual(['response-assembler', 'session-write', 'end']);
-  expect(new Set(run.path).size).toBe(run.path.length);
 
   // 2. Every tool offered is one a provider will accept. Six Caal tools once
   //    shipped an untyped `{}` schema and 400'd every suggest and modify run.

@@ -61,17 +61,15 @@ describe('failure modes', () => {
      * spends money re-sending a request the provider has already rejected.
      */
     it('does not retry an error the provider itself returned', async () => {
-      let run: Awaited<ReturnType<typeof invokeCaalSimulated>> | undefined;
+      // Two turns scripted, but only the first should ever be asked for: a
+      // retry would advance past the failing turn and the run would succeed.
       await expect(
-        (async () => {
-          run = await invokeCaalSimulated({
-            message: 'Explain this graph.',
-            intent: 'explain',
-            script: { explainer: [{ error: providerError(400) }] },
-          });
-        })(),
+        invokeCaalSimulated({
+          message: 'Explain this graph.',
+          intent: 'explain',
+          script: { explainer: [{ error: providerError(400) }, { text: ADVICE }] },
+        }),
       ).rejects.toThrow();
-      expect(run).toBeUndefined();
     });
   });
 

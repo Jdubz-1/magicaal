@@ -82,7 +82,11 @@ async function invoke(
   return { status: res.status, body, ms: Date.now() - started };
 }
 
-function check(testCase: CaalPromptCase, status: number, body: Record<string, unknown>): CaseResult {
+function check(
+  testCase: CaalPromptCase,
+  status: number,
+  body: Record<string, unknown>,
+): Omit<CaseResult, 'ms'> {
   const failures: string[] = [];
   const output = (body.output ?? {}) as {
     content?: string;
@@ -117,7 +121,6 @@ function check(testCase: CaalPromptCase, status: number, body: Record<string, un
   return {
     id: testCase.id,
     ok: failures.length === 0,
-    ms: 0,
     status,
     contentChars: content.length,
     patchCount: patches.length,
