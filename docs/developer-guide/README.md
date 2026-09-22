@@ -25,6 +25,7 @@ Reference for engineers working on the MagiCaal platform (`apps/api`, `apps/engi
 | [MCP Client](mcp.md) | Connecting agents to external MCP servers |
 | [Marketplace](marketplace.md) | `.mpack` packages, signing/verification, air-gapped mode |
 | [Caal](caal.md) | The built-in AI assistant |
+| [Caal Regression Suite](caal-regression-suite.md) | How Caal is tested: the prompt corpus, the simulated API run, and the tiers around them |
 
 ## Contributing
 
