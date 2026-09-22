@@ -27,25 +27,40 @@ import { toApiToolName } from '@/execution/tool-executor';
 export const SCRIPTED_PROVIDER = 'scripted';
 export const SCRIPTED_CONNECTION_ID = 'conn-scripted';
 
-export const SCRIPTED_ROUTER: ModelRouterConfig = {
-  name: 'scripted',
-  strategy: 'priority',
-  targets: [
-    {
-      id: 'scripted-primary',
-      connectionId: SCRIPTED_CONNECTION_ID,
-      provider: SCRIPTED_PROVIDER,
-      model: 'scripted-model',
-    },
-  ],
-  triggers: [],
-};
+/**
+ * A router pinned to the fake, with a target id unique per run.
+ *
+ * The circuit breaker keys failure counts by target id and opens after five,
+ * so a shared id would let the failure-mode cases leak state into every case
+ * that ran after them.
+ */
+export function scriptedRouter(targetId: string): ModelRouterConfig {
+  return {
+    name: 'scripted',
+    strategy: 'priority',
+    targets: [
+      {
+        id: `scripted-${targetId}`,
+        connectionId: SCRIPTED_CONNECTION_ID,
+        provider: SCRIPTED_PROVIDER,
+        model: 'scripted-model',
+      },
+    ],
+    triggers: [],
+  };
+}
 
 /** One model turn. `toolCalls` uses MagiCaal tool ids; sanitizing is done here. */
 export type ScriptedTurn =
   | { text: string }
   | { text?: string; toolCalls: Array<{ name: string; input?: Record<string, unknown> }> }
-  | { error: Error };
+  /**
+   * Throws instead of answering. `failTimes` bounds how many attempts at this
+   * same turn throw before it answers with `text` — which is how a transport
+   * retry that eventually succeeds is expressed, since a retry re-enters the
+   * same loop iteration.
+   */
+  | { error: Error; failTimes?: number; text?: string };
 
 /**
  * Turns keyed by the node that asks for them. Agentic nodes are matched on
@@ -112,6 +127,13 @@ export function createScriptedProvider(): ScriptedProvider {
   // Per-node call counter, so a core:llm-call node (which has no iteration in
   // its metadata) still advances through its scripted turns.
   const calls = new Map<string, number>();
+  // Attempts at one (node, iteration) pair, so a transport retry can recover.
+  const attempts = new Map<string, number>();
+  // Conversation length of the last request per node. A transport retry
+  // re-sends the identical conversation, so an unchanged length means the same
+  // iteration rather than the next one — runAgentLoop tells us its iteration
+  // directly, but core:llm-call sends no metadata at all.
+  const lastLength = new Map<string, number>();
 
   function resolveNodeId(request: CanonicalLLMRequest): string {
     const fromMeta = (request.metadata as { agentNodeId?: string } | undefined)?.agentNodeId;
@@ -131,10 +153,17 @@ export function createScriptedProvider(): ScriptedProvider {
       _credentials: ResolvedCredentials,
     ): Promise<CanonicalLLMResponse> {
       const nodeId = resolveNodeId(request);
-      const iteration =
-        (request.metadata as { iteration?: number } | undefined)?.iteration ??
-        (calls.get(nodeId) ?? 0) + 1;
+      const declared = (request.metadata as { iteration?: number } | undefined)?.iteration;
+      let iteration: number;
+      if (declared !== undefined) {
+        iteration = declared;
+      } else {
+        const previous = calls.get(nodeId) ?? 0;
+        const isRetry = lastLength.get(nodeId) === request.messages.length && previous > 0;
+        iteration = isRetry ? previous : previous + 1;
+      }
       calls.set(nodeId, iteration);
+      lastLength.set(nodeId, request.messages.length);
 
       const tools = request.tools ?? [];
       requests.push({
@@ -147,7 +176,12 @@ export function createScriptedProvider(): ScriptedProvider {
       });
 
       const turn = turnFor(script, nodeId, iteration);
-      if ('error' in turn) throw turn.error;
+      if ('error' in turn) {
+        const key = `${nodeId}:${iteration}`;
+        const attempt = (attempts.get(key) ?? 0) + 1;
+        attempts.set(key, attempt);
+        if (attempt <= (turn.failTimes ?? Number.POSITIVE_INFINITY)) throw turn.error;
+      }
 
       const scripted = 'toolCalls' in turn ? turn.toolCalls : undefined;
       const toolCalls = (scripted ?? []).map((tc, i) => ({
@@ -201,6 +235,8 @@ export function createScriptedProvider(): ScriptedProvider {
       requests.length = 0;
       responses.length = 0;
       calls.clear();
+      attempts.clear();
+      lastLength.clear();
     },
   };
 }

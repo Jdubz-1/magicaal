@@ -13,7 +13,7 @@ import { config } from '@/config';
 import {
   createScriptedProvider,
   SCRIPTED_CONNECTION_ID,
-  SCRIPTED_ROUTER,
+  scriptedRouter,
   type RecordedRequest,
   type Script,
   type ScriptedProvider,
@@ -149,7 +149,7 @@ export async function invokeCaalSimulated(req: SimulatedRequest): Promise<Simula
       _caal_api_base: config.apiBaseUrl,
       _caal_tenant_id: invokerTenantId,
     },
-    runRouterOverride: SCRIPTED_ROUTER,
+    runRouterOverride: scriptedRouter(runId),
     sessionId,
     credentialTenantId: invokerTenantId,
   });
