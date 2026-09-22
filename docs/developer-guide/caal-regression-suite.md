@@ -1,6 +1,8 @@
 # Caal Regression Suite — Design
 
-**Status:** Design. Nothing in this document is implemented yet.
+**Status:** Implemented. `pnpm test:caal` runs it; `pnpm caal:live` drives the opt-in tier.
+This is now a record of what was built, not a proposal. Where the built suite departs from the
+original design, the reason is noted inline.
 **Scope:** `agents/caal.agent.ts`, `packages/integrations/caal`, and the Caal paths through
 `apps/engine` (`scheduler`, `worker`, `tool-executor`, `router-engine`) and `apps/api`
 (`caal.controller`, `caal-internal.controller`).
@@ -72,9 +74,9 @@ response**, running everything in between for real. Only the provider is faked.
             │
             │  ◄── the shared fixture: asserted on BOTH sides (§7)
             ▼
-   apps/engine — processRunJob(job)          ← real: admission, session load,
-            │                                   credentials, executeGraph,
-            │                                   session save, markRunComplete
+   apps/engine — executeGraph(...)           ← real: the whole graph, with the
+            │                                   context preloaded and read back
+            │                                   the way the scheduler does (§8)
             ▼
    compile(CaalAssistantAgent)               ← the real graph, real nodes, real Caal tools
             │
@@ -290,7 +292,8 @@ apps/web/tests/unit/                      ← pure-module only, nothing rendered
 
 tests/caal-live/                          ← Tier 4, excluded from `pnpm -r test`
   run.ts                                  ← drives §3's corpus against a real stack
-  baseline.json                           ← recorded timings / token counts
+  README.md                               ← the env vars, and what it does and does not assert
+  baseline.json                           ← written by a run; drift is reported against it
 ```
 
 `packages/cli/tests/unit/caal-agent-compile.test.ts` stays where it is — it is already a working
@@ -388,11 +391,10 @@ expect(run.response.options.options.map(o => o.value)).toEqual(['create_proposal
 expect(run.sessionWrites.messages).toHaveLength(2);
 ```
 
-`invokeCaalSimulated` runs the **whole** run lifecycle by calling the engine's extracted
-`processRunJob` (§8), so session load, credential resolution, `executeGraph`, session save and
-`markRunComplete` are all real. Its input is built by the shared wire fixture, and its output goes
-through the same `caalResult` flattening the controller applies — so what a test asserts on is the
-literal body a client would receive.
+`invokeCaalSimulated` calls `executeGraph` directly, with the context preloaded and read back the
+way the scheduler does — see §8 for why the scheduler's own job processor is not used. Its input is
+built by the shared wire fixture, and its output goes through the same `caalResult` flattening the
+controller applies, so what a test asserts on is the literal body a client would receive.
 
 Multi-turn cases chain: turn *n*'s `sessionWrites` become turn *n+1*'s loaded session, exactly as
 `sessionManager` would.
@@ -440,59 +442,80 @@ assertion catches.
 
 ## 7. Regression corpus
 
-The checklist the suite is accountable to.
+The checklist the suite is accountable to. Every row that was a gap when this was written now
+names the test that closed it.
 
-| ID | Defect | Tier | Status |
-|---|---|---|---|
-| R01 | `suggester` had `proposal.create` and no staging tools → empty proposals | 0, 2 | partly covered (CLI test); needs the implication rule |
-| R02 | Web proxy budget < API poll ceiling → 502/500 | 0 | **gap** |
-| R03 | `runAgentLoop` discarded narration from tool-call iterations | 2 | unit-level only; **gap** end to end |
-| R04 | `injectSessionHistory` advertised but unimplemented on `core:tool-call` | 0, 2 | unit-level only; **gap** as a crosswalk rule |
-| R05 | Empty proposal reported as applied across four layers | 1, 2 | partly covered; **gap** on the staging→apply round trip |
-| R06 | Six tools with untyped `input_schema` → provider 400 | 0, 1 | covered |
-| R07 | Platform tools called `/v1` with `X-Internal-Auth` → 401 | 1, 3 | covered at the route; **gap** at the tool |
-| R08 | Session double-accumulation → malformed messages to the provider | 0, 2 | unit-level only; **gap** as a two-turn run |
-| R09 | Empty assistant turn stored, then re-sent as a content-less message | 0, 2 | covered |
-| R10 | `sessionId` double-wrap → new session every message (ISS-069) | 3 | **gap** |
-| R11 | `intent` never sent → every message fell to the explain branch | 3 | **gap** |
-| R12 | `core:router` configured with `routeKey` → threw on every run (ISS-080) | 0 | covered |
-| R13 | `core:transform` multi-key writes landing under `undefined` (ISS-081) | 0 | covered |
-| R14 | `ConcurrencyConfig` field names wrong → admission read `undefined` (ISS-082) | 0 | **gap** |
-| R15 | Transport failures logged as bare `fetch failed`, no retry | 2 | unit-level only |
-| R16 | Modify against a code-defined agent staged unusable patches (ISS-070) | 0, 2 | covered |
-| R17 | `modelOverride` alone can't build a router target (ISS-073) | 3 | **gap** |
+| ID | Defect | Pinned by |
+|---|---|---|
+| R01 | `suggester` had `proposal.create` and no staging tools → empty proposals | `graph-wiring` (the general implication rule + the policy table), `quick-actions › qa-suggest` |
+| R02 | Web proxy budget < API poll ceiling → 502/500 | `constants-crosswalk › timeout budgets` |
+| R03 | `runAgentLoop` discarded narration from tool-call iterations | `quick-actions › qa-suggest › assembles narration from every iteration` |
+| R04 | `injectSessionHistory` advertised but unimplemented on `core:tool-call` | `node-config-crosswalk › behaving keys`, `multi-turn › history injection` |
+| R05 | Empty proposal reported as applied across four layers | `failure-modes › empty proposals`, `quick-actions › produces patches Studio can actually apply` |
+| R06 | Six tools with untyped `input_schema` → provider 400 | `constants-crosswalk › provider-facing tool names`, the standing checklist |
+| R07 | Platform tools called `/v1` with `X-Internal-Auth` → 401 | `platform-tools` (the tool), `caal-internal` (the route) |
+| R08 | Session double-accumulation → malformed messages to the provider | `multi-turn › accumulates across three turns`, the standing checklist |
+| R09 | Empty assistant turn stored, then re-sent as a content-less message | `failure-modes › empty answers` |
+| R10 | `sessionId` double-wrap → new session every message (ISS-069) | `caal-invoke › session id` |
+| R11 | `intent` never sent → every message fell to the explain branch | `caal-invoke › intent` |
+| R12 | `core:router` configured with `routeKey` → threw on every run (ISS-080) | `node-config-crosswalk`, `caal-agent-compile` |
+| R13 | `core:transform` multi-key writes landing under `undefined` (ISS-081) | `node-config-crosswalk`, `caal-agent-compile` |
+| R14 | `ConcurrencyConfig` field names wrong → admission read `undefined` (ISS-082) | `node-config-crosswalk › agent-level config` |
+| R15 | Transport failures logged as bare `fetch failed`, no retry | `failure-modes › transport` |
+| R16 | Modify against a code-defined agent staged unusable patches (ISS-070) | `code-defined › modify` |
+| R17 | `modelOverride` alone can't build a router target (ISS-073) | `caal-invoke › router override` |
+| R18 | One `[[nodeId]]` marker returned a bare string, none returned `undefined` | `harness › returns nodeReferences as an array` |
+
+R18 was found by the suite while it was being written, and fixed in the same branch.
 
 **Rule going forward: a Caal fix is not complete until it has a row here**, and the PR template
 gets one line — "Caal change? add or update the regression row."
 
 ---
 
-## 8. Prerequisites
+## 8. What it took, and the one thing the design got wrong
 
-Small, but they gate Tier 2 and should be confirmed before estimating.
+**The design proposed extracting `scheduler.ts`'s job-processor closure** so a test could run the
+full run lifecycle. That was dropped once the reason for it turned out to be false:
+`SessionManager` persists over HTTP to `apps/api`'s `/internal/sessions/*`
+(`apps/engine/src/session/session-manager.ts`), not through a database write, so routing the
+harness through the scheduler would have added a `fetch` seam to fake and nothing else. Everything
+the corpus asserts on is reachable without it:
 
-1. **Extract the run job processor.** `apps/engine/src/execution/scheduler.ts` defines the
-   processor as an anonymous closure passed to `new Worker('runs.trigger', async (job) => {…})`.
-   It captures nothing from `startScheduler`'s scope beyond module-level imports, so lifting it to
-   `export async function processRunJob(job: { data: RunJobData }): Promise<void>` — with
-   `startScheduler` passing it to the Worker — is a pure move with no behaviour change. This is
-   the only production-code change in the design, and it is what lets a test run the full lifecycle
-   (session load → execute → session save → mark complete) instead of just `executeGraph`.
-   *Fallback if unwanted:* call `executeGraph` directly and drive session load/save by hand. Cheaper,
-   but it stops testing the two places where R08 and R09 actually lived.
-2. **`apps/engine` needs `@magicaal/compiler`** as a devDependency plus one `moduleNameMapper`
-   line (`'^@magicaal/compiler$': '<rootDir>/../../packages/compiler/src/index.ts'`). Its `main`
-   points at gitignored `dist/`, which is why `packages/cli` maps it to source — same fix.
-3. **`agents/caal.agent.ts` must be reachable from `apps/engine`'s ts-jest rootDir.**
-   `packages/cli` already imports it as `../../../../agents/caal.agent`, so the pattern works; the
-   engine's tsconfig `include` may need `../../agents`.
-4. **The Caal agent row must be seedable** into the engine route-test DB so `graphLoader.load`
-   resolves it. `tests/helpers/primary-db.ts` already exposes `seedAgent`; the compiled graph JSON
-   goes in as `graphJson`.
-5. **`packages/integrations/caal` needs `jest`, `ts-jest`, `@types/jest`** and a `test` script.
-   Adding the script is what puts it into CI.
+| Scheduler responsibility | How the harness gets it |
+|---|---|
+| session load | preloads `ctx` exactly as the scheduler does from `loadSession` |
+| session save | reads `ctx.sessionWrites()` — what *would* be persisted |
+| credential resolution | sets `ctx.credentials[connId]` directly; the real path is covered by `credential-tenant.test.ts` |
+| run output | mirrors `scheduler.ts`: `_runOutput ?? stripInternalKeys(ctx.data)` |
+| admission / abort / timeout | Redis-backed, and mocked in tests either way |
 
-None of 2–5 touch production code.
+So the suite is additive. Beyond the one-line `nodeReferences` fix in §7 and moving `guessIntent`
+into its own module, no production code changed.
+
+The plumbing it did need, all configuration:
+
+1. **`@magicaal/compiler` as an `apps/engine` devDependency**, plus a `moduleNameMapper` entry
+   resolving it to source — its `main` points at gitignored `dist/`, which is why `packages/cli`
+   maps it the same way — and a second entry stripping the ESM `.js` specifiers its source uses.
+2. **`apps/engine/tsconfig.test.json`**, adding the `experimentalDecorators` support
+   `agents/caal.agent.ts` needs for its `@Agent` decorator, which the runtime tsconfig has no
+   reason to carry.
+3. **`packages/integrations/caal`** given `jest`, `ts-jest`, `@types/jest`, a jest config and a
+   `test` script. Adding the script is what put its eighteen tools into CI for the first time.
+4. **`apps/api/tsconfig.json`'s `include`** extended to reach the shared wire fixture. Its build
+   config pins `rootDir` to `src`, so `dist` is unaffected.
+5. **`tests/caal-live` added to `pnpm-workspace.yaml`.** It declares no `test` script, so
+   `pnpm -r run test` skips it.
+
+Two things worth knowing if you extend this:
+
+- **Nothing seeds the Caal agent into a database.** The harness compiles the graph in-process and
+  hands it to `executeGraph`, bypassing `graphLoader` and its per-`agentId` cache, so fixtures
+  cannot collide.
+- **The repository directory is itself named `magicaal`**, which contains the substring `caal`. A
+  bare `jest caal` therefore matches the absolute path of every test file in the repo. The
+  `test:caal` script anchors its patterns as `tests/.*caal` for that reason.
 
 ---
 
@@ -533,30 +556,31 @@ ratchet in the same PR that lands it rather than leaving headroom.
 
 ---
 
-## 11. Suggested implementation order
+## 11. What shipped
 
-| Step | Work | Pins |
-|---|---|---|
-| 1 | `constants-crosswalk.test.ts` | R02, R14, and the whole duplicated-constant class. ~1 h, catches a shipped 502. |
-| 2 | `packages/integrations/caal` test setup + the three missing tool files; move the two existing ones | R07 at the unit layer, and puts 8 untested tools into CI. ~3 h. |
-| 3 | `processRunJob` extraction + the Tier 2 harness (`scripted-provider`, `invoke`, graph fixtures) | The enabling work. ~1–1.5 days including the §8 plumbing. |
-| 4 | `corpus/prompts.ts` + `quick-actions.test.ts` | R01, R03, R05, R16 — the five paths a user actually clicks. ~1 day. |
-| 5 | `unstructured.test.ts` + `code-defined.test.ts` | Input robustness, especially `free-quotes-and-escapes`. ~4 h. |
-| 6 | `multi-turn.test.ts` + `failure-modes.test.ts` | R04, R08, R09, R15. ~4 h. |
-| 7 | `graph-wiring.test.ts` + `node-config-crosswalk.test.ts` | Generalizes R01/R04/R12/R13 into rules. ~4 h. |
-| 8 | `caal-invoke.test.ts` + the shared wire fixture | R10, R11, R17, and closes the API↔graph drift seam. ~4 h. |
-| 9 | Tier 4 driver + `caal-live.yml` | Makes the manual sign-off repeatable. ~4 h. |
+Twelve commits on `test/caal-regression-suite`, in this order: the design; the `guessIntent` move;
+the Caal tool package's first tests; the `nodeReferences` fix; the simulated-run harness; the
+quick-action corpus; the unstructured and code-defined corpus; multi-turn and failure modes; the
+static contracts; the API invoke contract and shared fixture; the live tier and CI wiring; this
+record.
 
-Steps 1–2 are worth doing regardless. Steps 3–4 are where the design earns its keep: they are the
-only place a prompt goes in and a real graph run comes out.
+`pnpm test:caal` runs **413 Caal tests** across five workspaces in a few seconds. Engine coverage
+went from 65.07% statements / 43.31% branches to 73.70% / 53.28%, and the ratchet in
+`apps/engine/jest.config.ts` moved with it.
 
----
+**Does it bite?** Re-introducing the original empty-proposal bug — one `this.tool(...)` line in
+`agents/caal.agent.ts` — fails four named tests across three suites: the general
+proposal-implies-staging rule, the declared per-node policy, the harness smoke check, and the
+`qa-suggest` corpus case. That layering is the point; no single assertion is load-bearing.
 
 ## 12. Open questions
 
-1. **Is the `processRunJob` extraction acceptable?** It is the one production change proposed
-   (§8.1). The alternative keeps production untouched but tests `executeGraph` in isolation, which
-   means session load/save — where two regressions lived — stays untested. Recommend the extraction.
+1. **Two behaviours are pinned rather than fixed.** An exhausted iteration budget fails the run
+   and discards the narration the model had already produced — returning it as a success instead
+   would report a turn that never converged as a finished answer, so the trade-off was left where
+   it is. And a failed tool's error *code* never reaches the model, only its message; the message
+   is written to be actionable, but a code would let the model branch on it. Both have a test
+   describing the current behaviour, so changing either is a deliberate act.
 2. **Where Tier 2 lives long-term.** `apps/engine/tests/caal/` is pragmatic (the module mapping
    already exists) but it spans four workspaces. A dedicated `tests/caal-regression` workspace is
    cleaner and costs a duplicated jest config. Recommend starting in `apps/engine` and moving only
