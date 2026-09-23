@@ -77,6 +77,40 @@ describe('MCP server registration', () => {
     expect(res.body.command).toBeNull();
   });
 
+  /**
+   * The engine fetches whatever URL is registered here. Without this check,
+   * `http://169.254.169.254` turns MCP registration into a read of the cloud
+   * instance metadata service, which on most providers returns credentials.
+   * SECURITY.md names SSRF via MCP server registration as in scope.
+   */
+  describe('refuses URLs pointing at our own infrastructure', () => {
+    it.each([
+      ['http://169.254.169.254/latest/meta-data/', 'cloud metadata service'],
+      ['http://[::ffff:a9fe:a9fe]/', 'metadata, as the URL parser normalizes it'],
+      ['http://127.0.0.1:9000/mcp', 'loopback'],
+      ['http://10.1.2.3/mcp', 'private network'],
+      ['file:///etc/passwd', 'a non-HTTP scheme'],
+    ])('400s on %p — %s', async (url) => {
+      const { token } = await createUserAndLogin(app, 'tenant_admin');
+      const res = await request(app)
+        .post('/v1/mcp-servers')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'evil', transport: 'http', url });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('still accepts an ordinary public server', async () => {
+      const { token } = await createUserAndLogin(app, 'tenant_admin');
+      const res = await request(app)
+        .post('/v1/mcp-servers')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'fine', transport: 'http', url: 'https://mcp.example.com/sse' });
+
+      expect(res.status).toBe(201);
+    });
+  });
+
   it('400s without name or transport', async () => {
     const { token } = await createUserAndLogin(app, 'tenant_admin');
     const res = await request(app)

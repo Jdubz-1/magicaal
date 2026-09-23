@@ -1,4 +1,6 @@
 import { spawn, ChildProcess } from 'node:child_process';
+import { assertSafeUrlResolved } from '@magicaal/integration-core';
+import { config } from '../config';
 import { logger } from '../lib/logger';
 
 export interface McpServerConfig {
@@ -29,6 +31,21 @@ export class McpClient {
 
   constructor(config: McpServerConfig) {
     this._config = config;
+  }
+
+  /**
+   * Resolve and vet the configured URL immediately before a request.
+   *
+   * The API checks the same URL at registration, but that alone is
+   * bypassable: a name that resolved publicly when it was saved can resolve to
+   * 127.0.0.1 — or to the metadata service — by the time it is fetched. This
+   * is the only check positioned to notice.
+   */
+  private async _safeUrl(): Promise<string> {
+    const url = await assertSafeUrlResolved(this._config.url!, {
+      allowPrivate: config.mcpAllowPrivateUrls,
+    });
+    return url.toString();
   }
 
   async connect(): Promise<void> {
@@ -108,7 +125,7 @@ export class McpClient {
       });
     } else {
       // HTTP Streamable transport
-      const resp = await fetch(this._config.url!, {
+      const resp = await fetch(await this._safeUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -134,7 +151,7 @@ export class McpClient {
       );
     } else {
       // HTTP: send as a one-way POST; server may not respond (notifications/initialized has no response)
-      await fetch(this._config.url!, {
+      await fetch(await this._safeUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: notification.trim(),

@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express';
+import { assertSafeUrl, UnsafeUrlError } from '@magicaal/integration-core';
 import * as crypto from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/client';
@@ -50,6 +51,20 @@ export const createMcpServer: RequestHandler = async (req, res, next) => {
 
     if (!name || !transport) throw Object.assign(new Error('name and transport are required'), { status: 400 });
     if (transport === 'http' && !url) throw Object.assign(new Error('url required for http transport'), { status: 400 });
+    // Reject an internal address before it is stored, so the operator finds
+    // out while they are still looking at the form. The engine re-checks after
+    // DNS resolution immediately before each request — this one cannot catch a
+    // name that only resolves internally later.
+    if (transport === 'http' && url) {
+      try {
+        assertSafeUrl(url);
+      } catch (err) {
+        if (err instanceof UnsafeUrlError) {
+          throw Object.assign(new Error(err.message), { status: 400, code: err.code });
+        }
+        throw err;
+      }
+    }
     if (transport === 'stdio' && !command) throw Object.assign(new Error('command required for stdio transport'), { status: 400 });
 
     const id = newId();
