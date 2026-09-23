@@ -1,10 +1,14 @@
 name: CodeQL
 
 on:
+  # Both long-lived branches. Scanning main alone meant CodeQL never analysed
+  # any development work — every branch targets DEV-main — while still
+  # reporting green, because it was faithfully re-scanning a branch nobody
+  # commits to. ci.yml has always covered both.
   push:
-    branches: [main]
+    branches: [main, DEV-main]
   pull_request:
-    branches: [main]
+    branches: [main, DEV-main]
   schedule:
     # Weekly scan every Monday at 08:00 UTC
     - cron: '0 8 * * 1'
@@ -26,7 +30,13 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
-          queries: security-and-quality
+          # security-extended, not security-and-quality: the quality half
+          # duplicates rules ESLint already runs on every workspace (unused
+          # locals, trivial conditionals) and contributed a fifth of the alert
+          # volume without finding anything ESLint had not. Every security
+          # query is still enabled.
+          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
