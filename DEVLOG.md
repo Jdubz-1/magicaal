@@ -25,6 +25,61 @@ Trade-offs, follow-up items, or important context.
 
 ---
 
+### 2026-09-23 - Security contact, license text, and the public-repo settings gate
+
+**Type:** Infrastructure
+
+**Description:**
+A full review of the repo against `.ai_docs/` found the project public with
+several gaps in the launch gate its own roadmap defines. Three were fixed
+today; the review report records the rest.
+
+The worst was that `LICENSE` was not Apache 2.0. It was a paraphrase — 98 lines
+differing from the canonical text, including an inverted section 4 that forced
+downstream modifications to stay under this license, where Apache 2.0
+explicitly permits relicensing your own modifications. GitHub classified the
+repository as NOASSERTION while the README badge claimed Apache 2.0.
+
+The second was that `security@magicaal.dev`, the advertised vulnerability
+contact, could not receive mail: `magicaal.dev` publishes no MX records and a
+`v=spf1 -all` TXT record. A researcher following `SECURITY.md` got silence.
+
+**Changes:**
+- `LICENSE` replaced with the verbatim canonical text; `NOTICE` reattributed
+  from a company that does not exist to the individual holder (PR #27)
+- `SECURITY.md` — GitHub Private Vulnerability Reporting is now the only
+  channel, linked directly; acknowledgment relaxed 24h → 72h and initial
+  assessment 72h → 7 days, which a solo maintainer can actually hold; the
+  in-scope list no longer advertises unbuilt Phase 6 workspace attack surface;
+  supported-versions states that `DEV-main` is the only line pre-1.0 (PR #30)
+- `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, `RELEASES.md` — conduct and hotfix
+  coordination routed through the private advisory form and GitHub's
+  report-abuse flow (PR #30)
+- Repository settings: both rulesets now require the DCO and AI-attribution
+  checks, which previously ran without gating a merge; secret scanning, push
+  protection and Dependabot security updates enabled; description and seven
+  topics set
+
+**Impact:**
+Vulnerability reports now reach a channel that works. The DCO is enforced
+rather than advisory, which matters because it is the entire inbound-
+contribution licensing mechanism — a CLA and legal entity were deliberately
+avoided on the strength of it. The repository is discoverable and scanning for
+committed credentials.
+
+**Notes:**
+`main` is the default branch and remains 207 commits behind `DEV-main`, so
+GitHub's license detection and anything a visitor reads still reflect the old
+state. That is a recorded decision, not an oversight. Private Vulnerability
+Reporting is a repository-level setting and is reachable today regardless of
+branch, and `main`'s `SECURITY.md` already lists it, so the working channel is
+live either way.
+
+Full findings, including what was deliberately left open: see
+`.ai_docs/MAGICAAL_STATE_REPORT_2026-09-23.md`.
+
+---
+
 ### 2026-09-22 - Caal regression suite
 
 **Type:** Infrastructure
