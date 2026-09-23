@@ -59,8 +59,15 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-**security@magicaal.dev**.
+reported privately to the maintainer using this repository's
+**[Security → Report a vulnerability](https://github.com/Jdubz-1/magicaal/security/advisories/new)**
+form. That form is a private channel to the maintainer; note in the report that
+it concerns conduct rather than a vulnerability, and it will be handled under
+this Code of Conduct rather than the disclosure timeline in `SECURITY.md`.
+
+If the report concerns the maintainer, or you would rather not go through this
+repository at all, use GitHub's own
+[report abuse](https://github.com/contact/report-abuse) flow instead.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

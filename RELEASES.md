@@ -182,7 +182,7 @@ git merge --no-ff main -m "chore(hotfix): back-merge v0.5.1 hotfix into DEV-main
 git push
 ```
 
-If the hotfix is a security vulnerability, coordinate with `security@magicaal.dev` and follow the [SECURITY.md](SECURITY.md) disclosure timeline before tagging.
+If the hotfix is a security vulnerability, coordinate in the private advisory thread the report was filed under and follow the [SECURITY.md](SECURITY.md) disclosure timeline before tagging.
 
 ---
 

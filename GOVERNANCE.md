@@ -92,6 +92,6 @@ Automatic review routing: `.github/CODEOWNERS`
 | Bug priority | GitHub Issue + milestone label |
 | Release timing | GitHub Milestone + BDFL announcement |
 | Roadmap phase prioritization | `ROADMAP.md` + community call discussion |
-| Code of Conduct enforcement | BDFL + `security@magicaal.dev` |
+| Code of Conduct enforcement | BDFL, via private report (see `CODE_OF_CONDUCT.md`) |
 
 The roadmap is directional, not a contract. Priorities shift. Communicate changes proactively in GitHub Discussions.
