@@ -195,7 +195,7 @@ studioRouter.post('/:agentId/versions/:vId/rollback', async (req, res, next) => 
   try {
     const { agentId, vId } = req.params;
     const api = createApiClient(req.accessToken);
-    await api.post(`/v1/agents/${agentId}/versions/${vId}/rollback`);
+    await api.post(`/v1/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(vId)}/rollback`);
     res.redirect(`/studio/${agentId}/versions?rolled_back=1`);
   } catch (err) {
     next(err);

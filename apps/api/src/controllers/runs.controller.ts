@@ -30,7 +30,7 @@ async function fetchRunScoped(
   tenantId: string,
   agentId?: string,
 ): Promise<EngineRun> {
-  const response = await engineClient.get(`/internal/runs/${runId}`);
+  const response = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}`);
   const run = response.data as EngineRun;
 
   if (run.tenantId !== tenantId || (agentId !== undefined && run.agentId !== agentId)) {
@@ -203,7 +203,7 @@ export const dispatchRun: RequestHandler = async (req, res, next) => {
       const maxPolls = 60;
       for (let i = 0; i < maxPolls; i++) {
         await new Promise((r) => setTimeout(r, 1000));
-        const poll = await engineClient.get(`/internal/runs/${runId}`);
+        const poll = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}`);
         run = poll.data as { status: string; output: unknown; error: unknown };
         if (['completed', 'failed', 'suspended', 'cancelled'].includes(run.status)) break;
       }
@@ -239,7 +239,7 @@ export const listRuns: RequestHandler = async (req, res, next) => {
     }
 
     const { limit, offset, status } = req.query as { limit?: string; offset?: string; status?: string };
-    const response = await engineClient.get(`/internal/agents/${agentId}/runs`, {
+    const response = await engineClient.get(`/internal/agents/${encodeURIComponent(agentId)}/runs`, {
       params: { limit, offset, status },
     });
     res.json(response.data);
@@ -281,7 +281,7 @@ export const reviewRun: RequestHandler = async (req, res, next) => {
     // that tenant's human-review gate.
     await fetchRunScoped(runId, tenantId, agentId);
 
-    const response = await engineClient.post(`/internal/runs/${runId}/review`, req.body);
+    const response = await engineClient.post(`/internal/runs/${encodeURIComponent(runId)}/review`, req.body);
     res.json(response.data);
   } catch (err) {
     next(err);
@@ -295,7 +295,7 @@ export const cancelRun: RequestHandler = async (req, res, next) => {
 
     await fetchRunScoped(runId, tenantId, agentId);
 
-    const response = await engineClient.delete(`/internal/runs/${runId}`);
+    const response = await engineClient.delete(`/internal/runs/${encodeURIComponent(runId)}`);
     res.status(response.status).json(response.data);
   } catch (err) {
     next(err);
@@ -314,7 +314,7 @@ export const streamRun: RequestHandler = async (req, res, next) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const engineResponse = await engineClient.get(`/internal/runs/${runId}/stream`, {
+    const engineResponse = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}/stream`, {
       responseType: 'stream',
       timeout: 0,
     });
@@ -340,7 +340,7 @@ export const getRunSteps: RequestHandler = async (req, res, next) => {
 
     await fetchRunScoped(runId, tenantId, agentId);
 
-    const response = await engineClient.get(`/internal/runs/${runId}/steps`);
+    const response = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}/steps`);
     res.json(response.data);
   } catch (err) {
     next(err);

@@ -34,7 +34,7 @@ export function createApp(): Application {
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
-      const apiResponse = await api.get(`/v1/agents/${agentId}/runs/${runId}/stream`, {
+      const apiResponse = await api.get(`/v1/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/stream`, {
         responseType: 'stream',
         timeout: 0,
       });

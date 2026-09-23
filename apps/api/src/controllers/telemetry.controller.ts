@@ -60,7 +60,7 @@ export const getTrajectory: RequestHandler = async (req, res, next) => {
   try {
     const { tenantId } = req.user!;
     const { runId } = req.params;
-    const response = await engineClient.get(`/internal/telemetry/trajectory/${runId}`, {
+    const response = await engineClient.get(`/internal/telemetry/trajectory/${encodeURIComponent(runId)}`, {
       params: { tenantId },
     });
     res.json(response.data);

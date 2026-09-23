@@ -121,7 +121,7 @@ export const invokeCaal: RequestHandler = async (req, res, next) => {
     const start = Date.now();
     while (Date.now() - start < config.caalInvokeTimeoutMs) {
       await new Promise((r) => setTimeout(r, 500));
-      const statusRes = await engineClient.get(`/internal/runs/${runId}`);
+      const statusRes = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}`);
       const run = statusRes.data as { status: string; output?: Record<string, unknown>; error?: unknown };
 
       if (run.status === 'completed') {

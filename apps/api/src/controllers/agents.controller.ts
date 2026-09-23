@@ -234,7 +234,7 @@ export const deleteAgent: RequestHandler = async (req, res, next) => {
     // unreachable we cannot verify in-flight runs or purge telemetry, so the
     // delete has to fail rather than half-happen.
     try {
-      await engineClient.delete(`/internal/agents/${id}`, { params: { purge: String(purge) } });
+      await engineClient.delete(`/internal/agents/${encodeURIComponent(id)}`, { params: { purge: String(purge) } });
     } catch (err) {
       // engineClient's response interceptor has already flattened an engine
       // error response into a plain Error carrying `status` and `code` (and
@@ -338,7 +338,7 @@ export const publishAgent: RequestHandler = async (req, res, next) => {
       .set({ currentVersionId: version.id, status: 'active', updatedAt: now })
       .where(eq(agents.id, id));
 
-    await engineClient.post(`/internal/agents/${id}/deploy`).catch(() => {
+    await engineClient.post(`/internal/agents/${encodeURIComponent(id)}/deploy`).catch(() => {
       // non-fatal: cache invalidation may fail if engine is temporarily unavailable
     });
 
@@ -535,7 +535,7 @@ export const updateAgentConfig: RequestHandler = async (req, res, next) => {
       throw Object.assign(new Error('Agent config not found'), { status: 404 });
     }
 
-    await engineClient.post(`/internal/agents/${req.params.id}/deploy`).catch(() => {});
+    await engineClient.post(`/internal/agents/${encodeURIComponent(req.params.id)}/deploy`).catch(() => {});
 
     res.json({
       triggerConfig: JSON.parse(updated.triggerConfig ?? '{}'),
