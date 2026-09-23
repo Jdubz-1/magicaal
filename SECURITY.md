@@ -4,12 +4,11 @@
 
 **Do not file security vulnerabilities as public GitHub Issues.** Public disclosure before a fix is available puts all MagiCaal deployments at risk.
 
-Report via one of these channels:
+Report through **[GitHub Private Vulnerability Reporting](https://github.com/Jdubz-1/magicaal/security/advisories/new)** — the "Report a vulnerability" button under this repository's Security tab.
 
-- **Email:** `security@magicaal.dev`
-- **GitHub Private Vulnerability Reporting:** Security → Advisories → Report a vulnerability (available in the repository's Security tab)
+This is the only monitored channel. The report stays private between you and the maintainer until an advisory is published, and it gives us a shared thread to coordinate the fix and the disclosure in.
 
-You will receive acknowledgment within **24 hours**. If you do not receive acknowledgment in 24 hours, you may proceed to coordinated disclosure.
+You will receive acknowledgment within **72 hours**. If you do not, you may proceed to coordinated disclosure.
 
 ---
 
@@ -17,8 +16,8 @@ You will receive acknowledgment within **24 hours**. If you do not receive ackno
 
 | Milestone | Target |
 |---|---|
-| Acknowledgment | 24 hours |
-| Initial assessment (CVSS score, affected versions identified) | 72 hours |
+| Acknowledgment | 72 hours |
+| Initial assessment (CVSS score, affected versions identified) | 7 days |
 | Fix developed and tested | 7–14 days (Critical/High); 30 days (Medium) |
 | Patch release | Simultaneous with public disclosure |
 | CVE ID assigned | At public disclosure |
@@ -41,7 +40,7 @@ The following areas are in scope for security reports:
 - **Code node sandbox**: `core:code` isolated-vm escape or resource limit bypass
 - **MCP client**: SSRF via MCP server registration, command injection via MCP tool responses
 - **Session context isolation**: access to another session's context data
-- **Workspace containers**: container escape, credential leakage from workspace environments
+- **Workspace containers** *(once Phase 6 ships — not yet built)*: container escape, credential leakage from workspace environments
 
 ### Out-of-Scope
 
@@ -80,7 +79,9 @@ We publicly credit security researchers who responsibly disclose vulnerabilities
 
 ## Supported Versions
 
-Security patches are backported to the most recent stable release and the current LTS release (once designated at v1.0.0). Older versions do not receive security patches — upgrade to a supported version.
+**Pre-1.0:** no versioned release has been published yet, so `DEV-main` is the only supported line. Report against it.
+
+From the first tagged release onward, security patches are backported to the most recent stable release and the current LTS release (once designated at v1.0.0). Older versions do not receive security patches — upgrade to a supported version.
 
 | Version | Supported |
 |---|---|
