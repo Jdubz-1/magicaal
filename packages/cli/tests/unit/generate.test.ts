@@ -3,6 +3,7 @@ import {
   renderTypesFile,
   renderDescriptorFile,
   computeSchemaHash,
+  isSafeHandle,
 } from '../../src/commands/generate.js';
 
 const INPUT_SCHEMA = {
@@ -78,5 +79,38 @@ describe('computeSchemaHash', () => {
     expect(computeSchemaHash(INPUT_SCHEMA, null)).toBe(a);
     expect(computeSchemaHash({ type: 'object' }, null)).not.toBe(a);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+/**
+ * `handle` comes from the API and is interpolated into an output path. The API
+ * does not constrain its format, so the CLI — which writes to a developer's
+ * filesystem with their permissions — decides for itself what it is willing to
+ * turn into a filename.
+ */
+describe('isSafeHandle', () => {
+  it.each([
+    'support-bot',
+    'caal',
+    'agent_v2',
+    'a.b.c',
+    'A1',
+  ])('accepts %s', (handle) => {
+    expect(isSafeHandle(handle)).toBe(true);
+  });
+
+  it.each([
+    ['../../../etc/cron.d/x', 'traversal'],
+    ['..', 'bare traversal'],
+    ['a/../b', 'traversal in the middle'],
+    ['sub/dir', 'a separator'],
+    ['back\\slash', 'a windows separator'],
+    ['.hidden', 'a leading dot'],
+    ['-flag', 'a leading dash'],
+    ['', 'empty'],
+    ['with space', 'a space'],
+    ['nul\u0000byte', 'a null byte'],
+  ])('refuses %s — %s', (handle) => {
+    expect(isSafeHandle(handle)).toBe(false);
   });
 });

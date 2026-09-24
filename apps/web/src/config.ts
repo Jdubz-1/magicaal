@@ -19,8 +19,30 @@ export function positiveIntEnv(value: string | undefined, fallback: number): num
     : fallback;
 }
 
+/**
+ * Express's `trust proxy`, which decides what `req.ip` means and therefore what
+ * the rate limiter counts.
+ *
+ * Defaults to `false`, for the same reason `apps/api` does: `true` behind an
+ * untrusted hop lets a client send its own `X-Forwarded-For` and be counted as
+ * a different address on every request, which is worse than no limiter because
+ * the service looks protected. Set the number of trusted hops, or the proxy's
+ * address — not `true`.
+ */
+function parseTrustProxy(raw: string | undefined): boolean | number | string {
+  if (raw === undefined || raw.trim() === '' || raw === 'false') return false;
+  if (raw === 'true') return true;
+  const hops = Number(raw);
+  if (Number.isInteger(hops) && hops >= 0) return hops;
+  return raw; // an address or CIDR list; Express parses it
+}
+
 export const config = Object.freeze({
   port: parseInt(process.env.PORT ?? '8080', 10),
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  rateLimitWindowMs: positiveIntEnv(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+  rateLimitLoginMax: positiveIntEnv(process.env.LOGIN_RATE_LIMIT_MAX, 10),
+  rateLimitMax: positiveIntEnv(process.env.RATE_LIMIT_MAX, 600),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   apiBaseUrl: process.env.API_BASE_URL ?? 'http://api:3000',
   apiTimeoutMs: positiveIntEnv(process.env.API_TIMEOUT_MS, 15000),

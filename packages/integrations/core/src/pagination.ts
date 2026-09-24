@@ -57,12 +57,19 @@ export async function collectAll<T, TCursor = string>(
  * rel → URL map, e.g. { next: "https://...", last: "https://..." }.
  */
 export function parseLinkHeader(header: string | null): Record<string, string> {
-  const rels: Record<string, string> = {};
+  // Null prototype: the rel name comes from a remote server, and a header
+  // reading `rel="__proto__"` assigned onto a plain object would write to the
+  // prototype chain instead of the map.
+  const rels: Record<string, string> = Object.create(null) as Record<string, string>;
   if (!header) return rels;
 
   for (const part of header.split(',')) {
-    const match = part.match(/<([^>]+)>\s*;\s*rel="?([^";]+)"?/);
-    if (match) rels[match[2]] = match[1];
+    // Anchored on purpose. Unanchored, `\s*;\s*` after `[^>]+` makes the engine
+    // retry from every offset in the part, so a header from a hostile
+    // integration server — a long run of `<` with no `>` — costs O(n²) and
+    // stalls the worker. Anchoring leaves one attempt per part.
+    const match = /^\s*<([^>]*)>\s*;\s*rel\s*=\s*"?([^";,]+)"?/.exec(part);
+    if (match) rels[match[2].trim()] = match[1];
   }
   return rels;
 }

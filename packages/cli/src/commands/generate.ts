@@ -17,6 +17,22 @@ interface AgentSummary {
   name: string;
 }
 
+/**
+ * A handle is only safe to build a filename from if it is a plain name.
+ *
+ * `handle` arrives from the API and is written into a path as
+ * `join(outDir, `${handle}.types.ts`)`. The API does not constrain its format,
+ * so a handle of `../../../etc/cron.d/x` would place a generated TypeScript
+ * file outside the directory the developer asked to write to. This runs on a
+ * developer's machine with their permissions, which is what makes it worth
+ * refusing rather than trusting the server.
+ */
+const SAFE_HANDLE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+export function isSafeHandle(handle: string): boolean {
+  return SAFE_HANDLE.test(handle) && !handle.includes('..');
+}
+
 export interface GenerateOptions {
   agent?: string;
   all?: boolean;
@@ -172,6 +188,14 @@ export async function generateCommand(opts: GenerateOptions): Promise<void> {
   let drifted = 0;
 
   for (const agent of targets) {
+    if (!isSafeHandle(agent.handle)) {
+      console.error(
+        `✗ skipped ${agent.id}: handle "${agent.handle}" is not usable as a filename`,
+      );
+      process.exitCode = 1;
+      continue;
+    }
+
     const input = await fetchJson<{ inputSchema: JsonSchemaNode }>(
       `${opts.apiUrl}/v1/agents/${agent.id}/schema/input`,
       token,

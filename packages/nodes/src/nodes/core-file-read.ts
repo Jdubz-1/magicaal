@@ -1,6 +1,6 @@
 import type { NodeModule } from '@magicaal/sdk-node';
 import type { ExecutionContext } from '@magicaal/sdk-node';
-import { readFile, stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { resolve, normalize } from 'node:path';
 
 interface FileReadConfig {
@@ -88,12 +88,20 @@ export const coreFileRead: NodeModule<FileReadConfig> = {
 
     const encoding = config.encoding ?? 'utf8';
 
+    // One open descriptor for both the size and the bytes. Calling stat() and
+    // then readFile() names the path twice, and the two calls can land on
+    // different files: between them the path can be replaced — classically by
+    // swapping it for a symlink — so the reported size describes one file and
+    // the returned content another. A FileHandle is bound to the inode it
+    // opened, which removes the window rather than narrowing it.
+    let handle;
     try {
-      const fileStat = await stat(resolvedPath);
+      handle = await open(resolvedPath, 'r');
+      const fileStat = await handle.stat();
       const content =
         encoding === 'base64'
-          ? (await readFile(resolvedPath)).toString('base64')
-          : await readFile(resolvedPath, encoding === 'binary' ? undefined : 'utf8');
+          ? (await handle.readFile()).toString('base64')
+          : await handle.readFile(encoding === 'binary' ? undefined : 'utf8');
 
       const contentValue = Buffer.isBuffer(content) ? content.toString('base64') : content;
 
@@ -122,6 +130,8 @@ export const coreFileRead: NodeModule<FileReadConfig> = {
           retryable: false,
         },
       };
+    } finally {
+      await handle?.close();
     }
   },
 };
