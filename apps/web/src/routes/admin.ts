@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from 'express';
 import { requireAdminSession } from '../middleware/session';
 import { createApiClient } from '../lib/api-client';
-import { isPollutingKey } from '../lib/safe-keys';
+import { parseRequiredClaims } from '../lib/safe-keys';
 import { layout, escHtml } from '../views/layout';
 import { config } from '../config';
 
@@ -1903,14 +1903,7 @@ adminRouter.post('/invocation-auth/:agentId/policy', async (req, res, next) => {
 
     let jwtConfig: Record<string, unknown> | null = null;
     if (strategy === 'jwt' && jwtJwksUrl) {
-      const requiredClaims: Record<string, string> = {};
-      for (const line of (jwtRequiredClaims ?? '').split('\n').filter(Boolean)) {
-        const [k, ...v] = line.split('=');
-        const claim = k?.trim();
-        // A claim named __proto__/constructor/prototype would write to the
-        // prototype chain rather than the object; no real claim uses those.
-        if (claim && !isPollutingKey(claim)) requiredClaims[claim] = v.join('=').trim();
-      }
+      const requiredClaims = parseRequiredClaims(jwtRequiredClaims);
       jwtConfig = {
         jwksUrl: jwtJwksUrl,
         ...(jwtIssuer ? { issuer: jwtIssuer } : {}),

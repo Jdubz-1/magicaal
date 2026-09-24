@@ -1,15 +1,15 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { isPollutingKey } from '../../src/lib/safe-keys';
-
-const ADMIN_SRC = readFileSync(join(__dirname, '../../src/routes/admin.ts'), 'utf8');
+import { isPollutingKey, parseRequiredClaims } from '../../src/lib/safe-keys';
 
 /**
  * The invocation-policy form takes JWT required claims as `name=value` lines in
- * a textarea and builds an object keyed by the names. A line reading
- * `__proto__=x` is a prototype assignment rather than an own property, so the
- * claims object silently loses the entry and gains an inherited one. CodeQL
- * flags this as `js/remote-property-injection`.
+ * a textarea and builds an object keyed by the names. Those names come from an
+ * operator, and a line reading `__proto__=x` assigned onto an object would be a
+ * prototype assignment rather than an own property — the claim silently
+ * vanishes and every later lookup on that object inherits it instead.
+ *
+ * The parser builds the object from filtered pairs, so there is no dynamic
+ * property write left to get wrong. These tests cover the parse, not the guard
+ * in isolation, because the parse is what the route actually calls.
  */
 
 describe('isPollutingKey', () => {
@@ -22,30 +22,53 @@ describe('isPollutingKey', () => {
   });
 });
 
-describe('required-claims parsing', () => {
-  it('guards the claim name before assigning it', () => {
-    const handler = ADMIN_SRC.slice(
-      ADMIN_SRC.indexOf("adminRouter.post('/invocation-auth/:agentId/policy'"),
-    ).slice(0, 2000);
+describe('parseRequiredClaims', () => {
+  it('parses one name=value per line', () => {
+    expect(parseRequiredClaims('sub=alice\ntenant_id=acme')).toEqual({
+      sub: 'alice',
+      tenant_id: 'acme',
+    });
+  });
 
-    expect(handler).toContain('isPollutingKey');
-    expect(handler).not.toContain('requiredClaims[k.trim()] =');
+  it('trims names and values and skips blank lines', () => {
+    expect(parseRequiredClaims('\n  sub  =  alice  \n\n')).toEqual({ sub: 'alice' });
+  });
+
+  /** A claim value can be a URL, so only the first separator splits. */
+  it('keeps = inside a value', () => {
+    expect(parseRequiredClaims('iss=https://idp/?a=1&b=2')).toEqual({
+      iss: 'https://idp/?a=1&b=2',
+    });
+  });
+
+  it('ignores a line with no name', () => {
+    expect(parseRequiredClaims('=orphan\n  =also orphan\nsub=alice')).toEqual({ sub: 'alice' });
+  });
+
+  it('gives an empty object for empty or absent input', () => {
+    expect(parseRequiredClaims('')).toEqual({});
+    expect(parseRequiredClaims(undefined)).toEqual({});
+  });
+
+  it.each(['__proto__', 'constructor', 'prototype'])('drops a %s claim', (name) => {
+    const claims = parseRequiredClaims(`${name}=admin\nsub=alice`);
+
+    expect(claims).toEqual({ sub: 'alice' });
+    expect(Object.getPrototypeOf(claims)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).admin).toBeUndefined();
   });
 
   /**
-   * What the guard prevents, stated as behaviour rather than as a claim about
-   * the source: the unguarded assignment does not produce the entry it looks
-   * like it produces.
+   * Why the loop that used to build this object was replaced rather than just
+   * guarded: `claims[name] = value` is a dynamic property write, and an
+   * unguarded one does not produce the entry it looks like it produces.
+   * `Object.fromEntries` over filtered pairs has no such write to guard.
    */
-  it('demonstrates why: an unguarded __proto__ assignment yields no own property', () => {
+  it('demonstrates the failure it avoids', () => {
     const unguarded: Record<string, string> = {};
     unguarded['__proto__'] = 'admin';
-    expect(Object.keys(unguarded)).toHaveLength(0);
 
-    const guarded: Record<string, string> = {};
-    for (const name of ['__proto__', 'sub']) {
-      if (!isPollutingKey(name)) guarded[name] = 'admin';
-    }
-    expect(Object.keys(guarded)).toEqual(['sub']);
+    expect(Object.keys(unguarded)).toHaveLength(0);
+    expect(Object.keys(parseRequiredClaims('__proto__=admin'))).toHaveLength(0);
   });
 });
