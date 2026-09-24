@@ -16,6 +16,10 @@ export const config = Object.freeze({
   engineInternalUrl: process.env.ENGINE_INTERNAL_URL ?? 'http://localhost:4000',
   marketplaceEnabled: process.env.MARKETPLACE_ENABLED === 'true',
   marketplaceApiUrl: process.env.MARKETPLACE_API_URL ?? 'https://marketplace.magicaal.dev',
+  // Permit MCP servers on loopback or a private network. Off by default: a
+  // tenant-supplied URL reaching an internal address is SSRF, and the metadata
+  // service is the prize. Link-local stays refused either way.
+  mcpAllowPrivateUrls: process.env.MCP_ALLOW_PRIVATE_URLS === 'true',
   packagesDir: process.env.PACKAGES_DIR ?? '/data/packages',
   // Deadline applied to runs whose AgentConfig declares no timeout (10 min).
   defaultRunTimeoutMs: parseInt(process.env.RUN_TIMEOUT_DEFAULT_MS ?? '600000', 10),

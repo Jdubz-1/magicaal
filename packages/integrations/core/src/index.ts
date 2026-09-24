@@ -16,3 +16,10 @@ export {
 } from './oauth';
 export { deriveIdempotencyKey, newIdempotencyKey, stableStringify } from './idempotency';
 export { resolveField } from './config-fields';
+export {
+  assertSafeUrl,
+  assertSafeUrlResolved,
+  isSafeUrl,
+  UnsafeUrlError,
+  type UrlGuardOptions,
+} from './url-guard';

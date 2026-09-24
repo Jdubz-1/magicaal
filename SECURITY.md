@@ -51,6 +51,7 @@ The following are **not** in scope:
 - Vulnerabilities in third-party dependencies — please report these to the upstream project directly
 - Theoretical vulnerabilities with no demonstrated practical exploitation path
 - Self-XSS or attacks that require the attacker to already have admin access to the deployment
+- **Running an arbitrary binary via a stdio MCP server.** Registering an MCP server with `transport: stdio` starts the command it names, by design — that is what stdio transport *is*. The spawn takes an argv array and no shell, so there is nothing to inject into; the capability is gated on MCP server registration, which requires an authenticated admin. Static analysers flag this as command injection and it is not one.
 
 ---
 
