@@ -53,7 +53,7 @@ export const handleWebhook: RequestHandler = async (req, res, next) => {
     }
 
     const response = await engineClient.post(
-      `/internal/agents/${agentId}/webhook`,
+      `/internal/agents/${encodeURIComponent(agentId)}/webhook`,
       req.body,
       { headers: { 'x-tenant-id': agent.tenantId } },
     );

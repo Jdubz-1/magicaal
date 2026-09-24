@@ -5,6 +5,7 @@ import type { SessionConfig, SessionSchemaMigration, ContextSchemaEntry } from '
 import { db } from '../db/client';
 import { sessions, sessionContext } from '../db/schema';
 import { logger } from './logger';
+import { safeEntries } from './safe-keys';
 
 const TRANSFORM_TIMEOUT_MS = 5_000;
 
@@ -42,7 +43,7 @@ export async function applyMigrationChain(
   let current = { ...context };
   for (const migration of path) {
     const next: Record<string, unknown> = { ...current };
-    for (const [newKey, expression] of Object.entries(migration.transform)) {
+    for (const [newKey, expression] of safeEntries(migration.transform)) {
       next[newKey] = await evaluate(expression, current, { timeoutMs: TRANSFORM_TIMEOUT_MS });
     }
     current = next;

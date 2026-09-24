@@ -4,6 +4,7 @@ import { eq, and, or, desc, lte, inArray } from 'drizzle-orm';
 import type { SessionConfig, ContextSchemaEntry, ModelRouterConfig } from '@magicaal/core';
 import { db } from '../db/client';
 import { sessions, sessionContext, sessionRunLinks, agents, promptVersions } from '../db/schema';
+import { safeEntries } from '../lib/safe-keys';
 import { migrateSessionToCurrent } from '../lib/session-migration';
 import { loadAgentSessionConfig } from '../lib/agent-session-config';
 import { engineClient } from '../lib/engine-client';
@@ -25,7 +26,7 @@ export function deepMerge(
   incoming: Record<string, unknown>,
 ): Record<string, unknown> {
   const out = { ...current };
-  for (const [key, value] of Object.entries(incoming)) {
+  for (const [key, value] of safeEntries(incoming)) {
     const prev = out[key];
     out[key] = isPlainObject(prev) && isPlainObject(value) ? deepMerge(prev, value) : value;
   }
