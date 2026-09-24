@@ -6,7 +6,7 @@
 
 The app mixes two distinct UI approaches for its two areas:
 
-- **Admin panel & Studio shell** (`src/routes/admin.ts`, `src/routes/studio.ts`) — server-rendered HTML via `src/views/layout.ts`, using [Datastar](https://data-star.dev/) for hypermedia-driven interactivity (no client-side SPA framework for these pages).
+- **Admin panel & Studio shell** (`src/routes/admin.ts`, `src/routes/studio.ts`) — server-rendered HTML via `src/views/layout.ts`, with no client-side framework. What interactivity these pages have comes from five small inline `<script>` blocks in `admin.ts`, each carrying the per-request CSP nonce.
 - **Studio canvas** (`src/canvas/`) — a client-side Svelte 5 app (`App.svelte`), mounted into the server-rendered shell via `src/canvas/main.ts` (`mount(App, { target: '#canvas-mount' })`), built separately with Vite (`pnpm run build:canvas`).
 
 ## Routes

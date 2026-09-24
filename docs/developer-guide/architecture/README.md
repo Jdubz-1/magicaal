@@ -16,7 +16,7 @@ apps/web (Studio canvas + Admin panel, :8080) ──► apps/api
 
 - **`apps/api`** — the BFF: auth, agent CRUD, Studio/Admin data layer, engine proxy, boot-time sync of Graph-as-Code agents from `agents/`, OAuth callbacks, Marketplace account/license operations.
 - **`apps/engine`** — the graph execution runtime: Node Registry, Execution Worker, Tool Executor, Model Router, MCP client, Marketplace package loader/hot-load. See **[Engine Architecture →](engine.md)**.
-- **`apps/web`** — Studio canvas editor (Svelte) + Admin panel (Datastar), talking to `apps/api` only — it never calls the engine directly. See **[Web Architecture →](web.md)**.
+- **`apps/web`** — Studio canvas editor (Svelte) + Admin panel (server-rendered), talking to `apps/api` only — it never calls the engine directly. See **[Web Architecture →](web.md)**.
 
 Deep dives: **[Model Router →](model-router.md)**, and the cross-cutting subsystem pages under [developer-guide/](../README.md) (auth/RBAC, sessions, MCP, Marketplace, Caal, database).
 

@@ -5,5 +5,5 @@
     "moduleResolution": "node",
     "types": ["jest", "node"]
   },
-  "include": ["src/canvas/layout/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/canvas/layout/**/*.ts", "src/types/**/*.d.ts", "tests/**/*.ts"]
 }
