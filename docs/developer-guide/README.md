@@ -8,7 +8,7 @@ Reference for engineers working on the MagiCaal platform (`apps/api`, `apps/engi
 |---|---|
 | [Architecture Overview](architecture/README.md) | System overview, per-service request lifecycle, layer responsibilities |
 | [Engine](architecture/engine.md) | Execution runtime: worker, scheduler, node registry, tool executor |
-| [Web](architecture/web.md) | Studio canvas (Svelte) + Admin panel (Datastar) |
+| [Web](architecture/web.md) | Studio canvas (Svelte) + Admin panel (server-rendered) |
 | [Model Router](architecture/model-router.md) | Routing strategies, circuit breaker, provider adapters, reactive triggers |
 
 ## Platform Subsystems

@@ -864,7 +864,11 @@ interface ProviderFormState {
   values?: Record<string, string>;
 }
 
-function renderProviderForm(p: ProviderCatalogEntry, state: ProviderFormState = {}): string {
+function renderProviderForm(
+  p: ProviderCatalogEntry,
+  nonce: string,
+  state: ProviderFormState = {},
+): string {
   const v = state.values ?? {};
   const recommended = p.models.find((m) => m.recommended) ?? p.models[0];
   const selectedModel = v.model ?? recommended?.id ?? CUSTOM_MODEL;
@@ -907,7 +911,7 @@ function renderProviderForm(p: ProviderCatalogEntry, state: ProviderFormState = 
         ${state.unverifiable ? `<div class="form-group"><label style="color:#fcd34d"><input type="checkbox" name="skipValidation" value="true" /> Save without verifying the key</label></div>` : ''}
         <button type="submit" class="btn btn-primary">Verify &amp; Save</button>
       </form>
-      <script>document.getElementById('provider-model-select')?.addEventListener('change',function(e){const c=document.getElementById('provider-custom-model');if(c)c.style.display=e.target.value==='${CUSTOM_MODEL}'?'block':'none';});</script>
+      <script nonce="${nonce}">document.getElementById('provider-model-select')?.addEventListener('change',function(e){const c=document.getElementById('provider-custom-model');if(c)c.style.display=e.target.value==='${CUSTOM_MODEL}'?'block':'none';});</script>
     </div>`;
 }
 
@@ -1062,7 +1066,7 @@ adminRouter.get('/integrations/providers/:provider/create', async (req, res, nex
         { title: 'Not Found — Admin', user: { name: user.userId, role: user.role } }));
       return;
     }
-    res.send(layout(renderProviderForm(provider),
+    res.send(layout(renderProviderForm(provider, res.locals.cspNonce),
       { title: `Connect ${provider.displayName} — Admin`, user: { name: user.userId, role: user.role } }));
   } catch (err) {
     next(err);
@@ -1100,7 +1104,7 @@ adminRouter.post('/integrations/providers/:provider/create', async (req, res, ne
     const displayName = body.displayName?.trim() || provider.displayName;
 
     const render = (state: ProviderFormState, status: number): void => {
-      res.status(status).send(layout(renderProviderForm(provider, state),
+      res.status(status).send(layout(renderProviderForm(provider, res.locals.cspNonce, state),
         { title: `Connect ${provider.displayName} — Admin`, user: { name: user.userId, role: user.role } }));
     };
     // Non-secret values survive a failed submit; secrets only when the key may
@@ -1349,7 +1353,7 @@ adminRouter.get('/router-policies/create', async (req, res, next) => {
   } catch { /* no connections yet */ }
   const providerIds = new Set(providers.map((p) => p.provider));
   const providerConnections = connections.filter((c) => providerIds.has(c.service));
-  // Embedded in a <script>: escape '<' so catalog text can't close the tag
+  // Embedded in a <script> element: escape '<' so catalog text can't close the tag
   const modelsJson = JSON.stringify(Object.fromEntries(providers.map((p) => [p.provider, p.models]))).replace(/</g, '\\u003c');
 
   const quickBuild = providerConnections.length
@@ -1361,7 +1365,7 @@ adminRouter.get('/router-policies/create', async (req, res, next) => {
           <select id="qb-model" style="margin-top:0.5rem"></select>
           <button type="button" class="btn btn-ghost" id="qb-apply" style="margin-top:0.5rem">Fill config</button>
         </div>
-        <script>(function(){const M=${modelsJson};const c=document.getElementById('qb-connection'),m=document.getElementById('qb-model');
+        <script nonce="${res.locals.cspNonce}">(function(){const M=${modelsJson};const c=document.getElementById('qb-connection'),m=document.getElementById('qb-model');
           function fill(){const p=c.selectedOptions[0]&&c.selectedOptions[0].dataset.provider;m.innerHTML='';(M[p]||[]).forEach(function(x){const o=document.createElement('option');o.value=x.id;o.textContent=x.label;if(x.recommended)o.selected=true;m.appendChild(o);});}
           c.addEventListener('change',fill);fill();
           document.getElementById('qb-apply').addEventListener('click',function(){const p=c.selectedOptions[0].dataset.provider;const cfg={strategy:'priority',targets:[{id:'primary',connectionId:c.value,provider:p,model:m.value}],triggers:[]};document.querySelector('textarea[name="config"]').value=JSON.stringify(cfg,null,2);const n=document.querySelector('input[name="name"]');if(n&&!n.value)n.value=p+'-'+m.value;});})();</script>`
@@ -1814,10 +1818,10 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
           : '<span style="color:#f87171">rejected</span>'}</td>
       </tr>`).join('');
 
-    const newKeyHtml = (res.locals as { newKey?: string }).newKey
+    const newKeyHtml = res.locals.newKey
       ? `<div class="alert-error" style="background:#14532d;border-color:#166534;color:#86efac;margin-bottom:1rem">
           <strong>Save this key — it will not be shown again:</strong><br>
-          <code style="font-size:0.875rem;word-break:break-all">${escHtml((res.locals as { newKey: string }).newKey)}</code>
+          <code style="font-size:0.875rem;word-break:break-all">${escHtml(res.locals.newKey ?? '')}</code>
         </div>`
       : '';
 
@@ -1853,7 +1857,7 @@ adminRouter.get('/invocation-auth/:agentId', async (req, res, next) => {
             </div>
             <button type="submit" class="btn btn-primary">Save Policy</button>
           </form>
-          <script>document.querySelector('select[name="strategy"]')?.addEventListener('change',function(e){const s=document.getElementById('jwt-config-section');if(s)s.style.display=e.target.value==='jwt'?'block':'none';});</script>
+          <script nonce="${res.locals.cspNonce}">document.querySelector('select[name="strategy"]')?.addEventListener('change',function(e){const s=document.getElementById('jwt-config-section');if(s)s.style.display=e.target.value==='jwt'?'block':'none';});</script>
         </div>
 
         <div class="card">
@@ -2208,7 +2212,7 @@ adminRouter.get('/mcp-servers/create', (req, res) => {
           </div>
           <button type="submit" class="btn btn-primary">Register</button>
         </form>
-        <script>document.getElementById('transport-select')?.addEventListener('change',function(e){const v=e.target.value;const http=document.getElementById('http-fields');const stdio=document.getElementById('stdio-fields');if(http)http.style.display=v==='http'?'block':'none';if(stdio)stdio.style.display=v==='stdio'?'block':'none';});</script>
+        <script nonce="${res.locals.cspNonce}">document.getElementById('transport-select')?.addEventListener('change',function(e){const v=e.target.value;const http=document.getElementById('http-fields');const stdio=document.getElementById('stdio-fields');if(http)http.style.display=v==='http'?'block':'none';if(stdio)stdio.style.display=v==='stdio'?'block':'none';});</script>
       </div>
     </div>`, { title: 'Register MCP Server', user: { name: user.userId, role: user.role } }));
 });
@@ -3047,7 +3051,7 @@ adminRouter.get('/system/air-gapped', async (req, res, next) => {
             <tbody>${rows || '<tr><td colspan="3" style="color:#475569;text-align:center;padding:1.5rem">No packages installed</td></tr>'}</tbody>
           </table>
         </div>
-        <script>
+        <script nonce="${res.locals.cspNonce}">
           document.getElementById('upload-btn').addEventListener('click', async function () {
             var input = document.getElementById('bundle-file');
             var status = document.getElementById('upload-status');

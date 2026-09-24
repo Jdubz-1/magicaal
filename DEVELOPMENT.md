@@ -27,7 +27,7 @@ magicaal/
 ├── apps/
 │   ├── api/                  # @magicaal/api    — BFF Express API (port 3000)
 │   ├── engine/                # @magicaal/engine — Graph execution runtime (port 4000)
-│   └── web/                   # @magicaal/web    — Studio (Svelte canvas) + Admin (Datastar) (port 8080)
+│   └── web/                   # @magicaal/web    — Studio (Svelte canvas) + Admin (server-rendered) (port 8080)
 │
 ├── packages/
 │   ├── core/                  # @magicaal/core        — shared foundational types, no build step

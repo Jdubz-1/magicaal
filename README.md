@@ -50,7 +50,7 @@ apps/engine (port 4000)       ← Graph execution: Node Registry, Execution Work
 ```
 
 ```
-apps/web (port 8080)  ← Studio canvas + Admin panel (Datastar)
+apps/web (port 8080)  ← Studio canvas + Admin panel (server-rendered)
 ```
 
 ---

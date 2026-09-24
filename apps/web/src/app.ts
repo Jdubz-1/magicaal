@@ -3,6 +3,7 @@ import cors from 'cors';
 import express, { type Application } from 'express';
 import helmet from 'helmet';
 import path from 'path';
+import { cspNonce, cspOptions } from './middleware/csp';
 import { loadSession, requireSession } from './middleware/session';
 import { authRouter } from './routes/auth';
 import { studioRouter } from './routes/studio';
@@ -12,7 +13,9 @@ import { createApiClient, proxyTimeoutFor } from './lib/api-client';
 export function createApp(): Application {
   const app = express();
 
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // The nonce has to exist before helmet reads it for the script-src directive.
+  app.use(cspNonce);
+  app.use(helmet({ contentSecurityPolicy: cspOptions }));
   app.use(cors());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));

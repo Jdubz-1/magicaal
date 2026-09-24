@@ -23,7 +23,15 @@
 
 | Library | Version | Purpose |
 |---|---|---|
-| [datastar](https://data-star.dev/) | latest | Hypermedia-driven UI framework |
+| [svelte](https://svelte.dev/) | ^5 | Studio canvas editor (`apps/web/src/canvas/`), built with Vite |
+| [codemirror](https://codemirror.net/) | ^6 | Expression editor inside the canvas |
+
+The Admin panel and Studio shell are plain server-rendered HTML with a handful
+of inline scripts; they use no client-side framework. [Datastar](https://data-star.dev/)
+was listed here and loaded on every page, but nothing ever used it — it was
+removed along with its CDN `<script>` tag. It cannot simply be added back: it
+evaluates `data-*` attributes through `new Function`, which `apps/web`'s
+content security policy refuses.
 
 ## Development Tooling
 
