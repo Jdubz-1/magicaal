@@ -189,7 +189,7 @@ export const runTestSuite: RequestHandler = async (req, res, next) => {
         const start = Date.now();
         while (Date.now() - start < 60000) {
           await new Promise((r) => setTimeout(r, 1500));
-          const statusRes = await engineClient.get(`/internal/runs/${runId}`);
+          const statusRes = await engineClient.get(`/internal/runs/${encodeURIComponent(runId)}`);
           const run = statusRes.data as { status: string; output?: Record<string, unknown>; error?: unknown };
           if (run.status === 'completed') {
             caseOutput = run.output ?? {};

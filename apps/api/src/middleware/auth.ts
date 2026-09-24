@@ -206,7 +206,7 @@ export const authenticateRunCaller: RequestHandler = async (req, _res, next) => 
       return next();
     }
 
-    const { data: run } = await engineClient.get(`/internal/runs/${req.params.runId}`);
+    const { data: run } = await engineClient.get(`/internal/runs/${encodeURIComponent(req.params.runId)}`);
     const { agentId } = run as { agentId: string };
 
     const { data } = await engineClient.post('/internal/invocation-auth/validate', {

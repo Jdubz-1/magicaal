@@ -249,7 +249,7 @@ export const receiveIntegrationEvent: RequestHandler = async (req, res, next) =>
       secret: decryptTriggerSecret(row.secret),
     }));
 
-    const response = await engineClient.post(`/internal/triggers/integrations/${service}`, {
+    const response = await engineClient.post(`/internal/triggers/integrations/${encodeURIComponent(service)}`, {
       tenantId: tenant.id,
       rawBody: req.rawBody ?? JSON.stringify(req.body ?? {}),
       headers: forwardableHeaders(req.headers),

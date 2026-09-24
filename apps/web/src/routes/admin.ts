@@ -259,7 +259,7 @@ adminRouter.post('/users/:id/edit', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
     const { name, role } = req.body as { name: string; role: string };
-    await api.patch(`/v1/users/${req.params.id}`, { name, role });
+    await api.patch(`/v1/users/${encodeURIComponent(req.params.id)}`, { name, role });
     res.redirect('/admin/users');
   } catch (err) {
     const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? 'Failed to update user';
@@ -292,7 +292,7 @@ adminRouter.post('/users/:id/edit', async (req, res, next) => {
 adminRouter.post('/users/:id/deactivate', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.delete(`/v1/users/${req.params.id}`);
+    await api.delete(`/v1/users/${encodeURIComponent(req.params.id)}`);
     res.redirect('/admin/users');
   } catch (err) {
     next(err);
@@ -446,7 +446,7 @@ adminRouter.post('/tenants/:id/edit', async (req, res, next) => {
     }
 
     const api = createApiClient(req.accessToken);
-    await api.patch(`/v1/tenants/${req.params.id}`, {
+    await api.patch(`/v1/tenants/${encodeURIComponent(req.params.id)}`, {
       name,
       enabled: enabled === 'true',
       ...(resourceLimits !== undefined && { resourceLimits }),
@@ -601,7 +601,7 @@ adminRouter.post('/agents/create', async (req, res, next) => {
 adminRouter.post('/agents/:id/enable', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.patch(`/v1/agents/${req.params.id}`, { enabled: true });
+    await api.patch(`/v1/agents/${encodeURIComponent(req.params.id)}`, { enabled: true });
     res.redirect('/admin/agents');
   } catch (err) {
     next(err);
@@ -611,7 +611,7 @@ adminRouter.post('/agents/:id/enable', async (req, res, next) => {
 adminRouter.post('/agents/:id/disable', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.patch(`/v1/agents/${req.params.id}`, { enabled: false });
+    await api.patch(`/v1/agents/${encodeURIComponent(req.params.id)}`, { enabled: false });
     res.redirect('/admin/agents');
   } catch (err) {
     next(err);
@@ -1250,7 +1250,7 @@ adminRouter.post('/integrations/oauth-apps/create', async (req, res, next) => {
 adminRouter.post('/integrations/oauth-apps/:id/delete', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.delete(`/v1/integrations/oauth-apps/${req.params.id}`);
+    await api.delete(`/v1/integrations/oauth-apps/${encodeURIComponent(req.params.id)}`);
     res.redirect('/admin/integrations');
   } catch (err) {
     next(err);
@@ -1260,7 +1260,7 @@ adminRouter.post('/integrations/oauth-apps/:id/delete', async (req, res, next) =
 adminRouter.post('/integrations/:id/delete', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.delete(`/v1/integrations/connections/${req.params.id}`);
+    await api.delete(`/v1/integrations/connections/${encodeURIComponent(req.params.id)}`);
     res.redirect('/admin/integrations');
   } catch (err) {
     next(err);
@@ -1407,7 +1407,7 @@ adminRouter.post('/router-policies/create', async (req, res, next) => {
 adminRouter.post('/router-policies/:id/delete', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.delete(`/v1/llm/router-policies/${req.params.id}`);
+    await api.delete(`/v1/llm/router-policies/${encodeURIComponent(req.params.id)}`);
     res.redirect('/admin/router-policies');
   } catch (err) {
     next(err);
@@ -1710,7 +1710,7 @@ adminRouter.post('/datasources/create', async (req, res, next) => {
 adminRouter.post('/datasources/:id/delete', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    await api.delete(`/v1/datasources/${req.params.id}`);
+    await api.delete(`/v1/datasources/${encodeURIComponent(req.params.id)}`);
     res.redirect('/admin/datasources');
   } catch (err) {
     next(err);
