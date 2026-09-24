@@ -61,4 +61,40 @@ describe('parseLinkHeader', () => {
   it('returns an empty map for null', () => {
     expect(parseLinkHeader(null)).toEqual({});
   });
+
+  it('tolerates whitespace and an unquoted rel', () => {
+    expect(parseLinkHeader('  <https://x/2> ; rel = next')).toEqual({ next: 'https://x/2' });
+  });
+
+  it('ignores a part that is not a link', () => {
+    expect(parseLinkHeader('garbage, <https://x/2>; rel="next"')).toEqual({
+      next: 'https://x/2',
+    });
+  });
+
+  /**
+   * The rel name comes from a remote server. On a plain object, a header
+   * reading `rel="__proto__"` would write to the prototype chain rather than
+   * the map — and the map is read by name (`rels.next`) straight afterwards.
+   */
+  it('cannot have its prototype set by a hostile rel name', () => {
+    const rels = parseLinkHeader('<https://evil/>; rel="__proto__"');
+
+    expect(Object.getPrototypeOf(rels)).toBeNull();
+    expect(({} as Record<string, unknown>).next).toBeUndefined();
+  });
+
+  /**
+   * Unanchored, `\s*;\s*` following `[^>]+` made the engine retry from every
+   * offset in the part: a long run of `<` with no `>` cost O(n²) and stalled
+   * the worker that was reading the page. This is a header an integration
+   * server chooses, so the input is attacker-controlled.
+   */
+  it('does not backtrack on a long unterminated link', () => {
+    const hostile = `<${'<'.repeat(200_000)}`;
+
+    const started = Date.now();
+    expect(parseLinkHeader(hostile)).toEqual({});
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
 });
