@@ -105,8 +105,8 @@ studioRouter.get('/:agentId/versions', async (req, res, next) => {
     const api = createApiClient(req.accessToken);
 
     const [{ data: agent }, { data: versions }] = await Promise.all([
-      api.get<{ id: string; name: string; status: string }>(`/v1/agents/${agentId}`),
-      api.get<Array<{ id: string; versionNumber: number; publishNotes?: string; createdAt: string; contentHash: string }>>(`/v1/agents/${agentId}/versions`),
+      api.get<{ id: string; name: string; status: string }>(`/v1/agents/${encodeURIComponent(agentId)}`),
+      api.get<Array<{ id: string; versionNumber: number; publishNotes?: string; createdAt: string; contentHash: string }>>(`/v1/agents/${encodeURIComponent(agentId)}/versions`),
     ]);
 
     const rows = versions
@@ -157,7 +157,7 @@ studioRouter.get('/:agentId/versions/:vId/diff', async (req, res, next) => {
       changes: Array<{ path: string; type: string; oldValue?: unknown; newValue?: unknown }>;
       targetVersion: { versionNumber: number };
       compareVersion: { versionNumber: number } | null;
-    }>(`/v1/agents/${agentId}/versions/${vId}/diff`);
+    }>(`/v1/agents/${encodeURIComponent(agentId)}/versions/${encodeURIComponent(vId)}/diff`);
 
     const changeRows = diff.changes.map((c) => `
       <tr>

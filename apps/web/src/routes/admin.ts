@@ -1,6 +1,7 @@
 import { Router, type Router as RouterType } from 'express';
 import { requireAdminSession } from '../middleware/session';
 import { createApiClient } from '../lib/api-client';
+import { isPollutingKey } from '../lib/safe-keys';
 import { layout, escHtml } from '../views/layout';
 import { config } from '../config';
 
@@ -224,7 +225,7 @@ adminRouter.post('/users/create', async (req, res, next) => {
 adminRouter.get('/users/:id/edit', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    const { data: u } = await api.get<{ id: string; name: string; email: string; role: string }>(`/v1/users/${req.params.id}`);
+    const { data: u } = await api.get<{ id: string; name: string; email: string; role: string }>(`/v1/users/${encodeURIComponent(req.params.id)}`);
     const user = req.session!;
     res.send(layout(`
       <div class="container" style="margin-top:2rem;max-width:480px">
@@ -397,7 +398,7 @@ adminRouter.post('/tenants/create', async (req, res, next) => {
 adminRouter.get('/tenants/:id/edit', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
-    const { data: t } = await api.get<{ id: string; name: string; slug: string; enabled: boolean; resourceLimits?: string }>(`/v1/tenants/${req.params.id}`);
+    const { data: t } = await api.get<{ id: string; name: string; slug: string; enabled: boolean; resourceLimits?: string }>(`/v1/tenants/${encodeURIComponent(req.params.id)}`);
     const user = req.session!;
     const limitsJson = t.resourceLimits ? JSON.stringify(JSON.parse(t.resourceLimits), null, 2) : '{}';
     res.send(layout(`
@@ -1279,7 +1280,7 @@ adminRouter.post('/integrations/:id/reconnect', async (req, res, next) => {
   try {
     const api = createApiClient(req.accessToken);
     const response = await api.post<{ authorizationUrl: string }>(
-      `/v1/integrations/connections/${req.params.id}/reconnect`,
+      `/v1/integrations/connections/${encodeURIComponent(req.params.id)}/reconnect`,
       { redirectUri: '/admin/integrations' },
     );
 
@@ -1905,7 +1906,10 @@ adminRouter.post('/invocation-auth/:agentId/policy', async (req, res, next) => {
       const requiredClaims: Record<string, string> = {};
       for (const line of (jwtRequiredClaims ?? '').split('\n').filter(Boolean)) {
         const [k, ...v] = line.split('=');
-        if (k) requiredClaims[k.trim()] = v.join('=').trim();
+        const claim = k?.trim();
+        // A claim named __proto__/constructor/prototype would write to the
+        // prototype chain rather than the object; no real claim uses those.
+        if (claim && !isPollutingKey(claim)) requiredClaims[claim] = v.join('=').trim();
       }
       jwtConfig = {
         jwksUrl: jwtJwksUrl,
