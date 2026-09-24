@@ -1,5 +1,6 @@
 import { Router, type Router as RouterType } from 'express';
 import { createApiClient } from '../lib/api-client';
+import { config } from '../config';
 import { layout, escHtml } from '../views/layout';
 
 export const authRouter: RouterType = Router();
@@ -35,9 +36,15 @@ authRouter.post('/login', async (req, res, _next) => {
     const api = createApiClient();
     const response = await api.post<{ accessToken: string }>('/v1/auth/login', { email, password });
 
+    // SameSite is this app's CSRF control — there are no per-form tokens. Lax
+    // rather than Strict on purpose: the cookie has to survive the provider's
+    // top-level redirect back from an OAuth connect, which Strict would
+    // suppress. Lax still refuses to travel on a cross-site form POST, which is
+    // the attack the admin panel has, and that holds only while no GET route
+    // changes state. tests/unit/cookie-samesite.test.ts asserts both halves.
     res.cookie('access_token', response.data.accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000,
     });

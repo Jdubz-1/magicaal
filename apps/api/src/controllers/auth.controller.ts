@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import { eq } from 'drizzle-orm';
+import { config } from '../config';
 import { db } from '../db/client';
 import { users, authSessions } from '../db/schema';
 import { verifyPassword } from '../lib/password';
@@ -42,9 +43,14 @@ export const login: RequestHandler = async (req, res, next) => {
       createdAt: new Date(),
     });
 
+    // SameSite=Strict is this API's CSRF control — there are no per-form
+    // tokens. The cookie is only ever presented by this origin's own fetch to
+    // /v1/auth/refresh, so it never needs to survive a cross-site navigation.
+    // Weakening it to 'none' silently removes the protection; the assertions in
+    // tests/integration/cookie-samesite.test.ts exist to stop that.
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -103,9 +109,11 @@ export const refresh: RequestHandler = async (req, res, next) => {
 
     const accessToken = await signJwt({ sub: user.id, tenantId: user.tenantId, role: user.role });
 
+    // Same CSRF control as login — see the note there. Re-issued here, so an
+    // attribute weakened on this path alone would only show up 15 minutes in.
     res.cookie('refresh_token', newRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
