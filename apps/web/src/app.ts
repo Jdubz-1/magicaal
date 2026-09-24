@@ -3,14 +3,19 @@ import cors from 'cors';
 import express, { type Application } from 'express';
 import helmet from 'helmet';
 import path from 'path';
+import { loginRateLimit, pageRateLimit } from './middleware/rate-limit';
 import { loadSession, requireSession } from './middleware/session';
 import { authRouter } from './routes/auth';
 import { studioRouter } from './routes/studio';
 import { adminRouter } from './routes/admin';
 import { createApiClient, proxyTimeoutFor } from './lib/api-client';
+import { config } from './config';
 
 export function createApp(): Application {
   const app = express();
+
+  // Decides what req.ip means, and therefore what the limiters below count.
+  app.set('trust proxy', config.trustProxy);
 
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors());
@@ -22,6 +27,12 @@ export function createApp(): Application {
   app.get('/health', (_req, res) => {
     res.json({ status: 'OK', service: 'web', timestamp: new Date().toISOString() });
   });
+
+  // After /health so a monitor cannot rate-limit itself out of observing the
+  // service. /login gets the strict budget as well as the loose one, so an
+  // attacker cannot spread attempts to multiply it.
+  app.use('/login', loginRateLimit);
+  app.use(pageRateLimit);
 
   // SSE proxy for run streaming — must be registered before the general /api proxy
   app.get('/api/agents/:agentId/runs/:runId/stream', requireSession, async (req, res) => {
